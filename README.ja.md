@@ -1,83 +1,121 @@
 # X Collector
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Next.js 14](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/) [![Prisma + PostgreSQL](https://img.shields.io/badge/Prisma-PostgreSQL-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io/docs/orm/overview/databases/postgresql) [![Hosted on Railway](https://img.shields.io/badge/hosting-Railway-0B0D0E?logo=railway&logoColor=white)](https://railway.com/)
+<div align="center">
 
-[English](README.md) · 日本語 · [ไทย](README.th.md) · [中文](README.zh.md)
-
-**これは何？** X Collector は、AI・テクノロジーの最新情報を、毎日のニュース紙面と検索できるフィードにまとめるサービスです。
-
-**どんな困りごとを解決する？** 役立つ情報がSNS、専門サイト、ソフトウェアの公開ページ、購読フィードに散らばっているため、いくつもの場所を何度も見回っても、大事な流れを見落としてしまいます。
-
-**どうやって解決する？** 自分で選んだ情報源から更新を集め、整理し、関連する話題をつなぎ合わせて、人にもAIエージェントにも同じ情報を届けます。
+[🇺🇸 English](README.md) ｜ **🇯🇵 日本語** ｜ [🇨🇳 简体中文](README.zh.md) ｜ [🇹🇭 ไทย](README.th.md)
 
 ![8種類の情報源から更新を集め、精査・製本して人とAIエージェントへ届け、人の承認を含む情報源ライフサイクルも示すX Collectorの図](assets/hero.svg)
 
-## 目次
+<h4>散らばるAI・テックの最新情報を、毎日1つの新聞と検索できるフィードにまとめる、<br>自分のパソコンやサーバーで動かす無料のオープンソースソフトウェアです。</h4>
 
-- [特徴](#features)
-- [対応環境](#supported-environments)
-- [アーキテクチャ](#architecture)
-- [クイックスタート](#quickstart)
-- [設定](#configuration)
-- [ドキュメント](#documentation)
-- [開発状況とロードマップ](#development-status)
-- [コントリビュート](#contributing)
-- [謝辞](#acknowledgments)
-- [ライセンス](#license)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Next.js 14](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![Prisma + PostgreSQL](https://img.shields.io/badge/Prisma-PostgreSQL-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io/docs/orm/overview/databases/postgresql)
+[![Hosted on Railway](https://img.shields.io/badge/hosting-Railway-0B0D0E?logo=railway&logoColor=white)](https://railway.com/)
 
-<a id="features"></a>
-## 特徴
+[できること](#what) ｜ [必要なもの](#requirements) ｜ [使いはじめる](#start) ｜ [安心の理由](#safety) ｜ [もっと詳しく](#more)
 
-- **7系統のプラットフォームから収集（情報源の種類は計8つ）。** X（Twitter）、Instagram、Facebook、Reddit、Qiita、GitHub、そしてRSS・YouTubeを含むAlertsフィードを一つにまとめます。
-- **大量の情報を読みやすいフィードへ整理。** 各項目を正規化し、11種類のPrimaryカテゴリと15種類のSubカテゴリで分類。重複や続報を結び、市場の声も集約します。
-- **日刊ニュースを自動で製本。** スケジュール実行される製本ジョブが、選ばれた記事を13セクションのMarkdown紙面に仕上げます。
-- **人とAIが同じ情報を利用。** 人はニュース紙面とWeb画面から、連携システムは認証付きFeed APIとread-onlyのStreamable HTTP MCPサーバーから利用できます。
-- **情報の薄い素材にも文脈を補強。** リンク先本文やYouTube文字起こしを分類前に追加し、判断材料を増やせます。
-- **新しい情報源を探す手間を軽減。** 収集済みのX投稿から候補を抽出し、プロフィールを取得してLLMが評価します。収集対象への昇格には必ず人の承認が必要です。
-- **情報源の品質を見える化。** ルールベースの信頼度スコアを日次で算出し、紙面の順位に反映。確度の低い記事は、信頼できるものとして黙って扱わずラベルで示します。
-- **質が落ちた自動発見ソースを安全に停止。** 自動停止の対象は自動発見された情報源だけで、2週連続の判定を通った場合に限ります。手動登録した情報源が自動停止されることはありません。
-- **情報源を一つの画面で管理。** 設定画面から各プラットフォームの登録情報、候補レビュー、ライフサイクルで停止した情報源の復活を扱えます。
+役立つ情報はSNS・専門サイト・プロジェクトの公開ページに散らばっていて、<br>
+毎日いくつもの場所を見回っても、大事な流れを見落としてしまいます。<br>
+X Collector は、自分で選んだ情報源から更新を集めて整理し、話題どうしをつなぎ、<br>
+人にもAIエージェントにも同じ「整理済みの情報」を届けます。
 
-<a id="supported-environments"></a>
-## 対応環境
+**情報の見回りを、ゼロにします。**
 
-✅ は、このリポジトリまたは記録済みの本番環境で確認できたものです。⚠️ は対応が明記され、動作が見込まれるものの、このチェックアウトでは実際に接続していないものです。
+🔧 [エンジニア向けドキュメント](docs/engineering.ja.md) ｜ 📘 [詳細仕様](docs/reference.ja.md)
 
-| 分類 | 環境 | 状況 |
-|---|---|---|
-| ランタイム | Node.js 18.17.0以上。このチェックアウトはNode.js 26.5.0でビルド | ✅ 確認済み |
-| データベース | PostgreSQL。最低サーバーバージョンの指定はなし | ✅ Prisma providerとマイグレーションを確認 |
-| ホスティング | Railway | ✅ 本番稼働を確認済み |
-| MCPクライアント | Claude CLI、Claude.ai、Claude Desktop | ⚠️ ドキュメント記載あり。この環境では未接続 |
+</div>
 
-<a id="architecture"></a>
-## アーキテクチャ
+---
 
-**設計原則：** 一度収集した情報を共通基盤で精査し、人とAIエージェントのどちらも使える形で配信します。
+## こんな経験はありませんか？
 
-| モジュール | 役割 |
+1つでも心当たりがあれば、X Collector の出番です。
+
+- X・Reddit・GitHub・たくさんのサイトを追っているのに、大きな発表を見逃した
+- 毎日の情報チェックに1時間かかり、その多くが同じ話の繰り返しだった
+- フォローしているアカウントのうち、どれがまだ有益なのか分からなくなった
+- 「今週何があった？」とAIアシスタントに聞いても、自分が信頼する情報源からは答えてくれない
+
+原因はシンプルで、**情報が「1つの整理された場所」に届いていない**ことです。X Collector は、この集めて整理する仕事をまるごと引き受けます。
+
+---
+
+<a id="what"></a>
+
+## できること
+
+やることは4つ。順番もこのままです。
+
+```mermaid
+flowchart LR
+    A["① 集める<br/>8種類の情報源から"] --> B["② 整理する<br/>分類してつなぐ"]
+    B --> C["③ 新聞にする<br/>毎日1つの紙面に"]
+    C --> D["④ 届ける<br/>人とAIエージェントへ"]
+```
+
+- 📥 **集める**
+
+  X（Twitter）、Instagram、Facebook、Reddit、Qiita、GitHub、そしてRSS・YouTubeフィードから更新を集めます。どの情報源を使うかは、すべてあなたが決めます。
+
+- 🗂️ **整理する**
+
+  すべての記事をカテゴリに分類し、重複や続報をつなぎ、それぞれの情報源が最近どれくらい信頼できるかを点数にします。
+
+- 📰 **新聞にする**
+
+  選ばれた記事を13セクションの紙面に組み上げます。毎日、自動でです。
+
+- 🤖 **人とAIに同じ情報を届ける**
+
+  人はWebで新聞と検索フィードを読み、AIエージェントはAPIとMCPサーバー（AIツールがつながるための標準的な窓口）からまったく同じデータを読みます。
+
+- ✅ **最後は必ず人が決める**
+
+  有望な新しい情報源を見つけて提案はしますが、あなたが承認しない限り、収集対象には加わりません。
+
+---
+
+<a id="requirements"></a>
+
+## 必要なもの
+
+必要なのは3つです。詳しい対応環境表は[エンジニア向けドキュメント](docs/engineering.ja.md#supported-environments)にあります。
+
+- **動かす場所** — 自分のパソコンかサーバー。Node.js 18.17以上が動けばOK
+- **PostgreSQLデータベース** — 集めた記事の保存先です
+- **APIキーは「使う機能の分だけ」** — 下の表のとおりです
+
+| やりたいこと | 必要なもの |
 |---|---|
-| `src/app/` | Next.jsの画面、管理UI、APIエンドポイント |
-| `src/collector/` | プラットフォーム別コレクターと本番ジョブの入口 |
-| `src/lib/pipeline/` | 正規化、分類、クロスリンク、信頼度を加味した選定、製本 |
-| `src/summary/` | デイリーサマリー生成 |
-| `prisma/` | PostgreSQLスキーマとマイグレーション |
+| Web画面にログインする | Google OAuthの認証情報（無料） |
+| X・Instagram・Facebook・Redditから集める | [ScrapeCreators](https://scrapecreators.com/)のキー |
+| AIで分類し、新聞を作る | [OpenRouter](https://openrouter.ai/)のキー |
+| YouTubeの文字起こしを記事に足す | [TranscriptAPI](https://transcriptapi.com/)のキー（任意） |
+| Qiita・GitHub・RSSから集める | キー不要 |
 
-処理の全体像は[パイプラインV2設計](docs/v2-design.md)を参照してください。デプロイ時刻、安全設計、データ保持、運用コマンドは[運用ガイド](docs/operations.md)にまとめています。
+お金について: ログインに使うGoogle OAuthは必須ですが無料です（ログインの仕組みであって、課金されるAPIではありません）。ScrapeCreatorsとOpenRouterは使った分だけ支払う有料サービスです（最新の料金は各サイトで確認してください）。有料キーがなくてもアプリは起動し、ログインでき、キー不要の情報源からは収集できます。AIを使う処理（分類と毎日の新聞づくり）は、OpenRouterのキーを足すまで動きません。キーは後から1つずつ足せます。
 
-<a id="quickstart"></a>
-## クイックスタート
+---
 
-### 前提条件
+<a id="start"></a>
 
-- Node.js 18.17.0以上
-- PostgreSQLデータベース
-- 管理画面へのログインに使うGoogle OAuthの認証情報
-- 収集・分類を始める際はScrapeCreatorsとOpenRouterのAPIキー
+## 使いはじめる
 
-現在のスキーマでは、埋め込みデータをPostgreSQLのJSONBとして保存します。pgvector拡張は不要です。
+### AIに入れてもらう
 
-### インストール
+AIコーディングエージェント（Claude Code、Codex CLIなど）を使っているなら、リポジトリを渡すのが最短です。
+
+```text
+https://github.com/caty-ai/x-collector をこのマシンにセットアップして。
+.env.example を見ながら、必要な設定を順番に聞いてください。
+```
+
+エージェントがダウンロードとインストールを進め、データベースの場所やログイン用キーなど、あなたにしか決められない値だけを聞いてきます。答えられない質問があれば、そのままエージェントに伝えてください。PostgreSQLデータベースの用意やGoogle OAuthの設定も、エージェントと一緒に進められます。
+
+### 自分で入れる
+
+手順1 — ダウンロードとインストール:
 
 ```bash
 git clone https://github.com/caty-ai/x-collector.git
@@ -86,9 +124,7 @@ npm install
 cp .env.example .env
 ```
 
-### 最小構成
-
-アプリを起動する前に`.env`を開き、次の値を設定します。
+手順2 — `.env` をテキストエディタで開き、必要な値を設定します。最初の5つはデータベースとログイン用、最後の2つはフィード・新聞画面を動かすための設定です。
 
 ```dotenv
 DATABASE_URL=postgresql://user:password@localhost:5432/x_collector
@@ -96,83 +132,82 @@ AUTH_SECRET=replace_with_a_long_random_secret
 AUTH_GOOGLE_ID=your_google_oauth_client_id
 AUTH_GOOGLE_SECRET=your_google_oauth_client_secret
 NEXTAUTH_URL=http://localhost:3000
+
+# 1台で動かす場合はアプリ自身を指定し、
+# キーは自分で決めた長いランダム文字列でOK
+RAILWAY_API_BASE_URL=http://localhost:3000
+FEED_API_KEY=any_long_random_string_you_issue_yourself
 ```
 
-収集と分類も行う場合は、次の値を追加します。
-
-```dotenv
-SCRAPECREATORS_API_KEY=your_scrapecreators_api_key
-OPENROUTER_API_KEY=your_openrouter_api_key
-```
-
-### 実行
+手順3 — 起動します。
 
 ```bash
 npm run migrate
 npm run dev
 ```
 
-`http://localhost:3000`を開いてログインし、`/settings`から自分の収集元リストを登録します。APIキーと情報源の準備ができたら、別のターミナルから手動収集を実行できます。
+`http://localhost:3000` を開いてログインし、`/settings` から情報源を登録します。まずサンプルの情報源で試したいときは、`npm run seed` を1回実行してください。収集用のキーが用意できたら、ターミナルをもう1つ開いて `npm run collect` を実行すると収集が始まります。
 
-```bash
-npm run collect
-```
+<details>
+<summary>うまくいかないときは</summary>
 
-<a id="configuration"></a>
-## 設定
+<br>
 
-| やりたいこと | 見る場所 |
+**`command not found: npm` と出る**
+
+Node.jsがまだ入っていません。[nodejs.org](https://nodejs.org/)からバージョン18.17以上を入れて、ターミナルを開き直してから再実行してください。
+
+**データベースに接続できない**
+
+PostgreSQLが起動しているか、`DATABASE_URL` に書いたユーザー名・パスワード・データベース名が実在するかを確認してください。`x_collector` という名前のデータベースを先に作り忘れているケースが一番多いです。
+
+**Googleログインでエラーが出る**
+
+Google OAuthの認証情報は、[Google Cloud Console](https://console.cloud.google.com/)の「APIとサービス → 認証情報 → 認証情報を作成 → OAuthクライアントID」から無料で作成できます。`NEXTAUTH_URL` がブラウザで開いたアドレスと一致しているか、Google Cloud側に登録したリダイレクトURIが `http://localhost:3000/api/auth/callback/google` になっているかを確認してください。
+
+</details>
+
+---
+
+<a id="safety"></a>
+
+## 安心して使える理由
+
+X Collector は「自動化が勝手に暴走しない」ことを設計の柱にしています。
+
+- **新しい情報源は必ずあなたが承認** — 見つけた候補は点数付きで提案されるだけで、昇格できるのは人だけです
+- **手動で登録した情報源は自動停止されない** — 自動停止の対象はシステムが自動発見した情報源だけ。それも2週連続の判定を通った場合に限ります
+- **情報源の品質を毎日採点** — 信頼度スコアが紙面の順位に反映され、確度の低い市場サマリーは事実としてではなく推定値として表示されます
+- **エージェントの窓口は読み取り専用** — MCPサーバーは検索と閲覧だけで、何も変更できません
+- **データはあなたのもの** — 自分のサーバーと自分のデータベースで動き、ライセンスはMITです
+
+---
+
+<a id="more"></a>
+
+## もっと詳しく
+
+目的別の入口です。
+
+| 知りたいこと | 見る場所 |
 |---|---|
-| すべての環境変数を確認する | [環境変数リファレンス](docs/operations.md#環境変数全リファレンス) |
-| パイプラインの各処理を個別に実行する | [V2パイプライン補助CLI](docs/operations.md#v2-パイプライン補助-cli) |
-| 本番の実行スケジュールを設定する | [本番cronガイド](docs/operations.md#cron本番運用) |
-| 自分の収集元を追加する | [ソース追加方法](docs/operations.md#ソース追加方法) |
-| 情報源の発見・信頼度・停止ルールを理解する | [運用ガイド](docs/operations.md) |
-| 既知の運用課題を確認する | [既知のfollow-up](docs/operations.md#既知の-follow-up未着手) |
+| 仕組み・アーキテクチャ・セットアップ全体・運用（エンジニア向け） | [docs/engineering.ja.md](docs/engineering.ja.md) |
+| 正確な仕様（環境変数・API・MCPツール） | [docs/reference.ja.md](docs/reference.ja.md) |
+| 開発に参加したい | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| 不具合・脆弱性を見つけた | [SECURITY.md](SECURITY.md) |
 
-<a id="documentation"></a>
-## ドキュメント
+---
 
-| ドキュメント | 内容 |
-|---|---|
-| [パイプライン設計](docs/v2-design.md) | 処理ステップ、分類体系、データモデル |
-| [運用ガイド](docs/operations.md) | 本番ジョブ、cron、設定、データ保持、情報源の運用 |
-| [APIリファレンス](docs/api.md) | Feed APIとアプリケーションAPI |
-| [エージェント向けFeedガイド](docs/agent-feed.md) | エージェントからの検索と差分取得 |
-| [MCPサーバーガイド](docs/mcp-server.md) | エンドポイント、認証、ツール、クライアント設定 |
-| [変更履歴](docs/changelog.md) | プロジェクトの変更内容 |
-
-<a id="development-status"></a>
-## 開発状況とロードマップ
-
-- [x] **収集：** 7系統のプラットフォーム、PostgreSQLへの統合保存、Feed API
-- [x] **精査：** 正規化、LLM分類、クロスリンク、市場の声の集約、現行タクソノミー
-- [x] **製本：** 情報源リンク付きの13セクションMarkdown紙面
-- [x] **エージェント連携：** 検索Feedとread-only MCPツール（`search_feed`、`get_daily_news`）
-- [x] **情報源の品質管理：** 候補評価、信頼度スコア、承認UI、安全柵付きの停止ライフサイクル
-- [x] **公開の基盤：** 多言語の公開ドキュメント、コミュニティファイル、MITライセンス
-- [ ] **今後の候補：** 意味的トピッククラスタリングの改善、紙面公開フローの整理、データ保持方針の文書化
-
-直近の変更は[変更履歴](docs/changelog.md)、現在の運用課題は[既知のfollow-up](docs/operations.md#既知の-follow-up未着手)で確認できます。
-
-<a id="contributing"></a>
-## コントリビュート
-
-Issue起点の開発フロー、ブランチ運用、Pull Requestの書き方は[CONTRIBUTING.md](CONTRIBUTING.md)を参照してください。
-
-<a id="acknowledgments"></a>
-## 謝辞
-
-X Collectorは、以下のサービスの上に成り立っています。
-
-- [ScrapeCreators](https://scrapecreators.com/) — X、Instagram、Facebook、Redditの収集API
-- [OpenRouter](https://openrouter.ai/) — LLM分類と紙面構成
-- [Qiita API v2](https://qiita.com/api/v2/docs) — Qiita記事の収集
-- [GitHub REST API](https://docs.github.com/en/rest) — リポジトリ・検索データ
-- [Railway](https://railway.com/) — ホスティングとスケジュールジョブ
-- [TranscriptAPI](https://transcriptapi.com/) — YouTube文字起こしの補強
-
-<a id="license"></a>
 ## ライセンス
 
-X Collectorは[MIT License](LICENSE)で公開しています。
+[MIT](LICENSE) © 2026 Shoji Kumaru
+
+誰でも自由に使って、改造して、自分のサービスに組み込んでほしいのでMITにしています。著作権表示さえ残していただければ、商用利用も再配布も歓迎です。
+
+---
+
+<div align="center">
+
+**毎日1つの新聞** ｜ **8種類の情報源** ｜ **人とAIに同じ情報を**
+
+</div>

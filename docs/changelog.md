@@ -1,6 +1,6 @@
 # 変更履歴（Changelog）
 
-README から移設した改修履歴。最新の開発ステータスは [README の開発ステータス](../README.md#development-status) を参照。
+README から移設した改修履歴。最新の開発ステータスは [エンジニア向けドキュメントの開発状況](engineering.ja.md#development-status) を参照。
 
 ## 2026-07-21
 

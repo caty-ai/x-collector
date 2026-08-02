@@ -1,6 +1,6 @@
 # 運用ガイド（Operations Guide）
 
-README から移設した、運用・チューニング系の詳細リファレンスです。初回セットアップは [README のクイックスタート](../README.md#クイックスタート) を参照してください。
+README から移設した、運用・チューニング系の詳細リファレンスです。初回セットアップは [エンジニア向けドキュメントのクイックスタート](engineering.ja.md#quickstart) を参照してください。
 
 `prisma/migrations/20260301000000_init_base` は、migrations ディレクトリより前に `prisma db push` で作られていた初期テーブルを移行履歴に取り込むためのベースラインです。新規環境では通常の最初の migration として適用され、長期運用中の既存データベースでは既存オブジェクトを変更せず no-op として記録されます。`prisma/migrations/20260802000000_align_crosslink_index_names` は、fresh migration 時に PostgreSQL の63バイト識別子上限で切り詰められた crosslink index 名を Prisma の canonical 名に合わせる rename であり、production の db-pushed DB は既に canonical 名を持つため `IF EXISTS` で保護されています。
 

@@ -1,83 +1,121 @@
 # X Collector
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Next.js 14](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/) [![Prisma + PostgreSQL](https://img.shields.io/badge/Prisma-PostgreSQL-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io/docs/orm/overview/databases/postgresql) [![Hosted on Railway](https://img.shields.io/badge/hosting-Railway-0B0D0E?logo=railway&logoColor=white)](https://railway.com/)
+<div align="center">
 
-English · [日本語](README.ja.md) · [ไทย](README.th.md) · [中文](README.zh.md)
-
-**What it is.** X Collector is a service that gathers AI and technology updates into one daily newspaper and one searchable feed.
-
-**The frustration it solves.** Useful news is scattered across social networks, specialist websites, software project pages, and subscriptions, so keeping up means repeatedly checking many places and still missing important context.
-
-**How it works.** You choose the sources; X Collector gathers their updates, sorts and connects them, then publishes the same organized information for people and AI agents.
+**🇺🇸 English** ｜ [🇯🇵 日本語](README.ja.md) ｜ [🇨🇳 简体中文](README.zh.md) ｜ [🇹🇭 ไทย](README.th.md)
 
 ![Diagram showing X Collector gathering updates from eight source types, refining and publishing them for people and AI agents, with a reviewed source lifecycle](assets/hero.svg)
 
-## Table of contents
+<h4>Free, open-source software you run on your own computer or server —<br>it turns scattered AI and tech updates into one daily newspaper and one searchable feed.</h4>
 
-- [Features](#features)
-- [Supported environments](#supported-environments)
-- [Architecture](#architecture)
-- [Quickstart](#quickstart)
-- [Configuration](#configuration)
-- [Documentation](#documentation)
-- [Development status and roadmap](#development-status)
-- [Contributing](#contributing)
-- [Acknowledgments](#acknowledgments)
-- [License](#license)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Next.js 14](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![Prisma + PostgreSQL](https://img.shields.io/badge/Prisma-PostgreSQL-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io/docs/orm/overview/databases/postgresql)
+[![Hosted on Railway](https://img.shields.io/badge/hosting-Railway-0B0D0E?logo=railway&logoColor=white)](https://railway.com/)
 
-<a id="features"></a>
-## Features
+[What it does](#what) ｜ [What you need](#requirements) ｜ [Get started](#start) ｜ [Why you can trust it](#safety) ｜ [Learn more](#more)
 
-- **Collect from seven platform families — eight source types in total.** Bring together X (Twitter), Instagram, Facebook, Reddit, Qiita, GitHub, and Alerts feeds covering RSS and YouTube.
-- **Turn noise into an organized feed.** The pipeline normalizes each item, classifies it with an 11-category primary taxonomy and 15 optional subcategories, links duplicates and follow-ups, and aggregates market voices.
-- **Publish a daily newspaper.** A scheduled publishing job lays selected items out as a 13-section Markdown edition.
-- **Give people and agents the same information.** Readers get the newspaper and web interface; integrations get authenticated Feed APIs and a read-only Streamable HTTP MCP server.
-- **Enrich thin source material.** Linked pages and YouTube transcripts can be added before classification to provide more context.
-- **Review new sources instead of hunting for them.** The discovery workflow extracts candidates from collected X posts, retrieves profiles, and uses an LLM to score them; promotion always requires a person to approve it.
-- **Make source quality visible.** Daily, rules-based trust scores influence newspaper ranking, while low-confidence items are labeled rather than silently treated as reliable.
-- **Retire declining discovered sources safely.** Only automatically discovered sources are eligible for automatic deactivation, and only after two consecutive weekly gates; manually added sources are never automatically stopped.
-- **Manage sources in one place.** The settings interface covers platform source lists, candidate review, and restoration of lifecycle-deactivated sources.
+Useful updates are scattered across social networks, specialist sites, and project pages,<br>
+so keeping up means checking many places every day — and still missing the important context.<br>
+X Collector gathers updates from the sources you choose, organizes and connects them,<br>
+then delivers the same organized information to both people and AI agents.
 
-<a id="supported-environments"></a>
-## Supported environments
+**Stop making the rounds — your news arrives already organized.**
 
-✅ means verified from this repository or its documented production deployment. ⚠️ means documented and expected to work, but not exercised in this checkout.
+🔧 [Engineering guide](docs/engineering.md) ｜ 📘 [Reference](docs/reference.md)
 
-| Area | Environment | Status |
-|---|---|---|
-| Runtime | Node.js 18.17.0 or newer; this checkout was built with Node.js 26.5.0 | ✅ Verified |
-| Database | PostgreSQL; no minimum server version is documented | ✅ Prisma provider and migrations verified |
-| Hosting | Railway | ✅ Verified in production |
-| MCP clients | Claude CLI, Claude.ai, and Claude Desktop | ⚠️ Documented; not exercised here |
+</div>
 
-<a id="architecture"></a>
-## Architecture
+---
 
-**Design principle:** collect once, refine into a shared information base, then publish it in forms that both people and AI agents can use.
+## Sound familiar?
 
-| Module | Responsibility |
+If any of these ring a bell, X Collector was built for you.
+
+- You follow AI news on X, Reddit, GitHub, and a dozen sites — and still miss big announcements
+- Checking every source takes an hour a day, and much of it is the same story repeated
+- You can't tell which of the accounts you follow are still worth following
+- Your AI assistant can't answer "what happened this week?" from the sources *you* trust
+
+The common cause is simple: **the news never arrives in one organized place.** X Collector takes over that gathering-and-sorting work.
+
+---
+
+<a id="what"></a>
+
+## What it does
+
+Four steps, always in this order.
+
+```mermaid
+flowchart LR
+    A["① Collect<br/>from 8 source types"] --> B["② Organize<br/>classify and connect"]
+    B --> C["③ Publish<br/>one daily newspaper"]
+    C --> D["④ Serve<br/>people and AI agents"]
+```
+
+- 📥 **Collect**
+
+  Gathers updates from X (Twitter), Instagram, Facebook, Reddit, Qiita, GitHub, and RSS/YouTube feeds. You choose every source.
+
+- 🗂️ **Organize**
+
+  Sorts every item into categories, links duplicates and follow-up stories, and scores how trustworthy each source has been lately.
+
+- 📰 **Publish**
+
+  Lays the selected stories out as a 13-section newspaper, every day, automatically.
+
+- 🤖 **Serve people and AI together**
+
+  You read the newspaper and the searchable feed on the web; your AI agents read exactly the same data through an API and an MCP server (a standard way for AI tools to connect).
+
+- ✅ **Keep humans in charge**
+
+  It can suggest promising new sources it discovered, but nothing joins your collection without your explicit approval.
+
+---
+
+<a id="requirements"></a>
+
+## What you need
+
+Three things. The full compatibility table is in the [engineering guide](docs/engineering.md#supported-environments).
+
+- **A place to run it** — your own computer or a server, with Node.js 18.17 or newer
+- **A PostgreSQL database** — where the collected items are stored
+- **API keys, only for the features you use** — see the table below
+
+| What you want to do | What it needs |
 |---|---|
-| `src/app/` | Next.js pages, the management interface, and API endpoints |
-| `src/collector/` | Platform collectors and production job entry points |
-| `src/lib/pipeline/` | Normalization, classification, cross-linking, trust-aware selection, and publishing logic |
-| `src/summary/` | Daily summary generation |
-| `prisma/` | PostgreSQL schema and migrations |
+| Sign in to the web interface | Google OAuth credentials (free) |
+| Collect from X, Instagram, Facebook, Reddit | A [ScrapeCreators](https://scrapecreators.com/) key |
+| Classify with AI and compose the newspaper | An [OpenRouter](https://openrouter.ai/) key |
+| Add YouTube transcripts to stories | A [TranscriptAPI](https://transcriptapi.com/) key (optional) |
+| Collect from Qiita, GitHub, RSS | No key required |
 
-The full pipeline is documented in [the V2 design](docs/v2-design.md). Deployment schedules, safety behavior, retention, and operational commands live in [the operations guide](docs/operations.md).
+About money: Google OAuth is required for signing in, but it is free — it is a login method, not a paid API. ScrapeCreators and OpenRouter are paid, pay-as-you-go services; check their sites for current pricing. Without any paid key, the app starts, you can sign in, and keyless sources can be collected — the AI steps (classification and the daily newspaper) stay off until you add an OpenRouter key. You can add keys later, one at a time.
 
-<a id="quickstart"></a>
-## Quickstart
+---
 
-### Prerequisites
+<a id="start"></a>
 
-- Node.js 18.17.0 or newer
-- A PostgreSQL database
-- Google OAuth credentials for signing in to the management interface
-- ScrapeCreators and OpenRouter API keys when you are ready to collect and classify data
+## Get started
 
-The current schema stores embeddings as PostgreSQL JSONB. It does not require the pgvector extension.
+### Ask an AI agent to install it
 
-### Install
+If you use an AI coding agent (Claude Code, Codex CLI, and similar tools), the fastest path is to hand it the repository:
+
+```text
+Set up https://github.com/caty-ai/x-collector on this machine.
+Use .env.example to walk me through the settings I need.
+```
+
+The agent clones, installs, and asks you only for the values it cannot decide for you, such as the database address and sign-in keys. If you cannot answer one of those questions, just say so — preparing the PostgreSQL database and setting up Google OAuth are also things the agent can walk through with you.
+
+### Install it yourself
+
+Step 1 — download and install:
 
 ```bash
 git clone https://github.com/caty-ai/x-collector.git
@@ -86,9 +124,7 @@ npm install
 cp .env.example .env
 ```
 
-### Minimal configuration
-
-Open `.env` and set these values before starting the application:
+Step 2 — open `.env` in any text editor and fill in the required values. The first five are for the database and sign-in; the last two make the feed and newspaper screens work:
 
 ```dotenv
 DATABASE_URL=postgresql://user:password@localhost:5432/x_collector
@@ -96,83 +132,82 @@ AUTH_SECRET=replace_with_a_long_random_secret
 AUTH_GOOGLE_ID=your_google_oauth_client_id
 AUTH_GOOGLE_SECRET=your_google_oauth_client_secret
 NEXTAUTH_URL=http://localhost:3000
+
+# For a single local install, point the app at itself
+# and make up your own long random key
+RAILWAY_API_BASE_URL=http://localhost:3000
+FEED_API_KEY=any_long_random_string_you_issue_yourself
 ```
 
-To collect and classify data, also set:
-
-```dotenv
-SCRAPECREATORS_API_KEY=your_scrapecreators_api_key
-OPENROUTER_API_KEY=your_openrouter_api_key
-```
-
-### Run
+Step 3 — start it:
 
 ```bash
 npm run migrate
 npm run dev
 ```
 
-Open `http://localhost:3000`, sign in, and add your own seed list under `/settings`. In another terminal, run a manual collection when your collector keys and sources are ready:
+Open `http://localhost:3000`, sign in, and register your sources under `/settings`. To try it right away with sample sources instead, run `npm run seed` once. When your collector keys are ready, open a second terminal window and run a collection with `npm run collect`.
 
-```bash
-npm run collect
-```
+<details>
+<summary>If something goes wrong</summary>
 
-<a id="configuration"></a>
-## Configuration
+<br>
 
-| What you want to do | Where to look |
+**`command not found: npm`**
+
+Node.js is not installed yet. Download it from [nodejs.org](https://nodejs.org/) (version 18.17 or newer), then reopen your terminal and try again.
+
+**The database connection fails**
+
+Make sure PostgreSQL is running and that the `DATABASE_URL` user, password, and database name actually exist. Creating a database named `x_collector` first is the most common missing step.
+
+**Google sign-in shows an error**
+
+Google OAuth credentials are created for free in the [Google Cloud Console](https://console.cloud.google.com/) (APIs & Services → Credentials → Create credentials → OAuth client ID). Check that `NEXTAUTH_URL` matches the address you opened in the browser, and that the OAuth redirect URI registered on Google Cloud is `http://localhost:3000/api/auth/callback/google`.
+
+</details>
+
+---
+
+<a id="safety"></a>
+
+## Why you can trust it
+
+X Collector is designed so that automation never quietly takes over.
+
+- **You approve every new source** — discovered candidates are scored and presented, but only a person can promote them
+- **Manually added sources are never auto-stopped** — automatic retirement only ever applies to sources the system itself discovered, and only after two consecutive weekly checks
+- **Source quality is scored every day** — trust scores shape the newspaper's ranking, and low-confidence market summaries are marked as estimates, not presented as fact
+- **Agent access is read-only** — the MCP server can search and read, never change anything
+- **Your data stays yours** — it runs on your own server and your own database, under the MIT license
+
+---
+
+<a id="more"></a>
+
+## Learn more
+
+Entrances by purpose.
+
+| What you want to know | Where to look |
 |---|---|
-| Review every environment variable | [Environment variable reference](docs/operations.md#環境変数全リファレンス) |
-| Run individual pipeline steps | [V2 pipeline helper CLI](docs/operations.md#v2-パイプライン補助-cli) |
-| Configure production schedules | [Production cron guide](docs/operations.md#cron本番運用) |
-| Add your own collection sources | [Adding sources](docs/operations.md#ソース追加方法) |
-| Understand source discovery, trust scoring, and lifecycle rules | [Operations guide](docs/operations.md) |
-| Review known operational follow-ups | [Known follow-ups](docs/operations.md#既知の-follow-up未着手) |
+| How it works: architecture, full setup, operations (for engineers) | [docs/engineering.md](docs/engineering.md) |
+| Exact specifications: environment variables, APIs, MCP tools | [docs/reference.md](docs/reference.md) |
+| How to contribute | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| How to report a bug or vulnerability | [SECURITY.md](SECURITY.md) |
 
-<a id="documentation"></a>
-## Documentation
+---
 
-| Document | Contents |
-|---|---|
-| [Pipeline design](docs/v2-design.md) | Processing stages, taxonomy, and data model |
-| [Operations guide](docs/operations.md) | Deployment jobs, cron, configuration, retention, and source operations |
-| [API reference](docs/api.md) | Feed and application endpoints |
-| [Agent feed guide](docs/agent-feed.md) | Searching and incrementally reading the feed from an agent |
-| [MCP server guide](docs/mcp-server.md) | Endpoint, authentication, tools, and client setup |
-| [Changelog](docs/changelog.md) | Project changes |
-
-<a id="development-status"></a>
-## Development status and roadmap
-
-- [x] **Collection:** seven platform families, unified PostgreSQL storage, and Feed API
-- [x] **Refinement:** normalization, LLM classification, cross-linking, voice aggregation, and the current taxonomy
-- [x] **Publishing:** 13-section Markdown editions with source links
-- [x] **Agent access:** searchable feed and read-only MCP tools (`search_feed` and `get_daily_news`)
-- [x] **Source quality controls:** candidate evaluation, trust scoring, approval UI, and guarded deactivation lifecycle
-- [x] **Publication foundation:** multilingual public documentation, community health files, and MIT licensing
-- [ ] **Future candidates:** semantic topic clustering improvements, a clearer edition publishing flow, and a documented data-retention policy
-
-Recent changes are listed in the [changelog](docs/changelog.md); current operational gaps are tracked in the [known follow-ups](docs/operations.md#既知の-follow-up未着手).
-
-<a id="contributing"></a>
-## Contributing
-
-Issue-driven development, branch conventions, and pull request guidance are described in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-<a id="acknowledgments"></a>
-## Acknowledgments
-
-X Collector builds on these services:
-
-- [ScrapeCreators](https://scrapecreators.com/) — collection APIs for X, Instagram, Facebook, and Reddit
-- [OpenRouter](https://openrouter.ai/) — LLM classification and edition composition
-- [Qiita API v2](https://qiita.com/api/v2/docs) — Qiita item collection
-- [GitHub REST API](https://docs.github.com/en/rest) — repository and search data
-- [Railway](https://railway.com/) — hosting and scheduled jobs
-- [TranscriptAPI](https://transcriptapi.com/) — YouTube transcript enrichment
-
-<a id="license"></a>
 ## License
 
-X Collector is available under the [MIT License](LICENSE).
+[MIT](LICENSE) © 2026 Shoji Kumaru
+
+We want anyone to use X Collector freely — run it, modify it, and build it into your own products. As long as the copyright notice stays, commercial use and redistribution are both welcome.
+
+---
+
+<div align="center">
+
+**One newspaper a day** ｜ **8 source types** ｜ **For people and AI agents**
+
+</div>
