@@ -14,7 +14,7 @@ X Collector is a self-hosted Next.js + PostgreSQL service that collects AI and t
 - **Give people and agents the same information.** Readers get the newspaper and web interface; integrations get authenticated Feed APIs and a read-only Streamable HTTP MCP server.
 - **Enrich thin source material.** Linked pages and YouTube transcripts can be added before classification to provide more context.
 - **Review new sources instead of hunting for them.** The discovery workflow extracts candidates from collected X posts, retrieves profiles, and uses an LLM to score them; promotion always requires a person to approve it.
-- **Make source quality visible.** Daily, rules-based trust scores influence newspaper ranking, while low-confidence market-voice summaries are marked as estimates rather than presented as fact.
+- **Make source quality visible.** Daily, rules-based trust scores influence newspaper ranking; stories from low-trust or unverified sources are badged in the newspaper, and blocked sources are excluded from selection.
 - **Retire declining discovered sources safely.** Only automatically discovered sources are eligible for automatic deactivation, and only after two consecutive weekly gates; manually added sources are never automatically stopped.
 - **Manage sources in one place.** The settings interface covers platform source lists, candidate review, and restoration of lifecycle-deactivated sources.
 

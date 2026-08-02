@@ -177,7 +177,7 @@ X Collector is designed so that automation never quietly takes over.
 
 - **You approve every new source** — discovered candidates are scored and presented, but only a person can promote them
 - **Manually added sources are never auto-stopped** — automatic retirement only ever applies to sources the system itself discovered, and only after two consecutive weekly checks
-- **Source quality is scored every day** — trust scores shape the newspaper's ranking, and low-confidence market summaries are marked as estimates, not presented as fact
+- **Source quality is scored every day** — trust scores shape the newspaper's ranking, and stories from low-trust or unverified sources carry a warning badge instead of being silently treated as reliable
 - **Agent access is read-only** — the MCP server can search and read, never change anything
 - **Your data stays yours** — it runs on your own server and your own database, under the MIT license
 
