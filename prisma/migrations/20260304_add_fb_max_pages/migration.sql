@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "FbSource" ADD COLUMN "maxPages" INTEGER NOT NULL DEFAULT 1;

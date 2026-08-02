@@ -1,0 +1,8 @@
+[
+  { "handle": "OpenAI", "category": "labs" },
+  { "handle": "AnthropicAI", "category": "labs" },
+  { "handle": "GoogleDeepMind", "category": "labs" },
+  { "handle": "AIatMeta", "category": "labs" },
+  { "handle": "MistralAI", "category": "labs" },
+  { "handle": "huggingface", "category": "labs" }
+]

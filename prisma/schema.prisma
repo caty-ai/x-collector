@@ -1,0 +1,532 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Source {
+  id                 Int                    @id @default(autoincrement())
+  type               String                 @default("vip_handle")
+  handle             String                 @unique
+  active             Boolean                @default(true)
+  tags               String[]               @default([])
+  createdAt          DateTime               @default(now())
+  trustScore         Int?
+  trustLabel         String                 @default("unknown")
+  trustUpdatedAt     DateTime?
+  qualityMetrics     Json?
+  deactivatedAt      DateTime?
+  deactivationReason String?
+  cooldownUntil      DateTime?
+  demotionEvents     SourceDemotionEvent[]
+}
+
+model SourceDemotionEvent {
+  id              Int      @id @default(autoincrement())
+  sourceId        Int
+  source          Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  action          String // allowed: demote | deactivate | restore | reinstate
+  reason          String
+  metricsSnapshot Json
+  at              DateTime @default(now())
+
+  @@index([sourceId, at])
+  @@index([action, at])
+}
+
+model Tweet {
+  tweetId      String   @id
+  provider     String   @default("scrapecreators")
+  handle       String
+  createdAt    DateTime
+  text         String
+  textShort    String?
+  isNote       Boolean  @default(false)
+  url          String
+  media        Json?
+  metrics      Json?
+  entities     Json?
+  rawEventId   String?
+  fetchedAt    DateTime @default(now())
+  reviewStatus String   @default("new") // new | summarized | picked | archived
+  reviewNote   String?
+  reviewedBy   String?
+}
+
+model AlertSource {
+  id                 Int          @id @default(autoincrement())
+  name               String
+  feedUrl            String       @unique
+  tags               String[]     @default([])
+  active             Boolean      @default(true)
+  fetchIntervalHours Int          @default(6)
+  maxItemsPerFetch   Int          @default(50)
+  lastFetchedAt      DateTime?
+  createdAt          DateTime     @default(now())
+  entries            AlertEntry[]
+}
+
+model AlertEntry {
+  id           Int         @id @default(autoincrement())
+  sourceId     Int
+  source       AlertSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  title        String
+  snippet      String?
+  articleUrl   String
+  rawLink      String?
+  publishedAt  DateTime?
+  fetchedAt    DateTime    @default(now())
+  raw          Json?
+  reviewStatus String      @default("new") // new | summarized | picked | archived
+  reviewNote   String?
+  reviewedBy   String?
+
+  @@unique([sourceId, articleUrl])
+}
+
+model CandidateAccount {
+  id              Int       @id @default(autoincrement())
+  handle          String    @unique
+  mentionCount    Int       @default(0)
+  mentionedBy     String[]  @default([])
+  profileFetched  Boolean   @default(false)
+  displayName     String?
+  description     String?
+  followersCount  Int?
+  followingCount  Int?
+  tweetCount      Int?
+  profileImageUrl String?
+  sampleTweets    Json?
+  aiScore         Float?
+  aiReason        String?
+  aiEvaluatedAt   DateTime?
+  status          String    @default("pending") // pending | approved | rejected | promoted
+  promotedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model FbSource {
+  id            Int       @id @default(autoincrement())
+  name          String
+  type          String    @default("group") // "group" | "page"
+  url           String    @unique
+  slug          String
+  active        Boolean   @default(true)
+  tags          String[]  @default([])
+  maxPages      Int       @default(1) // pages per routine fetch (1 page ≈ 3 posts)
+  lastFetchedAt DateTime?
+  createdAt     DateTime  @default(now())
+  posts         FbPost[]
+}
+
+model FbPost {
+  postId        String    @id
+  sourceId      Int
+  source        FbSource  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  author        String
+  authorId      String?
+  authorUrl     String?
+  text          String
+  url           String
+  reactionCount Int       @default(0)
+  commentCount  Int       @default(0)
+  image         String?
+  topComments   Json?
+  publishedAt   DateTime?
+  fetchedAt     DateTime  @default(now())
+  reviewStatus  String    @default("new") // new | summarized | picked | archived
+  reviewNote    String?
+  reviewedBy    String?
+
+  @@index([sourceId])
+}
+
+model Run {
+  id        Int       @id @default(autoincrement())
+  kind      String
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+  status    String    @default("running")
+  meta      Json?
+}
+
+model RedditSource {
+  id            Int          @id @default(autoincrement())
+  name          String
+  subreddit     String       @unique
+  active        Boolean      @default(true)
+  tags          String[]     @default([])
+  maxPosts      Int          @default(25)
+  lastFetchedAt DateTime?
+  createdAt     DateTime     @default(now())
+  posts         RedditPost[]
+
+  @@map("reddit_sources")
+}
+
+model RedditPost {
+  id           String       @id
+  sourceId     Int
+  source       RedditSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  title        String
+  text         String?      @db.Text
+  url          String
+  author       String?
+  score        Int          @default(0)
+  upvoteRatio  Float?
+  commentCount Int          @default(0)
+  publishedAt  DateTime?
+  fetchedAt    DateTime     @default(now())
+  createdAt    DateTime     @default(now())
+
+  @@index([sourceId])
+  @@map("reddit_posts")
+}
+
+model QiitaSource {
+  id            Int         @id @default(autoincrement())
+  name          String // Display name, e.g., "ChatGPTタグ"
+  tag           String      @unique // Qiita tag name, e.g., "ChatGPT"
+  active        Boolean     @default(true)
+  tags          String[]    @default([]) // User-defined tags for organization
+  maxItems      Int         @default(50) // items per routine fetch
+  lastFetchedAt DateTime?
+  createdAt     DateTime    @default(now())
+  items         QiitaItem[]
+
+  @@map("qiita_sources")
+}
+
+model QiitaItem {
+  id            String      @id // qiita article id
+  sourceId      Int
+  source        QiitaSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  title         String
+  body          String?     @db.Text
+  url           String
+  userId        String? // author id
+  userName      String? // author name
+  likesCount    Int         @default(0)
+  stocksCount   Int         @default(0)
+  commentsCount Int         @default(0)
+  tags          String[]    @default([]) // qiita tags on the article
+  publishedAt   DateTime?
+  fetchedAt     DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+
+  @@index([sourceId])
+  @@map("qiita_items")
+}
+
+model GhSource {
+  id            Int       @id @default(autoincrement())
+  name          String // Display name, e.g., "Anthropic Claude Code"
+  type          String    @default("repo") // "repo" (track releases) or "search" (trending search query)
+  repo          String? // For type="repo": "owner/repo" e.g. "anthropics/claude-code"
+  query         String? // For type="search": search query e.g. "topic:ai language:python"
+  active        Boolean   @default(true)
+  tags          String[]  @default([])
+  lastFetchedAt DateTime?
+  createdAt     DateTime  @default(now())
+  items         GhItem[]
+
+  @@unique([type, repo])
+  @@map("gh_sources")
+}
+
+model IgSource {
+  id            Int       @id @default(autoincrement())
+  name          String
+  handle        String    @unique
+  active        Boolean   @default(true)
+  tags          String[]  @default([])
+  lastFetchedAt DateTime?
+  createdAt     DateTime  @default(now())
+  posts         IgPost[]
+
+  @@map("ig_sources")
+}
+
+model IgPost {
+  id           String    @id // shortcode
+  sourceId     Int
+  source       IgSource  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  caption      String?   @db.Text
+  url          String
+  imageUrl     String?
+  mediaType    String? // GraphImage | GraphVideo | GraphSidecar
+  likeCount    Int       @default(0)
+  commentCount Int       @default(0)
+  publishedAt  DateTime?
+  fetchedAt    DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+
+  @@index([sourceId])
+  @@map("ig_posts")
+}
+
+// ─── OpenRouter Model Tracker ───
+
+model OrModel {
+  id                String    @id // e.g. "arcee-ai/trinity-large-preview:free"
+  name              String
+  pricingPrompt     Float? // $/token for prompt
+  pricingCompletion Float? // $/token for completion
+  contextLength     Int?
+  architecture      Json? // {modality, tokenizer, instruct_type}
+  description       String?   @db.Text
+  isFree            Boolean   @default(false)
+  firstSeenAt       DateTime  @default(now())
+  lastSeenAt        DateTime  @default(now())
+  removedAt         DateTime?
+  raw               Json?
+
+  @@map("or_models")
+}
+
+model OrModelEvent {
+  id         Int      @id @default(autoincrement())
+  modelId    String
+  eventType  String // "new" | "removed" | "price_change" | "context_change"
+  detail     String? // human-readable description
+  oldValue   Json?
+  newValue   Json?
+  detectedAt DateTime @default(now())
+
+  @@index([detectedAt])
+  @@map("or_model_events")
+}
+
+model GhItem {
+  id          String    @id // For releases: "{repo}:{tag_name}", For search results: repo full_name
+  sourceId    Int
+  source      GhSource  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  type        String    @default("release") // "release" or "repo"
+  title       String
+  body        String?   @db.Text
+  url         String
+  author      String?
+  // Release fields
+  tagName     String?
+  // Repo fields (for search results)
+  stars       Int?
+  forks       Int?
+  language    String?
+  topics      String[]  @default([])
+  publishedAt DateTime?
+  fetchedAt   DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  @@index([sourceId])
+  @@map("gh_items")
+}
+
+model PipelineItem {
+  id                    String                         @id @default(cuid())
+  platform              String
+  externalId            String?
+  sourceType            String?
+  sourceRef             String?
+  title                 String?
+  body                  String?                        @db.Text
+  url                   String
+  canonicalUrl          String?
+  publishedAt           DateTime?
+  ingestedAt            DateTime                       @default(now())
+  normalizedAt          DateTime?
+  language              String?
+  raw                   Json?
+  createdAt             DateTime                       @default(now())
+  updatedAt             DateTime                       @updatedAt
+  embedding             Json?
+  embeddingHash         String?
+  embeddedAt            DateTime?
+  runs                  PipelineRun[]
+  classifications       PipelineClassification[]
+  outgoingLinks         PipelineLink[]                 @relation("PipelineLinkFrom")
+  incomingLinks         PipelineLink[]                 @relation("PipelineLinkTo")
+  newsletterBindings    NewsletterBinding[]
+  voiceSignals          VoiceSignal[]
+  crosslinkLlmDecisions PipelineCrosslinkLlmDecision[]
+
+  @@unique([platform, externalId])
+  @@unique([platform, url])
+  @@index([platform, publishedAt])
+  @@index([platform, sourceRef, createdAt])
+  @@index([createdAt])
+  @@map("pipeline_items")
+}
+
+model PipelineRun {
+  id              Int                      @id @default(autoincrement())
+  pipelineItemId  String
+  pipelineItem    PipelineItem             @relation(fields: [pipelineItemId], references: [id], onDelete: Cascade)
+  step            String
+  status          String                   @default("running") // running | completed | failed
+  attempt         Int                      @default(1)
+  idempotencyKey  String?                  @unique
+  model           String?
+  startedAt       DateTime                 @default(now())
+  finishedAt      DateTime?
+  inputHash       String?
+  output          Json?
+  error           String?                  @db.Text
+  createdAt       DateTime                 @default(now())
+  classifications PipelineClassification[]
+
+  @@unique([pipelineItemId, step, attempt])
+  @@index([step, status, startedAt])
+  @@index([pipelineItemId, startedAt])
+  @@map("pipeline_runs")
+}
+
+model PipelineClassification {
+  id                  Int                 @id @default(autoincrement())
+  pipelineItemId      String
+  pipelineItem        PipelineItem        @relation(fields: [pipelineItemId], references: [id], onDelete: Cascade)
+  runId               Int?
+  run                 PipelineRun?        @relation(fields: [runId], references: [id], onDelete: SetNull)
+  noise               Boolean             @default(false)
+  noiseReason         String?             @db.Text
+  primaryTag          String?
+  subTag              String?
+  actionTag           String? // APPLY | EVAL | WATCH | INFO
+  titleJa             String?
+  summaryJa           String?             @db.Text
+  isHeadlineCandidate Boolean             @default(false)
+  isDup               Boolean             @default(false)
+  isPublished         Boolean             @default(false)
+  score               Float?
+  rationale           String?             @db.Text
+  classifierModel     String?
+  classifiedAt        DateTime            @default(now())
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  newsletterBindings  NewsletterBinding[]
+
+  @@unique([pipelineItemId, runId])
+  @@index([pipelineItemId, classifiedAt])
+  @@index([noise, primaryTag, actionTag])
+  @@index([isHeadlineCandidate, isDup, isPublished])
+  @@map("pipeline_classifications")
+}
+
+model PipelineLink {
+  id         Int          @id @default(autoincrement())
+  fromItemId String
+  fromItem   PipelineItem @relation("PipelineLinkFrom", fields: [fromItemId], references: [id], onDelete: Cascade)
+  toItemId   String
+  toItem     PipelineItem @relation("PipelineLinkTo", fields: [toItemId], references: [id], onDelete: Cascade)
+  linkType   String
+  score      Float?
+  note       String?      @db.Text
+  createdBy  String?
+  createdAt  DateTime     @default(now())
+
+  @@unique([fromItemId, toItemId, linkType])
+  @@index([toItemId])
+  @@index([linkType, createdAt])
+  @@map("pipeline_links")
+}
+
+model PipelineCrosslinkLlmDecision {
+  id                       Int          @id @default(autoincrement())
+  pipelineItemId           String
+  pipelineItem             PipelineItem @relation(fields: [pipelineItemId], references: [id], onDelete: Cascade)
+  targetDateJst            DateTime
+  model                    String
+  promptVersion            String
+  batchKey                 String
+  inputHash                String
+  headlineCandidate        Boolean      @default(false)
+  headlineScore            Float?
+  dupCluster               String?
+  canonicalItemId          String?
+  dupScore                 Float?
+  priorityReason           String?      @db.Text
+  priorityScore            Float?
+  prefilterCluster         String?
+  prefilterCanonicalItemId String?
+  prefilterScore           Float?
+  topicClusterKey          String?
+  clusterSize              Int?
+  distinctSources          Int?
+  platformSpread           Int?
+  keyLinks                 Json?
+  llmPayload               Json?
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+
+  @@unique([targetDateJst, pipelineItemId, model, promptVersion])
+  @@index([targetDateJst, model, promptVersion])
+  @@index([pipelineItemId, targetDateJst])
+  @@index([dupCluster])
+  @@map("pipeline_crosslink_llm_decisions")
+}
+
+model NewsletterEdition {
+  id           String              @id @default(cuid())
+  editionDate  DateTime
+  title        String
+  slug         String              @unique
+  status       String              @default("draft") // draft | published
+  summary      String?             @db.Text
+  contentMd    String?             @db.Text
+  model        String?
+  generatedAt  DateTime?
+  publishedAt  DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  bindings     NewsletterBinding[]
+  voiceSignals VoiceSignal[]
+
+  @@unique([editionDate])
+  @@index([status, editionDate])
+  @@map("newsletter_editions")
+}
+
+model NewsletterBinding {
+  id               Int                     @id @default(autoincrement())
+  editionId        String
+  edition          NewsletterEdition       @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  pipelineItemId   String
+  pipelineItem     PipelineItem            @relation(fields: [pipelineItemId], references: [id], onDelete: Cascade)
+  classificationId Int?
+  classification   PipelineClassification? @relation(fields: [classificationId], references: [id], onDelete: SetNull)
+  section          String
+  subsection       String?
+  position         Int                     @default(0)
+  blurb            String?                 @db.Text
+  createdAt        DateTime                @default(now())
+
+  @@unique([editionId, pipelineItemId])
+  @@index([editionId, section, position])
+  @@index([pipelineItemId])
+  @@map("newsletter_bindings")
+}
+
+model VoiceSignal {
+  id             Int                @id @default(autoincrement())
+  pipelineItemId String?
+  pipelineItem   PipelineItem?      @relation(fields: [pipelineItemId], references: [id], onDelete: SetNull)
+  editionId      String?
+  edition        NewsletterEdition? @relation(fields: [editionId], references: [id], onDelete: SetNull)
+  topic          String
+  sentiment      String // positive | negative | neutral
+  usageContext   String?
+  summary        String?            @db.Text
+  model          String?
+  confidence     Float?
+  sampleSize     Int                @default(1)
+  signaledAt     DateTime           @default(now())
+  createdAt      DateTime           @default(now())
+
+  @@index([topic, sentiment, signaledAt])
+  @@index([editionId, signaledAt])
+  @@index([pipelineItemId])
+  @@map("voice_signals")
+}

@@ -1,0 +1,10 @@
+# Repo-level gitleaks config: extend the default ruleset, and stop the
+# scanner from reading .gitleaksignore itself (its fingerprint lines are
+# 40-hex commit hashes, which the generic-api-key rule misreads — every
+# ignore entry would otherwise spawn a new finding in the next commit).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Files that cannot contain live secrets"
+paths = ['''\.gitleaksignore$''']
