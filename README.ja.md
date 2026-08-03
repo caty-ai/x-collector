@@ -4,7 +4,7 @@
 
 [🇺🇸 English](README.md) ｜ **🇯🇵 日本語** ｜ [🇨🇳 简体中文](README.zh.md) ｜ [🇹🇭 ไทย](README.th.md)
 
-![8種類の情報源から更新を集め、精査・製本して人とAIエージェントへ届け、人の承認を含む情報源ライフサイクルも示すX Collectorの図](assets/hero.svg)
+![X Collectorのヒーロー画像。8つのプラットフォームから集めた投稿の流れが仕分けボードを通り、1部の新聞に束ねられる。"One information base, read by people and agents alike."](assets/hero.jpg)
 
 <h4>散らばるAI・テックの最新情報を、毎日1つの新聞と検索できるフィードにまとめる、<br>自分のパソコンやサーバーで動かす無料のオープンソースソフトウェアです。</h4>
 

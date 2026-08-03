@@ -4,7 +4,7 @@
 
 **🇺🇸 English** ｜ [🇯🇵 日本語](README.ja.md) ｜ [🇨🇳 简体中文](README.zh.md) ｜ [🇹🇭 ไทย](README.th.md)
 
-![Diagram showing X Collector gathering updates from eight source types, refining and publishing them for people and AI agents, with a reviewed source lifecycle](assets/hero.svg)
+![X Collector hero image: streams of collected posts from eight platforms flow through a sorting board and are bound into one printed newspaper — "One information base, read by people and agents alike."](assets/hero.jpg)
 
 <h4>Free, open-source software you run on your own computer or server —<br>it turns scattered AI and tech updates into one daily newspaper and one searchable feed.</h4>
 

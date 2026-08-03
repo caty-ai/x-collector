@@ -4,7 +4,7 @@
 
 [🇺🇸 English](README.md) ｜ [🇯🇵 日本語](README.ja.md) ｜ **🇨🇳 简体中文** ｜ [🇹🇭 ไทย](README.th.md)
 
-![示意图：X Collector 从 8 种信息来源收集更新，经过整理和编排后同时提供给人和 AI 智能体，并展示了由人审核的信息源生命周期](assets/hero.svg)
+![X Collector 主视觉：来自 8 个平台的帖子流经分拣板，汇订成一份报纸 —— "One information base, read by people and agents alike."](assets/hero.jpg)
 
 <h4>一款免费开源的软件，运行在你自己的电脑或服务器上——<br>把散落各处的 AI 与科技资讯汇集成每天一份报纸和一个可搜索的信息流。</h4>
 
