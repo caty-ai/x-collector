@@ -193,14 +193,21 @@ X Collector は「自動化が勝手に暴走しない」ことを設計の柱�
 |---|---|
 | 仕組み・アーキテクチャ・セットアップ全体・運用（エンジニア向け） | [docs/engineering.ja.md](docs/engineering.ja.md) |
 | 正確な仕様（環境変数・API・MCPツール） | [docs/reference.ja.md](docs/reference.ja.md) |
+| 細かい設定・スケジュール・運用の全リファレンス | [docs/operations.md](docs/operations.md) |
 | 開発に参加したい | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | 不具合・脆弱性を見つけた | [SECURITY.md](SECURITY.md) |
 
 ---
 
+## 謝辞
+
+X Collector は次のサービスの上に成り立っています: [ScrapeCreators](https://scrapecreators.com/)（SNS収集API）、[OpenRouter](https://openrouter.ai/)（AI分類と紙面生成）、[Qiita API v2](https://qiita.com/api/v2/docs)、[GitHub REST API](https://docs.github.com/en/rest)、[Railway](https://railway.com/)（ホスティング）、[TranscriptAPI](https://transcriptapi.com/)（YouTube文字起こし）。
+
+---
+
 ## ライセンス
 
-[MIT](LICENSE) © 2026 Shoji Kumaru
+[MIT](LICENSE) © 2026 Caty
 
 誰でも自由に使って、改造して、自分のサービスに組み込んでほしいのでMITにしています。著作権表示さえ残していただければ、商用利用も再配布も歓迎です。
 

@@ -20,6 +20,7 @@ This page is the entrance to the exact specifications. Each area below has a ded
 | Design system (WIRED-inspired editorial language) | [DESIGN.md](../DESIGN.md) | English |
 | LLM prompts (runtime-loaded — do not move) | [prompts/](prompts/) | — |
 | Production jobs, cron, retention, source lifecycle | [operations.md](operations.md) | Japanese |
+| Step4 cross-linking: manual-run runbook | [step4-crosslink-llm-manual-runbook.md](step4-crosslink-llm-manual-runbook.md) | Japanese |
 | Change history | [changelog.md](changelog.md) | Japanese |
 
 ---

@@ -20,6 +20,7 @@
 | デザインシステム（WIREDインスパイアの編集言語） | [DESIGN.md](../DESIGN.md) | 英語 |
 | LLMプロンプト（実行時読込・移動禁止） | [prompts/](prompts/) | — |
 | 本番ジョブ・cron・データ保持・情報源ライフサイクル | [operations.md](operations.md) | 日本語 |
+| Step4 クロスリンクの手動実行 runbook | [step4-crosslink-llm-manual-runbook.md](step4-crosslink-llm-manual-runbook.md) | 日本語 |
 | 変更履歴 | [changelog.md](changelog.md) | 日本語 |
 
 ---

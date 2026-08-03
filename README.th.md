@@ -193,14 +193,21 @@ X Collector ถูกออกแบบมาไม่ให้ระบบอ�
 |---|---|
 | ระบบทำงานอย่างไร: สถาปัตยกรรม การติดตั้งฉบับเต็ม การดูแลระบบ (สำหรับวิศวกร) | [docs/engineering.md](docs/engineering.md) (ภาษาอังกฤษ) |
 | ข้อกำหนดแบบละเอียด: ตัวแปรสภาพแวดล้อม, API, เครื่องมือ MCP | [docs/reference.md](docs/reference.md) (ภาษาอังกฤษ) |
+| การตั้งค่า ตารางเวลา และรายละเอียดการดูแลระบบทั้งหมดในที่เดียว | [docs/operations.md](docs/operations.md) (ภาษาญี่ปุ่น) |
 | อยากร่วมพัฒนา | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | วิธีรายงานบั๊กหรือช่องโหว่ | [SECURITY.md](SECURITY.md) |
 
 ---
 
+## กิตติกรรมประกาศ
+
+X Collector ทำงานได้ด้วยบริการเหล่านี้: [ScrapeCreators](https://scrapecreators.com/) (API สำหรับรวบรวมข้อมูลจากโซเชียล), [OpenRouter](https://openrouter.ai/) (การจัดหมวดหมู่ด้วย AI และการเรียบเรียงหนังสือพิมพ์), [Qiita API v2](https://qiita.com/api/v2/docs), [GitHub REST API](https://docs.github.com/en/rest), [Railway](https://railway.com/) (hosting) และ [TranscriptAPI](https://transcriptapi.com/) (บทถอดเสียง YouTube)
+
+---
+
 ## สัญญาอนุญาต
 
-[MIT](LICENSE) © 2026 Shoji Kumaru
+[MIT](LICENSE) © 2026 Caty
 
 เราอยากให้ใครก็ได้ใช้ X Collector อย่างอิสระ — จะรัน ดัดแปลง หรือนำไปสร้างเป็นผลิตภัณฑ์ของคุณเองก็ได้ ตราบใดที่ยังคงประกาศลิขสิทธิ์ไว้ การใช้เชิงพาณิชย์และการเผยแพร่ต่อล้วนยินดีต้อนรับ
 

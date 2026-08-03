@@ -193,14 +193,21 @@ Entrances by purpose.
 |---|---|
 | How it works: architecture, full setup, operations (for engineers) | [docs/engineering.md](docs/engineering.md) |
 | Exact specifications: environment variables, APIs, MCP tools | [docs/reference.md](docs/reference.md) |
+| Every setting, schedule, and operational detail in one place | [docs/operations.md](docs/operations.md) (Japanese) |
 | How to contribute | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | How to report a bug or vulnerability | [SECURITY.md](SECURITY.md) |
 
 ---
 
+## Acknowledgments
+
+X Collector stands on these services: [ScrapeCreators](https://scrapecreators.com/) (social collection APIs), [OpenRouter](https://openrouter.ai/) (AI classification and newspaper composition), [Qiita API v2](https://qiita.com/api/v2/docs), [GitHub REST API](https://docs.github.com/en/rest), [Railway](https://railway.com/) (hosting), and [TranscriptAPI](https://transcriptapi.com/) (YouTube transcripts).
+
+---
+
 ## License
 
-[MIT](LICENSE) © 2026 Shoji Kumaru
+[MIT](LICENSE) © 2026 Caty
 
 We want anyone to use X Collector freely — run it, modify it, and build it into your own products. As long as the copyright notice stays, commercial use and redistribution are both welcome.
 

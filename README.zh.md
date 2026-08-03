@@ -193,14 +193,21 @@ X Collector 的设计原则是：绝不让自动化悄悄接管一切。
 |---|---|
 | 工作原理：架构、完整安装、运维（面向工程师） | [docs/engineering.md](docs/engineering.md)（英文） |
 | 精确规格：环境变量、API、MCP 工具 | [docs/reference.md](docs/reference.md)（英文） |
+| 所有设置、定时任务和运维细节的完整汇总 | [docs/operations.md](docs/operations.md)（日文） |
 | 如何参与贡献 | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | 如何报告缺陷或安全漏洞 | [SECURITY.md](SECURITY.md) |
 
 ---
 
+## 致谢
+
+X Collector 建立在这些服务之上：[ScrapeCreators](https://scrapecreators.com/)（社交平台采集 API）、[OpenRouter](https://openrouter.ai/)（AI 分类与报纸编排）、[Qiita API v2](https://qiita.com/api/v2/docs)、[GitHub REST API](https://docs.github.com/en/rest)、[Railway](https://railway.com/)（托管）以及 [TranscriptAPI](https://transcriptapi.com/)（YouTube 字幕）。
+
+---
+
 ## 许可证
 
-[MIT](LICENSE) © 2026 Shoji Kumaru
+[MIT](LICENSE) © 2026 Caty
 
 我们希望任何人都能自由使用 X Collector——运行它、修改它、把它集成进你自己的产品。只要保留版权声明，商业使用和再分发都欢迎。
 
