@@ -225,6 +225,15 @@ We want anyone to use X Collector freely — run it, modify it, and build it int
 
 Part of the **Caty AI family** — open tools for running a family of AI agents. The full map, including modules still being prepared for release, lives in [Family OS](https://github.com/caty-ai/family-os).
 
-Siblings: [Caty Agent Harness](https://github.com/caty-ai/caty-agent-harness) · [Persona Engine](https://github.com/caty-ai/persona-engine) · [Sitter](https://github.com/caty-ai/sitter) · [Family Dev Handbook](https://github.com/caty-ai/family-dev-handbook)
+| Module | What it does | State |
+| --- | --- | --- |
+| [Caty Agent Harness](https://github.com/caty-ai/caty-agent-harness) | Task backbone for AI agents — retries, checkpoints, and honest completion | published, MIT |
+| [Persona Engine](https://github.com/caty-ai/persona-engine) | Gives an agent a persona — layered personality and graded emotion | published, MIT |
+| [Sitter](https://github.com/caty-ai/sitter) | Babysits delegated agent runs — watches, keeps evidence, restarts | published, MIT |
+| **X Collector** | Turns X and the web into one daily digest — for people and agents | published, MIT |
+| [Family Dev Handbook](https://github.com/caty-ai/family-dev-handbook) | The rules of the road — issues, PRs, worktrees, handoffs, parallel development | published, MIT |
+| **Family Memory Architecture** | The memory bus — how the family shares what it knows | publication in preparation |
+| **Self Growth Loop** | Lets an agent grow its own abilities — proposals, governance, adoption records | publication in preparation |
+| **Persona Growth Loop** | Grows the persona itself — minimal, idempotent proposals | publication in preparation |
 
 <!-- family:generated:family-footer:end -->
