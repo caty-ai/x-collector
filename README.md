@@ -218,3 +218,13 @@ We want anyone to use X Collector freely — run it, modify it, and build it int
 **One newspaper a day** ｜ **8 source types** ｜ **For people and AI agents**
 
 </div>
+
+<!-- family:generated:family-footer:start -->
+
+---
+
+Part of the **Caty AI family** — open tools for running a family of AI agents. The full map, including modules still being prepared for release, lives in [Family OS](https://github.com/caty-ai/family-os).
+
+Siblings: [Caty Agent Harness](https://github.com/caty-ai/caty-agent-harness) · [Persona Engine](https://github.com/caty-ai/persona-engine) · [Sitter](https://github.com/caty-ai/sitter) · [Family Dev Handbook](https://github.com/caty-ai/family-dev-handbook)
+
+<!-- family:generated:family-footer:end -->

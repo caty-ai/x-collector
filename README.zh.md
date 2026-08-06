@@ -218,3 +218,13 @@ X Collector 建立在这些服务之上：[ScrapeCreators](https://scrapecreator
 **每天一份报纸** ｜ **8 种信息源** ｜ **同时服务人和 AI 智能体**
 
 </div>
+
+<!-- family:generated:family-footer:start -->
+
+---
+
+本仓库属于 **Caty AI 家族** — 用于运营 AI 智能体家族的开源工具集。完整地图（包括仍在准备公开的模块）见 [Family OS](https://github.com/caty-ai/family-os)。
+
+同家族模块: [Caty Agent Harness](https://github.com/caty-ai/caty-agent-harness) · [Persona Engine](https://github.com/caty-ai/persona-engine) · [Sitter](https://github.com/caty-ai/sitter) · [Family Dev Handbook](https://github.com/caty-ai/family-dev-handbook)
+
+<!-- family:generated:family-footer:end -->
