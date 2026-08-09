@@ -92,8 +92,11 @@ deliberately sets out to defeat it — anyone with commit access to this reposit
 and no test in the repository can prevent that. The suite is built to catch code a maintainer could
 plausibly write during ordinary work. A contributor who deliberately chooses an unusual spelling to
 avoid the recognised shapes can succeed. Direct `Reflect.apply` on a delegate and direct
-`fs.openAsBlob` are regression-tested and caught today, but reflective/wrapper variants, paths assembled
-from opaque fragments, and harness detection are outside the coverage promise.
+`fs.openAsBlob` are caught by the general rules, not by dedicated regression cases. The in-suite
+self-regressions cover the supported path bindings and path idioms, lexical constant shadowing,
+descriptor-first filesystem APIs, repository-data writes, type-only imports, and dynamic module
+acquisition. Reflective/wrapper variants, paths assembled from opaque fragments, and harness detection
+are outside the coverage promise.
 
 **What it cannot reach.** A community contribution can never introduce any of this: check C1 rejects
 any pull request that touches a path outside `data/community-sources/`. Every construction the suite
@@ -107,20 +110,33 @@ walked for nested writes. Raw-method calls are tracked in direct, bracket, destr
 `Reflect.get`, and bound forms; each allow-listed call includes a hash of its normalized SQL body, and
 non-allow-listed DML is rejected. Values used by these recognised shapes fail closed when unresolved.
 
-Every recorded writer and its import closure is checked for reads under `data/`, with the single
-exception of `import-x-handles` reading `data/x-handles.json`. Files that write `source` or
-`alertSource` have their full local import closure checked. Bare and `globalThis` fetches are inspected;
-network-module acquisition is allow-listed; and every call through an acquired namespace or function
-alias is inspected. Statically resolved targets must use an allow-listed HTTPS origin, while each
-legitimate dynamic target has an exact allow-list entry. The repository walk covers Next's effective
-page extensions plus Node's JS/TS module extensions and fails if a `next.config.js` `pageExtensions`
-override declares an extension the analyzer does not cover. It is not limited to `src/`.
+The filesystem-write rule scans every loadable source file in the repository. A write that can land
+under `data/` is rejected unless its exact file, API, and resolved target are in `ALLOWED_DATA_WRITES`;
+that allow-list is empty today. An unresolvable write path also fails closed. If such a file both reads
+the catalog and writes under `data/`, both accesses are reported. This repository-wide write set is
+deliberately broader than the read set: reads under `data/` are checked for every recorded Prisma or
+raw-SQL writer and its downward local import closure, with the single exception of
+`import-x-handles` reading `data/x-handles.json`. The constant resolver follows lexical scope, so a
+same-named binding in another function or block cannot supply the value. Files that write `source` or
+`alertSource` have their downward local import closure checked for network targets. Bare and
+`globalThis` fetches are inspected; runtime network-module acquisition, including dynamic import, is
+allow-listed; and calls through an acquired namespace or function alias are inspected. Type-only
+imports are not runtime acquisitions. Statically resolved targets must use an allow-listed HTTPS
+origin, while each legitimate dynamic target has an exact allow-list entry.
 
-The filesystem guard follows `fs`/`fs/promises` acquisition and inspects every namespace call. Known
-APIs use their path positions; an unfamiliar API has every path-shaped argument inspected. Calls rooted
-at `os.tmpdir()` or `os.homedir()` resolve outside the repository and are safe, while a path that can
-land under `data/` is rejected. The package script map and both dependency maps are snapshotted, so a
-new execution path or database/network client is a visible test change.
+The repository walk covers Next's effective page extensions plus Node's JS/TS module extensions and
+fails if a `next.config.js` `pageExtensions` override declares an extension the analyzer does not
+cover. It is not limited to `src/`. Thus “writer plus imports” describes only the data-read and literal
+tripwire set; it does not describe the repository-wide filesystem-write set.
+
+The filesystem guard follows `fs`/`fs/promises` acquisition, including dynamic import, and inspects
+every namespace call. Known APIs use their read/write path positions; descriptor-first APIs such as
+`writeSync`, `fsyncSync`, and `closeSync` are not treated as path calls, and definitely numeric
+arguments are not path candidates. Supported static paths include resolvable template expressions,
+`path.posix`/`path.win32`, destructured path methods, and path-method rebinding. Calls rooted at
+`os.tmpdir()` or `os.homedir()` resolve outside the repository and are safe, while a path that can land
+under `data/` is rejected. The package script map and both dependency maps are snapshotted, so a new
+execution path or database/network client is a visible test change.
 
 The **behavioural** legs — the `Source` set-equality run and the filesystem and subprocess trace — are
 a convenience check on the ordinary executed path, not a guarantee. The filesystem patch does not
@@ -129,7 +145,11 @@ reach `worker_threads` isolates; a writer that spawns a subprocess is rejected o
 If an ordinary non-Prisma object happens to have a delegate-shaped call, add its exact callee expression
 to `ALLOWED_NON_PRISMA_DELEGATE_SHAPES` after review. If a legitimate network target cannot be resolved
 statically, add the exact expression or reported call hash to `ALLOWED_UNRESOLVED_NETWORK_TARGETS`.
-These are narrow false-positive responses, not instructions to weaken the general rule.
+If a legitimate filesystem read cannot be resolved statically, add an exact, shape-checked entry to
+`SAFE_COMPUTED_FS_READS`; each entry must identify the file, binding, expected filename, and initializer
+shape. Legitimate computed writes use the equally narrow `SAFE_COMPUTED_FS_WRITES` path, while an
+intentional write under repository `data/` requires an exact `ALLOWED_DATA_WRITES` entry. These are
+narrow false-positive responses, not instructions to weaken the general rule.
 
 To regenerate raw-SQL body hashes after deliberately editing a legitimate query, run:
 

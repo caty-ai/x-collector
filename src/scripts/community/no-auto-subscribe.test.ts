@@ -3,8 +3,9 @@
  *
  * The static legs are the load-bearing tripwire. Delegate-shaped writes fail closed without proving
  * the receiver is a Prisma client; raw calls include a normalized SQL-body hash and DML policy; and
- * approved writer closures reject unsafe filesystem and network acquisition. The checks target
- * ordinary code shapes and fail closed when a value used by a recognised shape cannot be resolved.
+ * approved writer closures reject unsafe filesystem reads and network acquisition, while every
+ * repository source file is checked for writes under data/. The checks target ordinary code shapes
+ * and fail closed when a value used by a recognised shape cannot be resolved.
  * Deliberately unusual spellings remain outside the stated threat model. The behavioural legs remain
  * best-effort convenience checks for ordinary executed paths.
  */
@@ -759,6 +760,10 @@ function unwrapExpression(expression: ts.Expression): ts.Expression {
       current = current.expression;
       continue;
     }
+    if (ts.isAwaitExpression(current) || ts.isSatisfiesExpression(current)) {
+      current = current.expression;
+      continue;
+    }
     return current;
   }
 }
@@ -905,7 +910,7 @@ function normalizedTemplateText(
     if (context) {
       const candidate = unwrapExpression(span.expression);
       if (ts.isIdentifier(candidate) && !seen.has(candidate.text)) {
-        const initializer = context.constants.get(candidate.text);
+        const initializer = constantInitializerAt(candidate, candidate.text, context);
         if (initializer) {
           const nextSeen = new Set(seen);
           nextSeen.add(candidate.text);
@@ -934,7 +939,7 @@ function normalizedRawSql(
   if (ts.isTaggedTemplateExpression(candidate)) return normalizedTemplateText(candidate.template, context, seen);
   if (ts.isIdentifier(candidate)) {
     if (seen.has(candidate.text)) return null;
-    const initializer = context.constants.get(candidate.text);
+    const initializer = constantInitializerAt(candidate, candidate.text, context);
     if (!initializer) return null;
     const nextSeen = new Set(seen);
     nextSeen.add(candidate.text);
@@ -1015,7 +1020,7 @@ function propertyInitializer(
     return name ? { name, expression: property.initializer } : null;
   }
   if (ts.isShorthandPropertyAssignment(property)) {
-    const initializer = context.constants.get(property.name.text);
+    const initializer = constantInitializerAt(property.name, property.name.text, context);
     return initializer ? { name: property.name.text, expression: initializer } : null;
   }
   return null;
@@ -1029,7 +1034,7 @@ function resolveStaticExpression(
   const candidate = unwrapExpression(expression);
   if (!ts.isIdentifier(candidate)) return candidate;
   if (seen.has(candidate.text)) return null;
-  const initializer = context.constants.get(candidate.text);
+  const initializer = constantInitializerAt(candidate, candidate.text, context);
   if (!initializer) return null;
   const nextSeen = new Set(seen);
   nextSeen.add(candidate.text);
@@ -1301,17 +1306,33 @@ function analyzePrismaFile(filePath: string): PrismaAnalysis {
   return analysis;
 }
 
-const FS_PATH_ARGUMENTS: Record<string, number[]> = {
-  access: [0], accessSync: [0], appendFile: [0], appendFileSync: [0], chmod: [0], chmodSync: [0],
-  chown: [0], chownSync: [0], copyFile: [0, 1], copyFileSync: [0, 1], cp: [0, 1], cpSync: [0, 1],
-  createReadStream: [0], createWriteStream: [0], exists: [0], existsSync: [0], lstat: [0], lstatSync: [0],
-  mkdir: [0], mkdirSync: [0], mkdtemp: [0], mkdtempSync: [0], open: [0], openSync: [0], opendir: [0],
-  opendirSync: [0], readFile: [0], readFileSync: [0], readdir: [0], readdirSync: [0], readlink: [0],
-  readlinkSync: [0], realpath: [0], realpathSync: [0], rename: [0, 1], renameSync: [0, 1], rm: [0],
-  rmSync: [0], rmdir: [0], rmdirSync: [0], stat: [0], statSync: [0], symlink: [0, 1], symlinkSync: [0, 1],
-  truncate: [0], truncateSync: [0], unlink: [0], unlinkSync: [0], utimes: [0], utimesSync: [0],
-  watch: [0], watchFile: [0], writeFile: [0], writeFileSync: [0],
+type FsPathArguments = { read?: number[]; write?: number[] };
+
+const FS_PATH_ARGUMENTS: Record<string, FsPathArguments> = {
+  access: { read: [0] }, accessSync: { read: [0] }, appendFile: { write: [0] }, appendFileSync: { write: [0] },
+  chmod: { write: [0] }, chmodSync: { write: [0] }, chown: { write: [0] }, chownSync: { write: [0] },
+  copyFile: { read: [0], write: [1] }, copyFileSync: { read: [0], write: [1] },
+  cp: { read: [0], write: [1] }, cpSync: { read: [0], write: [1] },
+  createReadStream: { read: [0] }, createWriteStream: { write: [0] },
+  exists: { read: [0] }, existsSync: { read: [0] }, lstat: { read: [0] }, lstatSync: { read: [0] },
+  mkdir: { write: [0] }, mkdirSync: { write: [0] }, mkdtemp: { write: [0] }, mkdtempSync: { write: [0] },
+  open: { read: [0], write: [0] }, openSync: { read: [0], write: [0] },
+  opendir: { read: [0] }, opendirSync: { read: [0] }, readFile: { read: [0] }, readFileSync: { read: [0] },
+  readdir: { read: [0] }, readdirSync: { read: [0] }, readlink: { read: [0] }, readlinkSync: { read: [0] },
+  realpath: { read: [0] }, realpathSync: { read: [0] }, rename: { write: [0, 1] },
+  renameSync: { read: [0], write: [0, 1] }, rm: { write: [0] }, rmSync: { write: [0] },
+  rmdir: { write: [0] }, rmdirSync: { write: [0] }, stat: { read: [0] }, statSync: { read: [0] },
+  symlink: { write: [1] }, symlinkSync: { write: [1] }, truncate: { write: [0] },
+  truncateSync: { write: [0] }, unlink: { write: [0] }, unlinkSync: { write: [0] },
+  utimes: { write: [0] }, utimesSync: { write: [0] }, watch: { read: [0] }, watchFile: { read: [0] },
+  writeFile: { write: [0] }, writeFileSync: { write: [0] },
 };
+
+const FS_DESCRIPTOR_FIRST_METHODS = new Set([
+  "close", "closeSync", "fdatasync", "fdatasyncSync", "fstat", "fstatSync", "fsync", "fsyncSync",
+  "ftruncate", "ftruncateSync", "futimes", "futimesSync", "read", "readSync", "readv", "readvSync",
+  "write", "writeSync", "writev", "writevSync",
+]);
 
 const SAFE_COMPUTED_FS_READS: Record<string, Record<string, string>> = {
   // These remain necessary after module-binding resolution: the optional promptDir parameter makes
@@ -1325,11 +1346,30 @@ const SAFE_COMPUTED_FS_READS: Record<string, Record<string, string>> = {
   },
 };
 
+// Key format: "repository-relative-file:fsMethod:repository-relative-target".
+// Product code currently has no sanctioned write under data/.
+const ALLOWED_DATA_WRITES = new Set<string>();
+
+const SAFE_COMPUTED_FS_WRITES = new Set([
+  // GitHub Actions owns this runner-temporary path; the workflow supplies it as GITHUB_OUTPUT.
+  "src/scripts/community/gate.ts:appendFileSync:output",
+]);
+
 type StaticPathContext = {
   sourceFile: ts.SourceFile;
-  constants: Map<string, ts.Expression>;
+  lexicalScopes: Map<ts.Node, StaticLexicalScope>;
   moduleNamespaces: Map<string, StaticPathModule>;
   moduleFunctions: Map<string, StaticModuleFunction>;
+};
+
+type StaticLexicalScope = {
+  parent: StaticLexicalScope | null;
+  bindings: Map<string, StaticLexicalBinding | null>;
+};
+
+type StaticLexicalBinding = {
+  initializer: ts.Expression | null;
+  numeric: boolean;
 };
 
 type StaticPathModule = "os" | "path" | "process";
@@ -1337,6 +1377,7 @@ type StaticPathModule = "os" | "path" | "process";
 type StaticModuleFunction = {
   module: StaticPathModule;
   method: string;
+  pathFlavor?: "posix" | "win32";
 };
 
 const STATIC_PATH_MODULE_METHODS: Record<StaticPathModule, Set<string>> = {
@@ -1368,10 +1409,16 @@ function collectStaticPathModuleBindings(sourceFile: ts.SourceFile): {
 } {
   const namespaces = new Map<string, StaticPathModule>([["process", "process"]]);
   const functions = new Map<string, StaticModuleFunction>();
+  const explicitNamespaces = new Set<string>();
+
+  const setNamespace = (name: string, module: StaticPathModule): void => {
+    namespaces.set(name, module);
+    explicitNamespaces.add(name);
+  };
 
   const registerBinding = (name: ts.BindingName, module: StaticPathModule): void => {
     if (ts.isIdentifier(name)) {
-      namespaces.set(name.text, module);
+      setNamespace(name.text, module);
       return;
     }
     if (!ts.isObjectBindingPattern(name)) return;
@@ -1394,15 +1441,15 @@ function collectStaticPathModuleBindings(sourceFile: ts.SourceFile): {
       && ts.isStringLiteralLike(node.moduleReference.expression)
     ) {
       const module = staticPathModuleName(node.moduleReference.expression.text);
-      if (module) namespaces.set(node.name.text, module);
+      if (module) setNamespace(node.name.text, module);
     }
     if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
       const module = staticPathModuleName(node.moduleSpecifier.text);
       if (module) {
         const clause = node.importClause;
-        if (clause?.name) namespaces.set(clause.name.text, module);
+        if (clause?.name) setNamespace(clause.name.text, module);
         if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-          namespaces.set(clause.namedBindings.name.text, module);
+          setNamespace(clause.namedBindings.name.text, module);
         }
         if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
           for (const element of clause.namedBindings.elements) {
@@ -1419,11 +1466,17 @@ function collectStaticPathModuleBindings(sourceFile: ts.SourceFile): {
       const initializer = unwrapExpression(node.initializer);
       const module = requiredStaticPathModule(initializer);
       if (module) registerBinding(node.name, module);
+      if (ts.isIdentifier(initializer)) {
+        const reboundModule = namespaces.get(initializer.text);
+        if (reboundModule) registerBinding(node.name, reboundModule);
+      }
       if (
         ts.isIdentifier(node.name)
         && (ts.isPropertyAccessExpression(initializer) || ts.isElementAccessExpression(initializer))
       ) {
-        const requiredModule = requiredStaticPathModule(initializer.expression);
+        const receiver = unwrapExpression(initializer.expression);
+        const requiredModule = requiredStaticPathModule(receiver)
+          ?? (ts.isIdentifier(receiver) ? namespaces.get(receiver.text) ?? null : null);
         const method = propertyNameText(initializer);
         if (requiredModule && method && STATIC_PATH_MODULE_METHODS[requiredModule].has(method)) {
           functions.set(node.name.text, { module: requiredModule, method });
@@ -1433,6 +1486,14 @@ function collectStaticPathModuleBindings(sourceFile: ts.SourceFile): {
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
+  const declarationCounts = collectDeclarationCounts(sourceFile);
+  for (const name of namespaces.keys()) {
+    const expectedCount = name === "process" && !explicitNamespaces.has(name) ? 0 : 1;
+    if ((declarationCounts.get(name) ?? 0) !== expectedCount) namespaces.delete(name);
+  }
+  for (const name of functions.keys()) {
+    if ((declarationCounts.get(name) ?? 0) !== 1) functions.delete(name);
+  }
   return { namespaces, functions };
 }
 
@@ -1440,26 +1501,100 @@ function staticPathContext(sourceFile: ts.SourceFile): StaticPathContext {
   const bindings = collectStaticPathModuleBindings(sourceFile);
   return {
     sourceFile,
-    constants: collectConstantInitializers(sourceFile),
+    lexicalScopes: collectConstantInitializers(sourceFile),
     moduleNamespaces: bindings.namespaces,
     moduleFunctions: bindings.functions,
   };
 }
 
-function collectConstantInitializers(sourceFile: ts.SourceFile): Map<string, ts.Expression> {
-  const constants = new Map<string, ts.Expression>();
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(node)
-      && ts.isIdentifier(node.name)
-      && node.initializer
-    ) {
-      constants.set(node.name.text, node.initializer);
+function collectConstantInitializers(sourceFile: ts.SourceFile): Map<ts.Node, StaticLexicalScope> {
+  const scopes = new Map<ts.Node, StaticLexicalScope>();
+  const rootScope: StaticLexicalScope = { parent: null, bindings: new Map() };
+
+  const registerName = (
+    scope: StaticLexicalScope,
+    name: ts.BindingName,
+    initializer: ts.Expression | null,
+    numeric = false,
+  ): void => {
+    if (ts.isIdentifier(name)) {
+      scope.bindings.set(name.text, scope.bindings.has(name.text) ? null : { initializer, numeric });
+      return;
     }
+    for (const element of name.elements) {
+      if (!ts.isOmittedExpression(element)) registerName(scope, element.name, null);
+    }
+  };
+
+  const visit = (node: ts.Node, inheritedScope: StaticLexicalScope): void => {
+    if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name) {
+      registerName(inheritedScope, node.name, null);
+    }
+    const createsScope = node !== sourceFile && (
+      ts.isBlock(node)
+      || ts.isModuleBlock(node)
+      || ts.isCaseBlock(node)
+      || ts.isCatchClause(node)
+      || ts.isFunctionLike(node)
+    );
+    const scope = createsScope ? { parent: inheritedScope, bindings: new Map<string, StaticLexicalBinding | null>() } : inheritedScope;
+    scopes.set(node, scope);
+
+    if (ts.isVariableDeclaration(node)) {
+      const numeric = node.type?.kind === ts.SyntaxKind.NumberKeyword
+        || (node.initializer !== undefined && ts.isNumericLiteral(unwrapExpression(node.initializer)));
+      registerName(scope, node.name, node.initializer ?? null, numeric);
+    }
+    if (ts.isParameter(node)) registerName(scope, node.name, null, node.type?.kind === ts.SyntaxKind.NumberKeyword);
+    if (ts.isImportClause(node) && node.name) registerName(scope, node.name, null);
+    if (ts.isImportSpecifier(node)) registerName(scope, node.name, null);
+    if (ts.isNamespaceImport(node)) registerName(scope, node.name, null);
+
+    ts.forEachChild(node, (child) => visit(child, scope));
+  };
+  scopes.set(sourceFile, rootScope);
+  ts.forEachChild(sourceFile, (child) => visit(child, rootScope));
+  return scopes;
+}
+
+function collectDeclarationCounts(sourceFile: ts.SourceFile): Map<string, number> {
+  const counts = new Map<string, number>();
+  const addName = (name: ts.BindingName): void => {
+    if (ts.isIdentifier(name)) {
+      counts.set(name.text, (counts.get(name.text) ?? 0) + 1);
+      return;
+    }
+    for (const element of name.elements) {
+      if (!ts.isOmittedExpression(element)) addName(element.name);
+    }
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) || ts.isParameter(node)) addName(node.name);
+    else if (ts.isImportClause(node) && node.name) addName(node.name);
+    else if (ts.isImportSpecifier(node) || ts.isNamespaceImport(node) || ts.isImportEqualsDeclaration(node)) addName(node.name);
+    else if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name) addName(node.name);
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return constants;
+  return counts;
+}
+
+function constantInitializerAt(node: ts.Node, name: string, context: StaticPathContext): ts.Expression | null {
+  let scope = context.lexicalScopes.get(node) ?? null;
+  while (scope) {
+    if (scope.bindings.has(name)) return scope.bindings.get(name)?.initializer ?? null;
+    scope = scope.parent;
+  }
+  return null;
+}
+
+function isNumericBindingAt(node: ts.Node, name: string, context: StaticPathContext): boolean {
+  let scope = context.lexicalScopes.get(node) ?? null;
+  while (scope) {
+    if (scope.bindings.has(name)) return scope.bindings.get(name)?.numeric ?? false;
+    scope = scope.parent;
+  }
+  return false;
 }
 
 function evaluateStaticPaths(
@@ -1469,11 +1604,20 @@ function evaluateStaticPaths(
 ): string[] | null {
   const candidate = unwrapExpression(expression);
   if (ts.isStringLiteralLike(candidate) || ts.isNoSubstitutionTemplateLiteral(candidate)) return [candidate.text];
+  if (ts.isTemplateExpression(candidate)) {
+    let combinations = [candidate.head.text];
+    for (const span of candidate.templateSpans) {
+      const values = evaluateStaticPaths(span.expression, context, seen);
+      if (!values) return null;
+      combinations = combinations.flatMap((prefix) => values.map((value) => prefix + value + span.literal.text));
+    }
+    return combinations;
+  }
   if (ts.isIdentifier(candidate)) {
     if (candidate.text === "__dirname") return [path.dirname(context.sourceFile.fileName)];
     if (candidate.text === "__filename") return [context.sourceFile.fileName];
     if (seen.has(candidate.text)) return null;
-    const initializer = context.constants.get(candidate.text);
+    const initializer = constantInitializerAt(candidate, candidate.text, context);
     if (!initializer) return null;
     const nextSeen = new Set(seen);
     nextSeen.add(candidate.text);
@@ -1501,11 +1645,21 @@ function evaluateStaticPaths(
     const method = propertyNameText(callee);
     if (!method) return null;
     const receiver = unwrapExpression(callee.expression);
-    const module = ts.isIdentifier(receiver)
+    let pathFlavor: "posix" | "win32" | undefined;
+    let module = ts.isIdentifier(receiver)
       ? context.moduleNamespaces.get(receiver.text) ?? null
       : requiredStaticPathModule(receiver);
+    if (
+      !module
+      && (ts.isPropertyAccessExpression(receiver) || ts.isElementAccessExpression(receiver))
+      && (propertyNameText(receiver) === "posix" || propertyNameText(receiver) === "win32")
+    ) {
+      const base = unwrapExpression(receiver.expression);
+      module = ts.isIdentifier(base) ? context.moduleNamespaces.get(base.text) ?? null : requiredStaticPathModule(base);
+      pathFlavor = propertyNameText(receiver) as "posix" | "win32";
+    }
     if (!module || !STATIC_PATH_MODULE_METHODS[module].has(method)) return null;
-    return { module, method } satisfies StaticModuleFunction;
+    return { module, method, pathFlavor } satisfies StaticModuleFunction;
   })();
   if (!staticFunction) return null;
   if (staticFunction.module === "os") {
@@ -1522,34 +1676,36 @@ function evaluateStaticPaths(
   for (const part of parts as string[][]) {
     combinations = combinations.flatMap((prefix) => part.map((value) => [...prefix, value]));
   }
+  const pathApi = staticFunction.pathFlavor ? path[staticFunction.pathFlavor] : path;
   switch (staticFunction.method) {
     case "join":
-      return combinations.map((values) => path.join(...values));
+      return combinations.map((values) => pathApi.join(...values));
     case "resolve":
-      return combinations.map((values) => path.resolve(REPO_ROOT, ...values));
+      return combinations.map((values) => pathApi.resolve(REPO_ROOT, ...values));
     case "normalize":
       return combinations.length > 0 && combinations.every((values) => values.length === 1)
-        ? combinations.map(([value]) => path.normalize(value))
+        ? combinations.map(([value]) => pathApi.normalize(value))
         : null;
     case "basename":
       return combinations.length > 0 && combinations.every((values) => values.length === 1 || values.length === 2)
-        ? combinations.map(([value, suffix]) => suffix === undefined ? path.basename(value) : path.basename(value, suffix))
+        ? combinations.map(([value, suffix]) => suffix === undefined ? pathApi.basename(value) : pathApi.basename(value, suffix))
         : null;
     case "dirname":
       return combinations.length > 0 && combinations.every((values) => values.length === 1)
-        ? combinations.map(([value]) => path.dirname(value))
+        ? combinations.map(([value]) => pathApi.dirname(value))
         : null;
   }
   return null;
 }
 
 function resolvedRepositoryPath(sourceFile: ts.SourceFile, value: string, moduleSpecifier: boolean): string | null {
-  if (moduleSpecifier && !value.startsWith(".") && !path.isAbsolute(value) && !/^data(?:[/\\]|$)/.test(value)) {
+  const portableValue = value.split(/[\\/]+/).join(path.sep);
+  if (moduleSpecifier && !portableValue.startsWith(".") && !path.isAbsolute(portableValue) && !/^data(?:[/\\]|$)/.test(value)) {
     return null;
   }
-  if (path.isAbsolute(value)) return path.normalize(value);
-  if (value.startsWith(".")) return path.resolve(path.dirname(sourceFile.fileName), value);
-  return path.resolve(REPO_ROOT, value);
+  if (path.isAbsolute(portableValue)) return path.normalize(portableValue);
+  if (portableValue.startsWith(".")) return path.resolve(path.dirname(sourceFile.fileName), portableValue);
+  return path.resolve(REPO_ROOT, portableValue);
 }
 
 function pathIsUnderData(filePath: string): boolean {
@@ -1562,6 +1718,10 @@ function isOnlyAllowedDataRead(sourceFile: ts.SourceFile, filePath: string): boo
     && path.resolve(filePath) === X_HANDLES_PATH;
 }
 
+function isAllowedDataWrite(sourceFile: ts.SourceFile, method: string, filePath: string): boolean {
+  return ALLOWED_DATA_WRITES.has(`${relative(sourceFile.fileName)}:${method}:${relative(filePath)}`);
+}
+
 function isVerifiedSafeComputedFsRead(
   relativeFile: string,
   argument: ts.Expression,
@@ -1570,15 +1730,42 @@ function isVerifiedSafeComputedFsRead(
   if (!ts.isIdentifier(argument)) return false;
   const expectedFilename = SAFE_COMPUTED_FS_READS[relativeFile]?.[argument.text];
   if (!expectedFilename) return false;
-  const pathInitializer = context.constants.get(argument.text);
-  const baseInitializer = context.constants.get("base");
+  const pathInitializer = constantInitializerAt(argument, argument.text, context);
+  const baseInitializer = pathInitializer ? constantInitializerAt(pathInitializer, "base", context) : null;
   if (!pathInitializer || !baseInitializer) return false;
   const compact = (expression: ts.Expression): string => expression.getText(context.sourceFile).replace(/\s+/g, "");
   return compact(pathInitializer) === `path.join(base,"${expectedFilename}")`
     && compact(baseInitializer) === "promptDir||path.join(process.cwd(),\"docs\",\"prompts\",\"step1-3\")";
 }
 
-function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
+function isVerifiedSafeComputedFsWrite(
+  relativeFile: string,
+  method: string,
+  argument: ts.Expression,
+  context: StaticPathContext,
+): boolean {
+  const compact = (expression: ts.Expression): string => expression.getText(context.sourceFile).replace(/\s+/g, "");
+  if (SAFE_COMPUTED_FS_WRITES.has(`${relativeFile}:${method}:${compact(argument)}`)) return true;
+  if (relativeFile !== "src/scripts/contribute-source.ts") return false;
+
+  const tempDir = constantInitializerAt(argument, "tempDir", context);
+  if (!tempDir) return false;
+  const safeCloneRoot = compact(tempDir) === 'fs.mkdtempSync(path.join(os.tmpdir(),"x-collector-community-"))';
+  if (method === "rmSync") return safeCloneRoot && compact(argument) === "tempDir";
+  const relativePath = constantInitializerAt(argument, "relativePath", context);
+  const destination = constantInitializerAt(argument, "destination", context);
+  if (!relativePath || !destination) return false;
+  const cloneRelativeDestination = compact(relativePath) === '`data/community-sources/${filename}`'
+    && compact(destination) === "path.join(tempDir,relativePath)";
+  if (!safeCloneRoot || !cloneRelativeDestination) return false;
+  const argumentText = compact(argument);
+  return (method === "mkdirSync" && argumentText === "path.dirname(destination)")
+    || (method === "writeFileSync" && argumentText === "destination");
+}
+
+type FilesystemAccess = "read" | "write";
+
+function staticDataAccessOffenders(sourceFile: ts.SourceFile, access: FilesystemAccess): string[] {
   const context = staticPathContext(sourceFile);
   const fsNamespaces = new Set<string>();
   const fsFunctions = new Map<string, string>();
@@ -1610,16 +1797,23 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
     const candidate = unwrapExpression(expression);
     if (
       !ts.isCallExpression(candidate)
-      || !ts.isIdentifier(candidate.expression)
-      || candidate.expression.text !== "require"
       || candidate.arguments.length !== 1
     ) return null;
+    const callee = unwrapExpression(candidate.expression);
+    if (callee.kind !== ts.SyntaxKind.ImportKeyword && !(ts.isIdentifier(callee) && callee.text === "require")) return null;
     const specifier = moduleName(candidate.arguments[0])?.replace(/^node:/, "");
     return specifier === "fs" || specifier === "fs/promises" ? specifier : null;
   };
 
+  const importHasValueBinding = (node: ts.ImportDeclaration): boolean => {
+    const clause = node.importClause;
+    if (!clause || clause.isTypeOnly) return false;
+    if (clause.name || !clause.namedBindings || ts.isNamespaceImport(clause.namedBindings)) return true;
+    return clause.namedBindings.elements.some((element) => !element.isTypeOnly);
+  };
+
   const collectFsAcquisitions = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier) && importHasValueBinding(node)) {
       const specifier = node.moduleSpecifier.text.replace(/^node:/, "");
       if (specifier === "fs" || specifier === "fs/promises") {
         const clause = node.importClause;
@@ -1627,6 +1821,7 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
         if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) fsNamespaces.add(clause.namedBindings.name.text);
         if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
           for (const element of clause.namedBindings.elements) {
+            if (element.isTypeOnly) continue;
             const imported = element.propertyName?.text ?? element.name.text;
             if (imported === "promises") fsNamespaces.add(element.name.text);
             else fsFunctions.set(element.name.text, imported);
@@ -1646,6 +1841,19 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
     ts.forEachChild(node, collectFsAcquisitions);
   };
   collectFsAcquisitions(sourceFile);
+  const fsDeclarationCounts = collectDeclarationCounts(sourceFile);
+  for (const name of fsNamespaces) {
+    if ((fsDeclarationCounts.get(name) ?? 0) !== 1) {
+      fsNamespaces.delete(name);
+      offenders.push(`${relativeFile}: fs acquisition binding is redeclared: ${name}`);
+    }
+  }
+  for (const name of fsFunctions.keys()) {
+    if ((fsDeclarationCounts.get(name) ?? 0) !== 1) {
+      fsFunctions.delete(name);
+      offenders.push(`${relativeFile}: fs acquisition binding is redeclared: ${name}`);
+    }
+  }
 
   const directRequiredFsMethod = (expression: ts.Expression): string | null => {
     const candidate = unwrapExpression(expression);
@@ -1663,12 +1871,20 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
   };
 
   const fsAcquisitionIsRegistered = (call: ts.CallExpression, ancestors: ts.Node[]): boolean => {
-    const parent = ancestors[ancestors.length - 1];
-    const grandparent = ancestors[ancestors.length - 2];
-    const greatGrandparent = ancestors[ancestors.length - 3];
-    if (parent && ts.isVariableDeclaration(parent) && parent.initializer === call) return true;
-    if (!parent) return false;
-    if (!ts.isPropertyAccessExpression(parent) && !ts.isElementAccessExpression(parent)) return false;
+    let index = ancestors.length - 1;
+    while (index >= 0 && (
+      ts.isAwaitExpression(ancestors[index])
+      || ts.isParenthesizedExpression(ancestors[index])
+      || ts.isAsExpression(ancestors[index])
+      || ts.isTypeAssertionExpression(ancestors[index])
+      || ts.isNonNullExpression(ancestors[index])
+      || ts.isSatisfiesExpression(ancestors[index])
+    )) index -= 1;
+    const parent = ancestors[index];
+    const grandparent = ancestors[index - 1];
+    const greatGrandparent = ancestors[index - 2];
+    if (parent && ts.isVariableDeclaration(parent)) return true;
+    if (!parent || (!ts.isPropertyAccessExpression(parent) && !ts.isElementAccessExpression(parent))) return false;
     const property = propertyNameText(parent);
     if (property === "promises") {
       if (grandparent && ts.isVariableDeclaration(grandparent) && grandparent.initializer === parent) return true;
@@ -1698,27 +1914,34 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
     if (!argument) return;
     const values = evaluateStaticPaths(argument, context);
     if (!values) {
-      if (!moduleSpecifier && isVerifiedSafeComputedFsRead(relativeFile, argument, context)) return;
+      if (access === "read" && !moduleSpecifier && isVerifiedSafeComputedFsRead(relativeFile, argument, context)) return;
+      if (access === "write" && isVerifiedSafeComputedFsWrite(relativeFile, method, argument, context)) return;
       const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-      offenders.push(`${relativeFile}:${position.line + 1} ${method} has a non-literal path`);
+      offenders.push(`${relativeFile}:${position.line + 1} ${method} has a non-literal ${access} path`);
       return;
     }
     for (const value of values) {
       const resolved = resolvedRepositoryPath(sourceFile, value, moduleSpecifier);
-      if (resolved && pathIsUnderData(resolved) && !isOnlyAllowedDataRead(sourceFile, resolved)) {
+      const allowed = access === "read"
+        ? isOnlyAllowedDataRead(sourceFile, resolved ?? "")
+        : isAllowedDataWrite(sourceFile, method, resolved ?? "");
+      if (resolved && pathIsUnderData(resolved) && !allowed) {
         const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-        offenders.push(`${relativeFile}:${position.line + 1} ${method} reads ${relative(resolved)}`);
+        offenders.push(`${relativeFile}:${position.line + 1} ${method} ${access}s ${relative(resolved)}`);
       }
     }
   };
 
   const couldBePathArgument = (argument: ts.Expression): boolean => {
     const candidate = unwrapExpression(argument);
+    const initializer = ts.isIdentifier(candidate) ? constantInitializerAt(candidate, candidate.text, context) : null;
     if (
       ts.isArrowFunction(candidate)
       || ts.isFunctionExpression(candidate)
       || ts.isObjectLiteralExpression(candidate)
       || ts.isNumericLiteral(candidate)
+      || (initializer !== null && ts.isNumericLiteral(unwrapExpression(initializer)))
+      || (ts.isIdentifier(candidate) && isNumericBindingAt(candidate, candidate.text, context))
       || candidate.kind === ts.SyntaxKind.TrueKeyword
       || candidate.kind === ts.SyntaxKind.FalseKeyword
       || candidate.kind === ts.SyntaxKind.NullKeyword
@@ -1754,13 +1977,20 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
         && !propertyNameText(callee)
       ) offenders.push(`${sourcePosition(sourceFile, node)} fs call has an unresolvable method identity`);
       if (fsMethod) {
-        const knownPathArguments = FS_PATH_ARGUMENTS[fsMethod];
-        const argumentIndexes = knownPathArguments
-          ?? node.arguments.flatMap((argument, index) => couldBePathArgument(argument) ? [index] : []);
+        const methodPathArguments = FS_PATH_ARGUMENTS[fsMethod];
+        let argumentIndexes = methodPathArguments
+          ? methodPathArguments[access] ?? []
+          : (FS_DESCRIPTOR_FIRST_METHODS.has(fsMethod)
+            ? []
+            : node.arguments.flatMap((argument, index) => couldBePathArgument(argument) ? [index] : []));
+        if (access === "write" && (fsMethod === "open" || fsMethod === "openSync")) {
+          const flags = node.arguments[1] ? evaluateStaticPaths(node.arguments[1], context) : null;
+          if (flags?.every((flag) => flag === "r" || flag === "rs" || flag === "sr")) argumentIndexes = [];
+        }
         for (const argumentIndex of argumentIndexes) inspectArgument(node, fsMethod, argumentIndex);
       }
-      if (callee.kind === ts.SyntaxKind.ImportKeyword) inspectArgument(node, "import", 0, true);
-      if (ts.isIdentifier(callee) && callee.text === "require") inspectArgument(node, "require", 0, true);
+      if (access === "read" && callee.kind === ts.SyntaxKind.ImportKeyword) inspectArgument(node, "import", 0, true);
+      if (access === "read" && ts.isIdentifier(callee) && callee.text === "require") inspectArgument(node, "require", 0, true);
     }
     ts.forEachChild(node, visit);
   };
@@ -1768,15 +1998,21 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
   return offenders;
 }
 
+function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
+  return staticDataAccessOffenders(sourceFile, "read");
+}
+
+function staticDataWriteOffenders(sourceFile: ts.SourceFile): string[] {
+  return staticDataAccessOffenders(sourceFile, "write");
+}
+
 function staticPathBindingLeg(): void {
   const sourcePath = path.join(REPO_ROOT, "src", "__static-path-binding-regression.ts");
-  const analyze = (source: string): string[] => staticDataReadOffenders(ts.createSourceFile(
-    sourcePath,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  ));
+  const sourceFile = (source: string): ts.SourceFile => ts.createSourceFile(
+    sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS,
+  );
+  const analyze = (source: string): string[] => staticDataReadOffenders(sourceFile(source));
+  const analyzeWrites = (source: string): string[] => staticDataWriteOffenders(sourceFile(source));
   const cases = [
     {
       label: "namespace path import",
@@ -1818,6 +2054,73 @@ function staticPathBindingLeg(): void {
         import { readFileSync } from "fs";
         import { join } from "path";
         readFileSync(join(process.cwd(), "data", "community-sources", "fixture.json"), "utf8");
+      `,
+    },
+    {
+      label: "template expression",
+      safe: `
+        import fs from "fs";
+        fs.readFileSync(\`\${__dirname}/fixture.json\`, "utf8");
+      `,
+      unsafe: `
+        import fs from "fs";
+        fs.readFileSync(\`\${process.cwd()}/data/community-sources/fixture.json\`, "utf8");
+      `,
+    },
+    {
+      label: "path.posix.join",
+      safe: `
+        import fs from "fs";
+        import path from "path";
+        fs.readFileSync(path.posix.join("/tmp", "fixture.json"), "utf8");
+      `,
+      unsafe: `
+        import fs from "fs";
+        import path from "path";
+        fs.readFileSync(path.posix.join(process.cwd(), "data", "community-sources", "fixture.json"), "utf8");
+      `,
+    },
+    {
+      label: "path.win32.join",
+      safe: `
+        import fs from "fs";
+        import path from "path";
+        fs.readFileSync(path.win32.join("/tmp", "fixture.json"), "utf8");
+      `,
+      unsafe: `
+        import fs from "fs";
+        import path from "path";
+        fs.readFileSync(path.win32.join(process.cwd(), "data", "community-sources", "fixture.json"), "utf8");
+      `,
+    },
+    {
+      label: "destructured path namespace",
+      safe: `
+        import fs from "fs";
+        import path from "path";
+        const { join } = path;
+        fs.readFileSync(join("/tmp", "fixture.json"), "utf8");
+      `,
+      unsafe: `
+        import fs from "fs";
+        import path from "path";
+        const { join } = path;
+        fs.readFileSync(join(process.cwd(), "data", "community-sources", "fixture.json"), "utf8");
+      `,
+    },
+    {
+      label: "path method rebinding",
+      safe: `
+        import fs from "fs";
+        import path from "path";
+        const join = path.join;
+        fs.readFileSync(join("/tmp", "fixture.json"), "utf8");
+      `,
+      unsafe: `
+        import fs from "fs";
+        import path from "path";
+        const join = path.join;
+        fs.readFileSync(join(process.cwd(), "data", "community-sources", "fixture.json"), "utf8");
       `,
     },
   ];
@@ -1874,6 +2177,67 @@ function staticPathBindingLeg(): void {
     [],
     "leg 5 path bindings: require bindings or a supported path method did not resolve",
   );
+
+  const localUnsafe = analyze(`
+    import fs from "fs";
+    function load() {
+      const p = "data/community-sources/fixture.json";
+      fs.readFileSync(p, "utf8");
+    }
+    const p = "/tmp/ok";
+  `);
+  assert.ok(
+    localUnsafe.some((offender) => offender.includes("reads data/community-sources/fixture.json")),
+    `leg 5 lexical constants: local data path was not reported: ${localUnsafe.join("; ")}`,
+  );
+  assert.deepEqual(
+    analyze(`
+      import fs from "fs";
+      function load() {
+        const p = "/tmp/ok";
+        fs.readFileSync(p, "utf8");
+      }
+      const p = "data/community-sources/fixture.json";
+    `),
+    [],
+    "leg 5 lexical constants: a safe local path was misattributed to a same-named outer binding",
+  );
+
+  assert.deepEqual(
+    analyzeWrites(`
+      import fs from "fs";
+      fs.writeFileSync("/tmp/fixture.json", "ok");
+      fs.openSync("data/community-sources/fixture.json", "r");
+      function flush(fd: number) {
+        fs.writeSync(fd, "ok");
+        fs.fsyncSync(fd);
+        fs.closeSync(fd);
+        fs.futureDescriptorApi(fd);
+      }
+    `),
+    [],
+    "leg 5 filesystem writes: descriptor APIs, numeric arguments, or a write outside data/ were rejected",
+  );
+  const unsafeWrite = analyzeWrites(`
+    import fs from "fs";
+    fs.writeFileSync("data/x-handles.json", "[]");
+    fs.openSync("data/community-sources/created.json", "w");
+  `);
+  assert.ok(
+    unsafeWrite.some((offender) => offender.includes("writes data/x-handles.json")),
+    `leg 5 filesystem writes: data/x-handles.json write was not rejected: ${unsafeWrite.join("; ")}`,
+  );
+  const twoHopSource = `
+    import fs from "fs";
+    const entries = fs.readdirSync("data/community-sources");
+    fs.writeFileSync("data/x-handles.json", JSON.stringify(entries));
+  `;
+  assert.ok(
+    analyze(twoHopSource).some((offender) => offender.includes("reads data/community-sources"))
+      && analyzeWrites(twoHopSource).some((offender) => offender.includes("writes data/x-handles.json")),
+    "leg 5 filesystem writes: filesystem-mediated two-hop did not fail on both its read and write",
+  );
+  console.log("PASS leg 5 lexical constants, descriptor APIs, and repository data-write policy regressions");
 }
 
 function communitySourceLiteralOffenders(sourceFile: ts.SourceFile): string[] {
@@ -1957,7 +2321,7 @@ function evaluateNetworkTargets(
   const candidate = unwrapExpression(expression);
   if (ts.isIdentifier(candidate)) {
     if (seen.has(candidate.text)) return null;
-    const initializer = context.constants.get(candidate.text);
+    const initializer = constantInitializerAt(candidate, candidate.text, context);
     if (!initializer) return null;
     const nextSeen = new Set(seen);
     nextSeen.add(candidate.text);
@@ -2017,15 +2381,22 @@ function networkTargetOffenders(sourceFiles: ts.SourceFile[]): string[] {
       const candidate = unwrapExpression(expression);
       if (
         !ts.isCallExpression(candidate)
-        || !ts.isIdentifier(candidate.expression)
-        || candidate.expression.text !== "require"
         || candidate.arguments.length !== 1
         || !ts.isStringLiteralLike(candidate.arguments[0])
       ) return null;
+      const callee = unwrapExpression(candidate.expression);
+      if (callee.kind !== ts.SyntaxKind.ImportKeyword && !(ts.isIdentifier(callee) && callee.text === "require")) return null;
       const specifier = candidate.arguments[0].text.replace(/^node:/, "");
       return NETWORK_CAPABLE_BUILTINS.has(specifier) || KNOWN_HTTP_CLIENT_PACKAGES.has(specifier)
         ? specifier
         : null;
+    };
+
+    const importHasValueBinding = (node: ts.ImportDeclaration): boolean => {
+      const clause = node.importClause;
+      if (!clause || clause.isTypeOnly) return false;
+      if (clause.name || !clause.namedBindings || ts.isNamespaceImport(clause.namedBindings)) return true;
+      return clause.namedBindings.elements.some((element) => !element.isTypeOnly);
     };
 
     const isAcquiredNetworkFunction = (expression: ts.Expression): boolean => {
@@ -2042,7 +2413,7 @@ function networkTargetOffenders(sourceFiles: ts.SourceFile[]): string[] {
     };
 
     const collectAcquisitionsAndAliases = (node: ts.Node): void => {
-      if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier) && !node.importClause?.isTypeOnly) {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier) && importHasValueBinding(node)) {
         const specifier = node.moduleSpecifier.text.replace(/^node:/, "");
         if (NETWORK_CAPABLE_BUILTINS.has(specifier) || KNOWN_HTTP_CLIENT_PACKAGES.has(specifier)) {
           if (acquisitionAllowed(specifier)) {
@@ -2080,6 +2451,19 @@ function networkTargetOffenders(sourceFiles: ts.SourceFile[]): string[] {
       ts.forEachChild(node, collectAcquisitionsAndAliases);
     };
     collectAcquisitionsAndAliases(sourceFile);
+    const networkDeclarationCounts = collectDeclarationCounts(sourceFile);
+    for (const name of networkNamespaces) {
+      if ((networkDeclarationCounts.get(name) ?? 0) !== 1) {
+        networkNamespaces.delete(name);
+        offenders.push(`${relativeFile}: network module binding is redeclared: ${name}`);
+      }
+    }
+    for (const name of networkFunctions) {
+      if ((networkDeclarationCounts.get(name) ?? 0) !== 1) {
+        networkFunctions.delete(name);
+        offenders.push(`${relativeFile}: network module binding is redeclared: ${name}`);
+      }
+    }
 
     const inspectTarget = (node: ts.CallExpression): void => {
       const target = node.arguments[0];
@@ -2135,7 +2519,61 @@ function networkTargetOffenders(sourceFiles: ts.SourceFile[]): string[] {
   return offenders.sort((left, right) => left.localeCompare(right));
 }
 
+function acquisitionRegressionLeg(): void {
+  const sourcePath = path.join(REPO_ROOT, "src", "__acquisition-regression.ts");
+  const sourceFile = (source: string): ts.SourceFile => ts.createSourceFile(
+    sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS,
+  );
+
+  assert.deepEqual(
+    networkTargetOffenders([sourceFile(`
+      import { type IncomingMessage } from "http";
+      import type { ClientRequest } from "https";
+      const value: IncomingMessage | ClientRequest | null = null;
+      void value;
+    `)]),
+    [],
+    "leg 5 acquisitions: type-only network imports were treated as runtime acquisition",
+  );
+  assert.deepEqual(
+    staticDataReadOffenders(sourceFile(`
+      import { type PathLike } from "fs";
+      import type { FileHandle } from "fs/promises";
+      const value: PathLike | FileHandle | null = null;
+      void value;
+    `)),
+    [],
+    "leg 5 acquisitions: type-only filesystem imports were treated as runtime acquisition",
+  );
+
+  const dynamicFs = staticDataReadOffenders(sourceFile(`
+    async function load() {
+      const fs = await import("fs");
+      fs.readFileSync("data/community-sources/fixture.json", "utf8");
+    }
+  `));
+  assert.ok(
+    dynamicFs.some((offender) => offender.includes("reads data/community-sources/fixture.json")),
+    `leg 5 acquisitions: dynamic fs import was not registered: ${dynamicFs.join("; ")}`,
+  );
+  const dynamicNetwork = networkTargetOffenders([sourceFile(`
+    async function load() {
+      const http = await import("http");
+      http.get("https://example.com");
+    }
+  `)]);
+  assert.ok(
+    dynamicNetwork.some((offender) => offender.includes("network module acquisition is not allow-listed: http")),
+    `leg 5 acquisitions: dynamic network import was not registered: ${dynamicNetwork.join("; ")}`,
+  );
+  console.log("PASS leg 5 type-only and dynamic module acquisition regressions");
+}
+
 function assertWriterImportGraphsDoNotReadData(writerFiles: string[], sourceWriterFiles: string[]): void {
+  // Scanned sets are intentionally different: data writes are checked across every repository source
+  // file in databaseWriterLeg. Data reads and the community-sources literal are checked here only for
+  // every recorded Prisma/raw-SQL writer plus its downward local import closure. Network targets are
+  // checked for source/alertSource writers plus their downward local import closure.
   const parsed = readTsConfig("tsconfig.json", "leg 5");
   const program = ts.createProgram({
     rootNames: writerFiles,
@@ -2176,10 +2614,21 @@ function databaseWriterLeg(): boolean {
   const rawSql: Record<string, string[]> = {};
   const analysisOffenders: string[] = [];
   const rawDmlOffenders: string[] = [];
+  const dataWriteOffenders: string[] = [];
   const sourceWriterFiles: string[] = [];
 
   for (const filePath of walkSourceFiles(REPO_ROOT, true)) {
     if (path.resolve(filePath) === path.resolve(__filename)) continue;
+    const sourceFile = ts.createSourceFile(
+      filePath,
+      fs.readFileSync(filePath, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKindFor(filePath),
+    );
+    const fileWriteOffenders = staticDataWriteOffenders(sourceFile);
+    dataWriteOffenders.push(...fileWriteOffenders);
+    if (fileWriteOffenders.length > 0) dataWriteOffenders.push(...staticDataReadOffenders(sourceFile));
     const analysis = analyzePrismaFile(filePath);
     if (analysis.writes.length > 0) writes[relative(filePath)] = analysis.writes;
     if (analysis.rawSql.length > 0) rawSql[relative(filePath)] = analysis.rawSql;
@@ -2212,6 +2661,11 @@ function databaseWriterLeg(): boolean {
   assert.deepEqual(normalizedWrites, expectedWrites, "leg 5: repository-wide Prisma write call-site allow-list changed");
   assert.deepEqual(normalizedRawSql, expectedRawSql, "leg 5: Prisma raw-SQL allow-list changed");
   assert.deepEqual(rawDmlOffenders, [], "leg 5: non-allow-listed raw SQL DML found");
+  assert.deepEqual(
+    dataWriteOffenders.sort((left, right) => left.localeCompare(right)),
+    [],
+    `leg 5: repository-wide filesystem guard found unsafe access in a file that writes under data/: ${dataWriteOffenders.join("; ")}`,
+  );
   const writerFiles = [...new Set([...Object.keys(writes), ...Object.keys(rawSql)])]
     .map((filePath) => path.join(REPO_ROOT, filePath));
   assertWriterImportGraphsDoNotReadData(writerFiles, sourceWriterFiles);
@@ -2222,6 +2676,7 @@ async function main(): Promise<void> {
   assertRepositoryExtensionCoverage();
   assertFixtureIdentifiersAreValid();
   staticPathBindingLeg();
+  acquisitionRegressionLeg();
   if (databaseWriterLeg()) return;
   console.log("PASS leg 5: repository-wide Prisma write snapshot and transitive no-data-read guard");
   const database = databaseUrl();
