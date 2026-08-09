@@ -89,33 +89,57 @@ Review a catalog entry as a suggestion, then open `/settings` in your own X Coll
 **What this suite is for.** It guards against this project's own future changes accidentally wiring
 the community catalog into the subscription table. It is not a defence against a maintainer who
 deliberately sets out to defeat it — anyone with commit access to this repository can change anything,
-and no test in the repository can prevent that. What the suite guarantees is that such a change cannot
-happen quietly: it becomes a failing test and therefore a deliberate, reviewed diff.
+and no test in the repository can prevent that. The suite is built to catch code a maintainer could
+plausibly write during ordinary work. A contributor who deliberately chooses an unusual spelling to
+avoid the recognised shapes can succeed. Direct `Reflect.apply` on a delegate and direct
+`fs.openAsBlob` are regression-tested and caught today, but reflective/wrapper variants, paths assembled
+from opaque fragments, and harness detection are outside the coverage promise.
 
 **What it cannot reach.** A community contribution can never introduce any of this: check C1 rejects
 any pull request that touches a path outside `data/community-sources/`. Every construction the suite
 does not catch requires a human-authored change to this repository's own source.
 
-The **static** legs are load-bearing. A call shaped like
+The **static** legs are load-bearing within that bound. A direct call shaped like
 `<anything>.<schema delegate>.<write method>` is treated as a database write without first proving the
-receiver is a Prisma client. Raw-method calls are tracked in direct, bracket, destructured, aliased,
+receiver is a Prisma client. A delegate-shaped write-method reference that is not directly invoked is
+rejected, and inline Prisma relation `create`, `update`, `connectOrCreate`, and `upsert` objects are
+walked for nested writes. Raw-method calls are tracked in direct, bracket, destructured, aliased,
 `Reflect.get`, and bound forms; each allow-listed call includes a hash of its normalized SQL body, and
-non-allow-listed DML is rejected. A value needed to decide safety — delegate, method, SQL body,
-filesystem path, module acquisition, or network target — fails closed when it cannot be resolved.
+non-allow-listed DML is rejected. Values used by these recognised shapes fail closed when unresolved.
 
 Every recorded writer and its import closure is checked for reads under `data/`, with the single
 exception of `import-x-handles` reading `data/x-handles.json`. Files that write `source` or
-`alertSource` also have their reachable network targets restricted to the explicitly reviewed HTTPS
-hosts used by discovery. The repository walk includes TypeScript's `.mts` and `.cts` forms as well as
-the existing TS/JS extensions and is not limited to `src/`.
+`alertSource` have their full local import closure checked. Bare and `globalThis` fetches are inspected;
+network-module acquisition is allow-listed; and every call through an acquired namespace or function
+alias is inspected. Statically resolved targets must use an allow-listed HTTPS origin, while each
+legitimate dynamic target has an exact allow-list entry. The repository walk covers Next's effective
+page extensions plus Node's JS/TS module extensions and fails if a `next.config.js` `pageExtensions`
+override declares an extension the analyzer does not cover. It is not limited to `src/`.
+
+The filesystem guard follows `fs`/`fs/promises` acquisition and inspects every namespace call. Known
+APIs use their path positions; an unfamiliar API has every path-shaped argument inspected. Calls rooted
+at `os.tmpdir()` or `os.homedir()` resolve outside the repository and are safe, while a path that can
+land under `data/` is rejected. The package script map and both dependency maps are snapshotted, so a
+new execution path or database/network client is a visible test change.
 
 The **behavioural** legs — the `Source` set-equality run and the filesystem and subprocess trace — are
 a convenience check on the ordinary executed path, not a guarantee. The filesystem patch does not
 reach `worker_threads` isolates; a writer that spawns a subprocess is rejected outright.
 
-Each of these rules exists because a review round demonstrated a working way around its absence. Adding
-a database write, a raw query, a `data/` read, or a network call inside the writer closure therefore
-requires updating the corresponding snapshot in the same pull request — which is the point.
+If an ordinary non-Prisma object happens to have a delegate-shaped call, add its exact callee expression
+to `ALLOWED_NON_PRISMA_DELEGATE_SHAPES` after review. If a legitimate network target cannot be resolved
+statically, add the exact expression or reported call hash to `ALLOWED_UNRESOLVED_NETWORK_TARGETS`.
+These are narrow false-positive responses, not instructions to weaken the general rule.
+
+To regenerate raw-SQL body hashes after deliberately editing a legitimate query, run:
+
+```sh
+npx ts-node src/scripts/community/no-auto-subscribe.test.ts --print-raw-sql-snapshot
+```
+
+Review the normalized query and any DML warning, then update `EXPECTED_RAW_SQL_CALLS` and, only when the
+DML itself is intended, the exact `ALLOWED_RAW_DML_CALLS` entry. The command prints candidates; it does
+not modify or auto-approve the snapshot.
 
 ## Remove an entry
 

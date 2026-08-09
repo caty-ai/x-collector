@@ -3,9 +3,10 @@
  *
  * The static legs are the load-bearing tripwire. Delegate-shaped writes fail closed without proving
  * the receiver is a Prisma client; raw calls include a normalized SQL-body hash and DML policy; and
- * approved writer closures reject unsafe filesystem and network acquisition. The analyzer invariant
- * is simple: a value needed to establish safety either resolves to an exact allow-list entry or is an
- * offender. The behavioural legs remain best-effort convenience checks for ordinary executed paths.
+ * approved writer closures reject unsafe filesystem and network acquisition. The checks target
+ * ordinary code shapes and fail closed when a value used by a recognised shape cannot be resolved.
+ * Deliberately unusual spellings remain outside the stated threat model. The behavioural legs remain
+ * best-effort convenience checks for ordinary executed paths.
  */
 import assert from "assert/strict";
 import { spawnSync } from "child_process";
@@ -23,22 +24,63 @@ const DATA_ROOT = path.join(REPO_ROOT, "data");
 const COMMUNITY_DIR = path.join(DATA_ROOT, "community-sources");
 const X_HANDLES_PATH = path.join(DATA_ROOT, "x-handles.json");
 const PRISMA_SCHEMA_PATH = path.join(REPO_ROOT, "prisma/schema.prisma");
+const NEXT_CONFIG_PATH = path.join(REPO_ROOT, "next.config.js");
 const SENTINEL_IDENTIFIER = "ZZSentinelSrc";
 const PROMOTED_IDENTIFIER = "ManualSource";
 const SENTINEL_KEY = SENTINEL_IDENTIFIER.toLowerCase();
 const SENTINEL_FILENAME = `x--${SENTINEL_KEY}.json`;
-const REPOSITORY_SOURCE_EXTENSIONS = /\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/;
+const NEXT_DEFAULT_PAGE_EXTENSIONS = ["js", "jsx", "ts", "tsx"] as const;
+const NODE_LOADABLE_SOURCE_EXTENSIONS = ["mjs", "cjs", "mts", "cts"] as const;
+const REPOSITORY_SOURCE_EXTENSIONS = new Set(
+  [...NEXT_DEFAULT_PAGE_EXTENSIONS, ...NODE_LOADABLE_SOURCE_EXTENSIONS].map((extension) => `.${extension}`),
+);
 const EXCLUDED_REPOSITORY_DIRECTORIES = new Set(["node_modules", ".git", "dist", ".next"]);
 const COMMUNITY_SOURCE_LITERAL = "community-sources";
 const ALLOWED_NETWORK_ORIGINS = new Set([
   "https://api.scrapecreators.com",
   "https://openrouter.ai",
+  "https://transcriptapi.com",
+  "https://www.youtube.com",
 ]);
-const NETWORK_IMPORT_BOUNDARY_SNAPSHOTS: Record<string, string> = {
-  // Discovery imports only this scalar. Hashing the complete module makes any new top-level side
-  // effect or changed dependency a deliberate allow-list diff before it can leave the closure.
-  "src/collector/evaluate-candidates.ts->src/lib/pipeline/classify-llm.ts#DEFAULT_LLM_MODEL":
-    "e3b1844811c7427a8aa40dfa571dee6cfcc96ea6b0ea96229bbea5c9942efd1d",
+const NETWORK_CAPABLE_BUILTINS = new Set(["http", "https", "net", "tls", "dgram"]);
+const KNOWN_HTTP_CLIENT_PACKAGES = new Set(["axios", "got", "ky", "node-fetch", "superagent", "undici"]);
+const ALLOWED_NETWORK_MODULE_ACQUISITIONS = new Set([
+  "src/lib/net/safe-fetch.ts:http",
+  "src/lib/net/safe-fetch.ts:https",
+  "src/lib/net/safe-fetch.ts:net",
+]);
+const ALLOWED_UNRESOLVED_NETWORK_TARGETS = new Set([
+  "src/lib/net/safe-fetch.ts:sha256:f5012582daf4459128b740d094d0ee0d1ad734fd20356d7ab12188a2a17dc027",
+  "src/lib/ops-alert.ts:webhookUrl",
+  "src/lib/ops-alert.ts:url",
+  "src/lib/pipeline/enrich-youtube-transcript.ts:targetUrl",
+]);
+
+const EXPECTED_DEPENDENCIES: Record<string, string> = {
+  "@modelcontextprotocol/sdk": "1.26.0",
+  "@prisma/client": "^5.20.0",
+  dotenv: "^17.4.2",
+  "ipaddr.js": "^2.4.0",
+  "mcp-handler": "^1.1.0",
+  next: "^14.2.0",
+  "next-auth": "^4.24.13",
+  "node-cron": "^3.0.3",
+  react: "^18.3.0",
+  "react-dom": "^18.3.0",
+  "react-markdown": "^9.1.0",
+  "rss-parser": "^3.13.0",
+  zod: "^3.25.76",
+};
+
+const EXPECTED_DEV_DEPENDENCIES: Record<string, string> = {
+  "@types/node": "^20.14.0",
+  "@types/react": "^18.3.0",
+  autoprefixer: "^10.4.24",
+  postcss: "^8.5.6",
+  prisma: "^5.20.0",
+  tailwindcss: "^3.4.19",
+  "ts-node": "^10.9.2",
+  typescript: "^5.5.0",
 };
 
 const EXPECTED_SCRIPTS: Record<string, string> = {
@@ -227,7 +269,9 @@ const EXPECTED_RAW_SQL_CALLS: Record<string, string[]> = {
 const ALLOWED_RAW_DML_CALLS = new Set([
   "src/lib/pipeline/topic-cluster.ts:$executeRaw:745ec98b8d9edea33cdc321056526ffd2754e6fd9b0a6b17c736ddb3592f3284",
 ]);
+const ALLOWED_NON_PRISMA_DELEGATE_SHAPES = new Set<string>();
 const PRISMA_MODELS = prismaDelegatesFromSchema();
+const PRISMA_RELATIONS = prismaRelationsFromSchema(PRISMA_MODELS);
 const PRISMA_WRITE_METHODS = new Set([
   "create",
   "createMany",
@@ -283,11 +327,9 @@ type PrismaAnalysis = {
   rawDmlOffenders: string[];
 };
 
-type PrismaMethod = {
-  kind: "write" | "raw";
-  method: string;
-  delegate?: DelegateModel;
-};
+type PrismaMethod =
+  | { kind: "write"; method: string; delegate: DelegateModel }
+  | { kind: "raw"; method: string };
 
 type Scope = {
   delegates: Map<string, DelegateModel>;
@@ -329,13 +371,64 @@ function prismaDelegatesFromSchema(): Set<string> {
   return delegates;
 }
 
+function prismaRelationsFromSchema(models: Set<string>): Map<string, Map<string, string>> {
+  const schema = fs.readFileSync(PRISMA_SCHEMA_PATH, "utf8");
+  const relations = new Map<string, Map<string, string>>();
+  for (const match of schema.matchAll(/^model\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{([\s\S]*?)^\}/gm)) {
+    const model = match[1];
+    const delegate = `${model[0].toLowerCase()}${model.slice(1)}`;
+    const fields = new Map<string, string>();
+    for (const line of match[2].split("\n")) {
+      const field = line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\[\])?\??(?:\s|$)/);
+      if (!field) continue;
+      const target = `${field[2][0].toLowerCase()}${field[2].slice(1)}`;
+      if (models.has(target)) fields.set(field[1], target);
+    }
+    relations.set(delegate, fields);
+  }
+  return relations;
+}
+
+function effectiveNextPageExtensions(): string[] {
+  let loaded: unknown;
+  try {
+    const resolved = require.resolve(NEXT_CONFIG_PATH);
+    delete require.cache[resolved];
+    loaded = require(resolved) as unknown;
+  } catch (error) {
+    assert.fail(`startup: could not read next.config.js: ${String(error)}`);
+  }
+  const config = loaded && typeof loaded === "object" && "default" in loaded
+    ? (loaded as { default: unknown }).default
+    : loaded;
+  assert.ok(config && typeof config === "object", "startup: next.config.js must export an object for extension inspection");
+  const pageExtensions = (config as { pageExtensions?: unknown }).pageExtensions;
+  if (pageExtensions === undefined) return [...NEXT_DEFAULT_PAGE_EXTENSIONS];
+  assert.ok(
+    Array.isArray(pageExtensions) && pageExtensions.length > 0 && pageExtensions.every((value) => typeof value === "string"),
+    "startup: next.config.js pageExtensions must be a non-empty string array",
+  );
+  return pageExtensions.map((extension) => extension.replace(/^\./, ""));
+}
+
+function assertRepositoryExtensionCoverage(): void {
+  const uncovered = effectiveNextPageExtensions()
+    .map((extension) => `.${extension}`)
+    .filter((extension) => !REPOSITORY_SOURCE_EXTENSIONS.has(extension));
+  assert.deepEqual(
+    uncovered,
+    [],
+    `startup: next.config.js pageExtensions are not covered by the repository walk: ${uncovered.join(", ")}`,
+  );
+}
+
 function walkSourceFiles(directory: string, wholeRepository = false): string[] {
   const found: string[] = [];
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     if (entry.isDirectory() && wholeRepository && EXCLUDED_REPOSITORY_DIRECTORIES.has(entry.name)) continue;
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) found.push(...walkSourceFiles(absolute, wholeRepository));
-    else if ((wholeRepository ? REPOSITORY_SOURCE_EXTENSIONS : /\.(?:ts|tsx)$/).test(entry.name)) found.push(absolute);
+    else if (REPOSITORY_SOURCE_EXTENSIONS.has(path.extname(entry.name))) found.push(absolute);
   }
   return found;
 }
@@ -627,14 +720,19 @@ function importGraphLeg(): void {
 function scriptSnapshotLeg(): void {
   const packageJson = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf8")) as {
     scripts?: Record<string, string>;
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
   };
   const actual = Object.fromEntries(Object.entries(packageJson.scripts ?? {}).sort(([left], [right]) => left.localeCompare(right)));
   const expected = Object.fromEntries(Object.entries(EXPECTED_SCRIPTS).sort(([left], [right]) => left.localeCompare(right)));
   assert.deepEqual(actual, expected, "leg 4: package.json script name→value map changed");
+  assert.deepEqual(packageJson.dependencies ?? {}, EXPECTED_DEPENDENCIES, "leg 4: package.json dependencies changed");
+  assert.deepEqual(packageJson.devDependencies ?? {}, EXPECTED_DEV_DEPENDENCIES, "leg 4: package.json devDependencies changed");
 }
 
 function scriptKindFor(filePath: string): ts.ScriptKind {
   if (filePath.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (filePath.endsWith(".jsx")) return ts.ScriptKind.JSX;
   if (filePath.endsWith(".js") || filePath.endsWith(".mjs") || filePath.endsWith(".cjs")) return ts.ScriptKind.JS;
   return ts.ScriptKind.TS;
 }
@@ -880,7 +978,7 @@ function recordRawSql(
     analysis.offenders.push(`${sourcePosition(sourceFile, node)} ${method} has no SQL body`);
     return;
   }
-  const context: StaticPathContext = { sourceFile, constants: collectConstantInitializers(sourceFile) };
+  const context = staticPathContext(sourceFile);
   const sql = normalizedRawSql(expression, context);
   if (sql === null) {
     analysis.offenders.push(`${sourcePosition(sourceFile, node)} ${method} has an unresolvable SQL body`);
@@ -897,11 +995,153 @@ function recordRawSql(
   }
 }
 
+function recordPrismaWrite(method: Extract<PrismaMethod, { kind: "write" }>, analysis: PrismaAnalysis): void {
+  analysis.writes.push(`${method.delegate}.${method.method}`);
+  if (method.delegate === "source" || method.delegate === "alertSource") analysis.sourceTableWriter = true;
+}
+
+function delegateShapeAllowKey(sourceFile: ts.SourceFile, expression: ts.Expression): string {
+  return `${relative(sourceFile.fileName)}:${expression.getText(sourceFile).replace(/\s+/g, " ").trim()}`;
+}
+
+function propertyInitializer(
+  property: ts.ObjectLiteralElementLike,
+  context: StaticPathContext,
+): { name: string; expression: ts.Expression } | null {
+  if (ts.isPropertyAssignment(property)) {
+    const name = property.name && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))
+      ? property.name.text
+      : null;
+    return name ? { name, expression: property.initializer } : null;
+  }
+  if (ts.isShorthandPropertyAssignment(property)) {
+    const initializer = context.constants.get(property.name.text);
+    return initializer ? { name: property.name.text, expression: initializer } : null;
+  }
+  return null;
+}
+
+function resolveStaticExpression(
+  expression: ts.Expression,
+  context: StaticPathContext,
+  seen = new Set<string>(),
+): ts.Expression | null {
+  const candidate = unwrapExpression(expression);
+  if (!ts.isIdentifier(candidate)) return candidate;
+  if (seen.has(candidate.text)) return null;
+  const initializer = context.constants.get(candidate.text);
+  if (!initializer) return null;
+  const nextSeen = new Set(seen);
+  nextSeen.add(candidate.text);
+  return resolveStaticExpression(initializer, context, nextSeen);
+}
+
+function forEachObjectLiteral(
+  expression: ts.Expression,
+  context: StaticPathContext,
+  visit: (object: ts.ObjectLiteralExpression) => void,
+): void {
+  const resolved = resolveStaticExpression(expression, context);
+  if (!resolved) return;
+  if (ts.isArrayLiteralExpression(resolved)) {
+    for (const element of resolved.elements) {
+      if (!ts.isSpreadElement(element)) forEachObjectLiteral(element, context, visit);
+    }
+    return;
+  }
+  if (ts.isObjectLiteralExpression(resolved)) visit(resolved);
+}
+
+function inspectNestedRelationWrites(
+  expression: ts.Expression,
+  delegate: DelegateModel,
+  context: StaticPathContext,
+  analysis: PrismaAnalysis,
+): void {
+  forEachObjectLiteral(expression, context, (dataObject) => {
+    for (const property of dataObject.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        inspectNestedRelationWrites(property.expression, delegate, context, analysis);
+        continue;
+      }
+      const field = propertyInitializer(property, context);
+      if (!field) continue;
+      const targetDelegate = PRISMA_RELATIONS.get(delegate)?.get(field.name);
+      if (!targetDelegate) {
+        if (field.name === "data" || field.name === "create" || field.name === "update") {
+          inspectNestedRelationWrites(field.expression, delegate, context, analysis);
+        }
+        continue;
+      }
+
+      forEachObjectLiteral(field.expression, context, (relationObject) => {
+        for (const relationProperty of relationObject.properties) {
+          const action = propertyInitializer(relationProperty, context);
+          if (!action) continue;
+          const record = (method: string, payload: ts.Expression): void => {
+            recordPrismaWrite({ kind: "write", delegate: targetDelegate, method }, analysis);
+            inspectNestedRelationWrites(payload, targetDelegate, context, analysis);
+          };
+          if (action.name === "create" || action.name === "createMany") {
+            if (action.name === "createMany") {
+              forEachObjectLiteral(action.expression, context, (container) => {
+                const data = container.properties
+                  .map((candidate) => propertyInitializer(candidate, context))
+                  .find((candidate) => candidate?.name === "data");
+                record("createMany", data?.expression ?? action.expression);
+              });
+            } else {
+              record("create", action.expression);
+            }
+          } else if (action.name === "update") {
+            record("update", action.expression);
+          } else if (action.name === "connectOrCreate") {
+            forEachObjectLiteral(action.expression, context, (container) => {
+              const create = container.properties
+                .map((candidate) => propertyInitializer(candidate, context))
+                .find((candidate) => candidate?.name === "create");
+              if (create) record("create", create.expression);
+            });
+          } else if (action.name === "upsert") {
+            forEachObjectLiteral(action.expression, context, (container) => {
+              for (const branch of container.properties) {
+                const candidate = propertyInitializer(branch, context);
+                if (candidate?.name === "create") record("create", candidate.expression);
+                if (candidate?.name === "update") record("update", candidate.expression);
+              }
+            });
+          }
+        }
+      });
+    }
+  });
+}
+
+function inspectPrismaWriteArguments(
+  node: ts.CallExpression,
+  method: Extract<PrismaMethod, { kind: "write" }>,
+  context: StaticPathContext,
+  analysis: PrismaAnalysis,
+): void {
+  const options = node.arguments[0];
+  if (!options) return;
+  forEachObjectLiteral(options, context, (object) => {
+    const payloadNames = method.method === "upsert" ? new Set(["create", "update"]) : new Set(["data"]);
+    for (const property of object.properties) {
+      const candidate = propertyInitializer(property, context);
+      if (candidate && payloadNames.has(candidate.name)) {
+        inspectNestedRelationWrites(candidate.expression, method.delegate, context, analysis);
+      }
+    }
+  });
+}
+
 function trackPrismaCall(
   node: ts.CallExpression,
   scope: Scope,
   sourceFile: ts.SourceFile,
   analysis: PrismaAnalysis,
+  context: StaticPathContext,
 ): void {
   const directCallee = unwrapExpression(node.expression);
   if (
@@ -910,13 +1150,39 @@ function trackPrismaCall(
   ) return;
   const method = resolvePrismaMethodExpression(node.expression, scope);
   if (method?.kind === "write") {
-    analysis.writes.push(`${method.delegate}.${method.method}`);
-    if (method.delegate === "source" || method.delegate === "alertSource") analysis.sourceTableWriter = true;
+    if (ALLOWED_NON_PRISMA_DELEGATE_SHAPES.has(delegateShapeAllowKey(sourceFile, node.expression))) return;
+    recordPrismaWrite(method, analysis);
+    inspectPrismaWriteArguments(node, method, context, analysis);
     return;
   }
   if (method?.kind === "raw") {
     recordRawSql(method.method, node.arguments[0], sourceFile, node, analysis);
   }
+}
+
+function trackDetachedPrismaMethodReference(
+  node: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+  scope: Scope,
+  sourceFile: ts.SourceFile,
+  analysis: PrismaAnalysis,
+): void {
+  const method = resolvePrismaMethodExpression(node, scope);
+  if (method?.kind !== "write") return;
+  if (ALLOWED_NON_PRISMA_DELEGATE_SHAPES.has(delegateShapeAllowKey(sourceFile, node))) return;
+  let reference: ts.Expression = node;
+  let parent = node.parent;
+  while (
+    parent
+    && (ts.isParenthesizedExpression(parent) || ts.isAsExpression(parent) || ts.isTypeAssertionExpression(parent) || ts.isNonNullExpression(parent))
+    && parent.expression === reference
+  ) {
+    reference = parent;
+    parent = parent.parent;
+  }
+  if (parent && ts.isCallExpression(parent) && parent.expression === reference) return;
+  analysis.offenders.push(
+    `${sourcePosition(sourceFile, node)} ${method.delegate}.${method.method} method reference is not directly invoked`,
+  );
 }
 
 function trackUnresolvedPrismaShape(
@@ -988,6 +1254,7 @@ function analyzePrismaFile(filePath: string): PrismaAnalysis {
     offenders: [],
     rawDmlOffenders: [],
   };
+  const context = staticPathContext(sourceFile);
 
   const preloadAliases = (node: ts.Node, scope: Scope): void => {
     if (ts.isVariableDeclaration(node)) trackVariableAlias(node, scope);
@@ -1010,9 +1277,12 @@ function analyzePrismaFile(filePath: string): PrismaAnalysis {
     } else if (ts.isExpressionStatement(node)) {
       trackAssignmentAlias(node.expression, scope);
     } else if (ts.isCallExpression(node)) {
-      trackPrismaCall(node, scope, sourceFile, analysis);
+      trackPrismaCall(node, scope, sourceFile, analysis, context);
     } else if (ts.isTaggedTemplateExpression(node)) {
       trackPrismaRawTag(node, scope, sourceFile, analysis);
+    }
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      trackDetachedPrismaMethodReference(node, scope, sourceFile, analysis);
     }
     // Fail-closed invariant: whenever a delegate, method, path, SQL body, or network target is needed
     // to prove safety, an unresolvable value is recorded as an offender and is never silently skipped.
@@ -1044,8 +1314,9 @@ const FS_PATH_ARGUMENTS: Record<string, number[]> = {
 };
 
 const SAFE_COMPUTED_FS_READS: Record<string, Record<string, string>> = {
-  // The default path is `docs/prompts/step1-3`; these four established prompt reads predate this
-  // guard and are reviewed as outside data/. Keep this exact so it cannot become a general bypass.
+  // These remain necessary after module-binding resolution: the optional promptDir parameter makes
+  // the base dynamic. Keep the exact established filenames and initializer shape so this cannot
+  // become a general computed-path bypass.
   "src/lib/pipeline/classify-llm.ts": {
     sharedPath: "final-shared-common.md",
     groupAPath: "group-a-short-social.md",
@@ -1057,7 +1328,123 @@ const SAFE_COMPUTED_FS_READS: Record<string, Record<string, string>> = {
 type StaticPathContext = {
   sourceFile: ts.SourceFile;
   constants: Map<string, ts.Expression>;
+  moduleNamespaces: Map<string, StaticPathModule>;
+  moduleFunctions: Map<string, StaticModuleFunction>;
 };
+
+type StaticPathModule = "os" | "path" | "process";
+
+type StaticModuleFunction = {
+  module: StaticPathModule;
+  method: string;
+};
+
+const STATIC_PATH_MODULE_METHODS: Record<StaticPathModule, Set<string>> = {
+  os: new Set(["homedir", "tmpdir"]),
+  path: new Set(["basename", "dirname", "join", "normalize", "resolve"]),
+  process: new Set(["cwd"]),
+};
+
+function staticPathModuleName(specifier: string): StaticPathModule | null {
+  const normalized = specifier.replace(/^node:/, "");
+  return normalized === "os" || normalized === "path" || normalized === "process" ? normalized : null;
+}
+
+function requiredStaticPathModule(expression: ts.Expression): StaticPathModule | null {
+  const candidate = unwrapExpression(expression);
+  if (
+    !ts.isCallExpression(candidate)
+    || !ts.isIdentifier(candidate.expression)
+    || candidate.expression.text !== "require"
+    || candidate.arguments.length !== 1
+    || !ts.isStringLiteralLike(candidate.arguments[0])
+  ) return null;
+  return staticPathModuleName(candidate.arguments[0].text);
+}
+
+function collectStaticPathModuleBindings(sourceFile: ts.SourceFile): {
+  namespaces: Map<string, StaticPathModule>;
+  functions: Map<string, StaticModuleFunction>;
+} {
+  const namespaces = new Map<string, StaticPathModule>([["process", "process"]]);
+  const functions = new Map<string, StaticModuleFunction>();
+
+  const registerBinding = (name: ts.BindingName, module: StaticPathModule): void => {
+    if (ts.isIdentifier(name)) {
+      namespaces.set(name.text, module);
+      return;
+    }
+    if (!ts.isObjectBindingPattern(name)) return;
+    for (const element of name.elements) {
+      if (!ts.isIdentifier(element.name)) continue;
+      const imported = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
+        ? element.propertyName.text
+        : element.name.text;
+      if (STATIC_PATH_MODULE_METHODS[module].has(imported)) {
+        functions.set(element.name.text, { module, method: imported });
+      }
+    }
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isImportEqualsDeclaration(node)
+      && ts.isExternalModuleReference(node.moduleReference)
+      && node.moduleReference.expression
+      && ts.isStringLiteralLike(node.moduleReference.expression)
+    ) {
+      const module = staticPathModuleName(node.moduleReference.expression.text);
+      if (module) namespaces.set(node.name.text, module);
+    }
+    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
+      const module = staticPathModuleName(node.moduleSpecifier.text);
+      if (module) {
+        const clause = node.importClause;
+        if (clause?.name) namespaces.set(clause.name.text, module);
+        if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+          namespaces.set(clause.namedBindings.name.text, module);
+        }
+        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+          for (const element of clause.namedBindings.elements) {
+            if (element.isTypeOnly) continue;
+            const imported = element.propertyName?.text ?? element.name.text;
+            if (STATIC_PATH_MODULE_METHODS[module].has(imported)) {
+              functions.set(element.name.text, { module, method: imported });
+            }
+          }
+        }
+      }
+    }
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      const initializer = unwrapExpression(node.initializer);
+      const module = requiredStaticPathModule(initializer);
+      if (module) registerBinding(node.name, module);
+      if (
+        ts.isIdentifier(node.name)
+        && (ts.isPropertyAccessExpression(initializer) || ts.isElementAccessExpression(initializer))
+      ) {
+        const requiredModule = requiredStaticPathModule(initializer.expression);
+        const method = propertyNameText(initializer);
+        if (requiredModule && method && STATIC_PATH_MODULE_METHODS[requiredModule].has(method)) {
+          functions.set(node.name.text, { module: requiredModule, method });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return { namespaces, functions };
+}
+
+function staticPathContext(sourceFile: ts.SourceFile): StaticPathContext {
+  const bindings = collectStaticPathModuleBindings(sourceFile);
+  return {
+    sourceFile,
+    constants: collectConstantInitializers(sourceFile),
+    moduleNamespaces: bindings.namespaces,
+    moduleFunctions: bindings.functions,
+  };
+}
 
 function collectConstantInitializers(sourceFile: ts.SourceFile): Map<string, ts.Expression> {
   const constants = new Map<string, ts.Expression>();
@@ -1108,31 +1495,50 @@ function evaluateStaticPaths(
   }
   if (!ts.isCallExpression(candidate)) return null;
   const callee = unwrapExpression(candidate.expression);
-  if (
-    ts.isPropertyAccessExpression(callee)
-    && ts.isIdentifier(callee.expression)
-    && callee.expression.text === "process"
-    && callee.name.text === "cwd"
-    && candidate.arguments.length === 0
-  ) {
-    return [REPO_ROOT];
+  const staticFunction = (() => {
+    if (ts.isIdentifier(callee)) return context.moduleFunctions.get(callee.text) ?? null;
+    if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return null;
+    const method = propertyNameText(callee);
+    if (!method) return null;
+    const receiver = unwrapExpression(callee.expression);
+    const module = ts.isIdentifier(receiver)
+      ? context.moduleNamespaces.get(receiver.text) ?? null
+      : requiredStaticPathModule(receiver);
+    if (!module || !STATIC_PATH_MODULE_METHODS[module].has(method)) return null;
+    return { module, method } satisfies StaticModuleFunction;
+  })();
+  if (!staticFunction) return null;
+  if (staticFunction.module === "os") {
+    if (candidate.arguments.length !== 0) return null;
+    return [staticFunction.method === "tmpdir" ? os.tmpdir() : os.homedir()];
   }
-  if (
-    ts.isPropertyAccessExpression(callee)
-    && ts.isIdentifier(callee.expression)
-    && callee.expression.text === "path"
-    && (callee.name.text === "join" || callee.name.text === "resolve")
-  ) {
-    const parts = candidate.arguments.map((argument) => evaluateStaticPaths(argument, context, seen));
-    if (parts.some((part) => part === null)) return null;
-    let combinations = [""];
-    for (const part of parts as string[][]) {
-      combinations = combinations.flatMap((prefix) => part.map((value) => {
-        if (prefix === "") return value;
-        return callee.name.text === "resolve" ? path.resolve(prefix, value) : path.join(prefix, value);
-      }));
-    }
-    return combinations;
+  if (staticFunction.module === "process") {
+    return candidate.arguments.length === 0 ? [REPO_ROOT] : null;
+  }
+
+  const parts = candidate.arguments.map((argument) => evaluateStaticPaths(argument, context, seen));
+  if (parts.some((part) => part === null)) return null;
+  let combinations: string[][] = [[]];
+  for (const part of parts as string[][]) {
+    combinations = combinations.flatMap((prefix) => part.map((value) => [...prefix, value]));
+  }
+  switch (staticFunction.method) {
+    case "join":
+      return combinations.map((values) => path.join(...values));
+    case "resolve":
+      return combinations.map((values) => path.resolve(REPO_ROOT, ...values));
+    case "normalize":
+      return combinations.length > 0 && combinations.every((values) => values.length === 1)
+        ? combinations.map(([value]) => path.normalize(value))
+        : null;
+    case "basename":
+      return combinations.length > 0 && combinations.every((values) => values.length === 1 || values.length === 2)
+        ? combinations.map(([value, suffix]) => suffix === undefined ? path.basename(value) : path.basename(value, suffix))
+        : null;
+    case "dirname":
+      return combinations.length > 0 && combinations.every((values) => values.length === 1)
+        ? combinations.map(([value]) => path.dirname(value))
+        : null;
   }
   return null;
 }
@@ -1173,7 +1579,7 @@ function isVerifiedSafeComputedFsRead(
 }
 
 function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
-  const context: StaticPathContext = { sourceFile, constants: collectConstantInitializers(sourceFile) };
+  const context = staticPathContext(sourceFile);
   const fsNamespaces = new Set<string>();
   const fsFunctions = new Map<string, string>();
   const offenders: string[] = [];
@@ -1306,6 +1712,23 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
     }
   };
 
+  const couldBePathArgument = (argument: ts.Expression): boolean => {
+    const candidate = unwrapExpression(argument);
+    if (
+      ts.isArrowFunction(candidate)
+      || ts.isFunctionExpression(candidate)
+      || ts.isObjectLiteralExpression(candidate)
+      || ts.isNumericLiteral(candidate)
+      || candidate.kind === ts.SyntaxKind.TrueKeyword
+      || candidate.kind === ts.SyntaxKind.FalseKeyword
+      || candidate.kind === ts.SyntaxKind.NullKeyword
+    ) return false;
+    if (ts.isArrayLiteralExpression(candidate)) {
+      return candidate.elements.some((element) => !ts.isSpreadElement(element) && couldBePathArgument(element));
+    }
+    return true;
+  };
+
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
       const callee = unwrapExpression(node.expression);
@@ -1330,8 +1753,11 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
         && fsNamespaces.has(callee.expression.text)
         && !propertyNameText(callee)
       ) offenders.push(`${sourcePosition(sourceFile, node)} fs call has an unresolvable method identity`);
-      if (fsMethod && FS_PATH_ARGUMENTS[fsMethod]) {
-        for (const argumentIndex of FS_PATH_ARGUMENTS[fsMethod]) inspectArgument(node, fsMethod, argumentIndex);
+      if (fsMethod) {
+        const knownPathArguments = FS_PATH_ARGUMENTS[fsMethod];
+        const argumentIndexes = knownPathArguments
+          ?? node.arguments.flatMap((argument, index) => couldBePathArgument(argument) ? [index] : []);
+        for (const argumentIndex of argumentIndexes) inspectArgument(node, fsMethod, argumentIndex);
       }
       if (callee.kind === ts.SyntaxKind.ImportKeyword) inspectArgument(node, "import", 0, true);
       if (ts.isIdentifier(callee) && callee.text === "require") inspectArgument(node, "require", 0, true);
@@ -1340,6 +1766,114 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
   };
   visit(sourceFile);
   return offenders;
+}
+
+function staticPathBindingLeg(): void {
+  const sourcePath = path.join(REPO_ROOT, "src", "__static-path-binding-regression.ts");
+  const analyze = (source: string): string[] => staticDataReadOffenders(ts.createSourceFile(
+    sourcePath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  ));
+  const cases = [
+    {
+      label: "namespace path import",
+      safe: `
+        import * as fs from "fs";
+        import * as os from "os";
+        import * as path from "path";
+        fs.mkdtempSync(path.join(os.tmpdir(), "zz-"));
+      `,
+      unsafe: `
+        import * as fs from "fs";
+        import * as path from "path";
+        fs.readFileSync(path.join(process.cwd(), "data", "community-sources", "fixture.json"), "utf8");
+      `,
+    },
+    {
+      label: "aliased namespace path import",
+      safe: `
+        import * as nodeFs from "node:fs";
+        import * as hostOs from "node:os";
+        import * as nodePath from "node:path";
+        nodeFs.mkdtempSync(nodePath.join(hostOs.tmpdir(), "zz-"));
+      `,
+      unsafe: `
+        import * as nodeFs from "node:fs";
+        import * as nodePath from "node:path";
+        nodeFs.readFileSync(nodePath.join(process.cwd(), "data", "community-sources", "fixture.json"), "utf8");
+      `,
+    },
+    {
+      label: "named join import",
+      safe: `
+        import { mkdtempSync } from "fs";
+        import { tmpdir } from "os";
+        import { join } from "path";
+        mkdtempSync(join(tmpdir(), "zz-"));
+      `,
+      unsafe: `
+        import { readFileSync } from "fs";
+        import { join } from "path";
+        readFileSync(join(process.cwd(), "data", "community-sources", "fixture.json"), "utf8");
+      `,
+    },
+  ];
+
+  for (const testCase of cases) {
+    assert.deepEqual(analyze(testCase.safe), [], `leg 5 path bindings: ${testCase.label} rejected a safe temp path`);
+    const unsafeOffenders = analyze(testCase.unsafe);
+    assert.ok(
+      unsafeOffenders.some((offender) => offender.includes("reads data/community-sources/fixture.json")),
+      `leg 5 path bindings: ${testCase.label} did not reject a community-source read: ${unsafeOffenders.join("; ")}`,
+    );
+    console.log(`PASS leg 5 path bindings: ${testCase.label} accepts temp paths and rejects data/community-sources`);
+  }
+
+  assert.deepEqual(
+    analyze(`
+      import { readFileSync } from "node:fs";
+      import { homedir } from "node:os";
+      import { cwd as processCwd } from "node:process";
+      import {
+        basename as pathBasename,
+        dirname as pathDirname,
+        join as pathJoin,
+        normalize as pathNormalize,
+        resolve as pathResolve,
+      } from "node:path";
+      readFileSync(pathJoin(homedir(), "fixture.json"), "utf8");
+      readFileSync(pathResolve(processCwd(), "docs", "fixture.json"), "utf8");
+      readFileSync(pathNormalize("/tmp/fixture.json"), "utf8");
+      readFileSync(pathBasename("/tmp/fixture.json"), "utf8");
+      readFileSync(pathDirname("/tmp/fixture.json"), "utf8");
+    `),
+    [],
+    "leg 5 path bindings: named imports for a supported path method did not resolve",
+  );
+
+  assert.deepEqual(
+    analyze(`
+      const fs = require("node:fs");
+      const osAlias = require("os");
+      const processAlias = require("node:process");
+      const pathAlias = require("node:path");
+      const { join: joinAlias, resolve, normalize, basename, dirname } = require("path");
+      import importEqualsPath = require("node:path");
+      fs.mkdtempSync(pathAlias.join(osAlias.tmpdir(), "zz-"));
+      fs.readFileSync(joinAlias(osAlias.homedir(), "fixture.json"), "utf8");
+      fs.readFileSync(resolve(processAlias.cwd(), "docs", "fixture.json"), "utf8");
+      fs.readFileSync(normalize("/tmp/fixture.json"), "utf8");
+      fs.readFileSync(basename("/tmp/fixture.json"), "utf8");
+      fs.readFileSync(dirname("/tmp/fixture.json"), "utf8");
+      fs.readFileSync(require("path").join(osAlias.tmpdir(), "fixture.json"), "utf8");
+      fs.readFileSync(importEqualsPath.join(osAlias.tmpdir(), "fixture.json"), "utf8");
+    `),
+    [],
+    "leg 5 path bindings: require bindings or a supported path method did not resolve",
+  );
 }
 
 function communitySourceLiteralOffenders(sourceFile: ts.SourceFile): string[] {
@@ -1377,7 +1911,7 @@ function networkImportClosure(rootFiles: string[]): ts.SourceFile[] {
     );
     seen.set(absolute, sourceFile);
 
-    const followModule = (specifier: string, importedNames: string[] = []): void => {
+    const followModule = (specifier: string): void => {
       const resolved = ts.resolveModuleName(
         specifier,
         absolute,
@@ -1390,23 +1924,12 @@ function networkImportClosure(rootFiles: string[]): ts.SourceFile[] {
         return;
       }
 
-      const boundaryKey = `${relative(absolute)}->${relative(resolvedAbsolute)}#${importedNames.join(",")}`;
-      const expectedHash = NETWORK_IMPORT_BOUNDARY_SNAPSHOTS[boundaryKey];
-      if (expectedHash) {
-        const actualHash = createHash("sha256").update(fs.readFileSync(resolvedAbsolute)).digest("hex");
-        assert.equal(actualHash, expectedHash, `leg 5: network import-boundary snapshot changed: ${boundaryKey}`);
-        return;
-      }
       visitFile(resolvedAbsolute);
     };
 
     const visitImports = (node: ts.Node): void => {
       if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
-        const clause = node.importClause;
-        const importedNames = clause?.namedBindings && ts.isNamedImports(clause.namedBindings)
-          ? clause.namedBindings.elements.map((element) => element.propertyName?.text ?? element.name.text).sort()
-          : [];
-        followModule(node.moduleSpecifier.text, importedNames);
+        followModule(node.moduleSpecifier.text);
       } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) {
         followModule(node.moduleSpecifier.text);
       } else if (ts.isCallExpression(node) && node.arguments.length === 1 && ts.isStringLiteralLike(node.arguments[0])) {
@@ -1462,62 +1985,148 @@ function evaluateNetworkTargets(
 function networkTargetOffenders(sourceFiles: ts.SourceFile[]): string[] {
   const offenders: string[] = [];
   for (const sourceFile of sourceFiles) {
-    const context: StaticPathContext = { sourceFile, constants: collectConstantInitializers(sourceFile) };
-    const requestNamespaces = new Set(["http", "https"]);
-    const collectRequestNamespaces = (node: ts.Node): void => {
-      if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
-        const specifier = node.moduleSpecifier.text.replace(/^node:/, "");
-        if (specifier === "http" || specifier === "https") {
-          if (node.importClause?.name) requestNamespaces.add(node.importClause.name.text);
-          if (node.importClause?.namedBindings && ts.isNamespaceImport(node.importClause.namedBindings)) {
-            requestNamespaces.add(node.importClause.namedBindings.name.text);
-          }
+    const context = staticPathContext(sourceFile);
+    const networkNamespaces = new Set<string>();
+    const networkFunctions = new Set<string>();
+    const relativeFile = relative(sourceFile.fileName);
+
+    const acquisitionAllowed = (specifier: string): boolean => {
+      const allowed = ALLOWED_NETWORK_MODULE_ACQUISITIONS.has(`${relativeFile}:${specifier}`);
+      if (!allowed) offenders.push(`${relativeFile}: network module acquisition is not allow-listed: ${specifier}`);
+      return allowed;
+    };
+
+    const registerBindings = (name: ts.BindingName, specifier: string): void => {
+      if (ts.isIdentifier(name)) {
+        networkNamespaces.add(name.text);
+        return;
+      }
+      if (!ts.isObjectBindingPattern(name)) return;
+      for (const element of name.elements) {
+        if (!ts.isIdentifier(element.name)) continue;
+        const imported = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
+          ? element.propertyName.text
+          : element.name.text;
+        if (`${relativeFile}:${specifier}:${imported}` !== "src/lib/net/safe-fetch.ts:net:isIP") {
+          networkFunctions.add(element.name.text);
         }
       }
-      if (
-        ts.isVariableDeclaration(node)
-        && ts.isIdentifier(node.name)
-        && node.initializer
-        && ts.isCallExpression(node.initializer)
-        && ts.isIdentifier(node.initializer.expression)
-        && node.initializer.expression.text === "require"
-        && node.initializer.arguments.length === 1
-        && ts.isStringLiteralLike(node.initializer.arguments[0])
-      ) {
-        const specifier = node.initializer.arguments[0].text.replace(/^node:/, "");
-        if (specifier === "http" || specifier === "https") requestNamespaces.add(node.name.text);
-      }
-      ts.forEachChild(node, collectRequestNamespaces);
     };
-    collectRequestNamespaces(sourceFile);
-    const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node)) {
-        const callee = unwrapExpression(node.expression);
-        const isFetch = ts.isIdentifier(callee) && callee.text === "fetch";
-        const isHttpRequest = ts.isPropertyAccessExpression(callee)
-          && ts.isIdentifier(callee.expression)
-          && requestNamespaces.has(callee.expression.text)
-          && callee.name.text === "request";
-        if (isFetch || isHttpRequest) {
-          const target = node.arguments[0];
-          const values = target ? evaluateNetworkTargets(target, context) : null;
-          if (!values || values.length === 0) {
-            offenders.push(`${sourcePosition(sourceFile, node)} network target is unresolvable`);
-          } else {
-            for (const value of values) {
-              let parsed: URL;
-              try {
-                parsed = new URL(value);
-              } catch {
-                offenders.push(`${sourcePosition(sourceFile, node)} network target is not an absolute URL`);
-                continue;
-              }
-              if (!ALLOWED_NETWORK_ORIGINS.has(parsed.origin)) {
-                offenders.push(`${sourcePosition(sourceFile, node)} network origin is not allow-listed: ${parsed.origin}`);
+
+    const requiredNetworkModule = (expression: ts.Expression): string | null => {
+      const candidate = unwrapExpression(expression);
+      if (
+        !ts.isCallExpression(candidate)
+        || !ts.isIdentifier(candidate.expression)
+        || candidate.expression.text !== "require"
+        || candidate.arguments.length !== 1
+        || !ts.isStringLiteralLike(candidate.arguments[0])
+      ) return null;
+      const specifier = candidate.arguments[0].text.replace(/^node:/, "");
+      return NETWORK_CAPABLE_BUILTINS.has(specifier) || KNOWN_HTTP_CLIENT_PACKAGES.has(specifier)
+        ? specifier
+        : null;
+    };
+
+    const isAcquiredNetworkFunction = (expression: ts.Expression): boolean => {
+      const candidate = unwrapExpression(expression);
+      if (ts.isIdentifier(candidate)) return networkFunctions.has(candidate.text);
+      if (
+        (ts.isPropertyAccessExpression(candidate) || ts.isElementAccessExpression(candidate))
+        && ts.isIdentifier(candidate.expression)
+      ) return networkNamespaces.has(candidate.expression.text);
+      if (ts.isConditionalExpression(candidate)) {
+        return isAcquiredNetworkFunction(candidate.whenTrue) || isAcquiredNetworkFunction(candidate.whenFalse);
+      }
+      return false;
+    };
+
+    const collectAcquisitionsAndAliases = (node: ts.Node): void => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier) && !node.importClause?.isTypeOnly) {
+        const specifier = node.moduleSpecifier.text.replace(/^node:/, "");
+        if (NETWORK_CAPABLE_BUILTINS.has(specifier) || KNOWN_HTTP_CLIENT_PACKAGES.has(specifier)) {
+          if (acquisitionAllowed(specifier)) {
+            const clause = node.importClause;
+            if (clause?.name) networkNamespaces.add(clause.name.text);
+            if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+              networkNamespaces.add(clause.namedBindings.name.text);
+            }
+            if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+              for (const element of clause.namedBindings.elements) {
+                if (element.isTypeOnly) continue;
+                const imported = element.propertyName?.text ?? element.name.text;
+                if (`${relativeFile}:${specifier}:${imported}` !== "src/lib/net/safe-fetch.ts:net:isIP") {
+                  networkFunctions.add(element.name.text);
+                }
               }
             }
           }
         }
+      }
+      if (ts.isVariableDeclaration(node) && node.initializer) {
+        const specifier = requiredNetworkModule(node.initializer);
+        if (specifier && acquisitionAllowed(specifier)) registerBindings(node.name, specifier);
+        if (ts.isIdentifier(node.name)) {
+          const initializer = unwrapExpression(node.initializer);
+          if (isAcquiredNetworkFunction(initializer)) networkFunctions.add(node.name.text);
+        }
+      }
+      if (
+        ts.isBinaryExpression(node)
+        && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        && ts.isIdentifier(node.left)
+        && isAcquiredNetworkFunction(node.right)
+      ) networkFunctions.add(node.left.text);
+      ts.forEachChild(node, collectAcquisitionsAndAliases);
+    };
+    collectAcquisitionsAndAliases(sourceFile);
+
+    const inspectTarget = (node: ts.CallExpression): void => {
+      const target = node.arguments[0];
+      const values = target ? evaluateNetworkTargets(target, context) : null;
+      if (!values || values.length === 0) {
+        const targetText = target?.getText(sourceFile).replace(/\s+/g, " ").trim() ?? "<missing>";
+        const readableAllowKey = `${relativeFile}:${targetText}`;
+        const hashedAllowKey = `${relativeFile}:sha256:${createHash("sha256").update(node.getText(sourceFile)).digest("hex")}`;
+        if (
+          !ALLOWED_UNRESOLVED_NETWORK_TARGETS.has(readableAllowKey)
+          && !ALLOWED_UNRESOLVED_NETWORK_TARGETS.has(hashedAllowKey)
+        ) {
+          offenders.push(`${sourcePosition(sourceFile, node)} network target is unresolvable (allow-list key ${hashedAllowKey})`);
+        }
+        return;
+      }
+      for (const value of values) {
+        let parsed: URL;
+        try {
+          parsed = new URL(value);
+        } catch {
+          offenders.push(`${sourcePosition(sourceFile, node)} network target is not an absolute URL`);
+          continue;
+        }
+        if (!ALLOWED_NETWORK_ORIGINS.has(parsed.origin)) {
+          offenders.push(`${sourcePosition(sourceFile, node)} network origin is not allow-listed: ${parsed.origin}`);
+        }
+      }
+    };
+
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const callee = unwrapExpression(node.expression);
+        const isFetch = ts.isIdentifier(callee) && callee.text === "fetch";
+        const isGlobalFetch = ts.isPropertyAccessExpression(callee)
+          && ts.isIdentifier(callee.expression)
+          && callee.expression.text === "globalThis"
+          && callee.name.text === "fetch";
+        const isAcquiredFunction = isAcquiredNetworkFunction(callee);
+        const isNamespaceMember = (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
+          && ts.isIdentifier(callee.expression)
+          && networkNamespaces.has(callee.expression.text);
+        const directSpecifier = (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
+          ? requiredNetworkModule(callee.expression)
+          : null;
+        if (directSpecifier) acquisitionAllowed(directSpecifier);
+        if (isFetch || isGlobalFetch || isAcquiredFunction || isNamespaceMember || directSpecifier) inspectTarget(node);
       }
       ts.forEachChild(node, visit);
     };
@@ -1562,7 +2171,7 @@ function assertWriterImportGraphsDoNotReadData(writerFiles: string[], sourceWrit
   );
 }
 
-function databaseWriterLeg(): void {
+function databaseWriterLeg(): boolean {
   const writes: Record<string, string[]> = {};
   const rawSql: Record<string, string[]> = {};
   const analysisOffenders: string[] = [];
@@ -1593,17 +2202,27 @@ function databaseWriterLeg(): void {
   );
 
   assert.deepEqual(analysisOffenders, [], "leg 5: fail-closed Prisma analysis found unresolved values");
+  if (process.argv.includes("--print-raw-sql-snapshot")) {
+    console.log("EXPECTED_RAW_SQL_CALLS candidate:");
+    console.log(JSON.stringify(normalizedRawSql, null, 2));
+    console.log("Raw DML calls requiring explicit ALLOWED_RAW_DML_CALLS review:");
+    console.log(rawDmlOffenders.length > 0 ? rawDmlOffenders.join("\n") : "(none)");
+    return true;
+  }
   assert.deepEqual(normalizedWrites, expectedWrites, "leg 5: repository-wide Prisma write call-site allow-list changed");
   assert.deepEqual(normalizedRawSql, expectedRawSql, "leg 5: Prisma raw-SQL allow-list changed");
   assert.deepEqual(rawDmlOffenders, [], "leg 5: non-allow-listed raw SQL DML found");
   const writerFiles = [...new Set([...Object.keys(writes), ...Object.keys(rawSql)])]
     .map((filePath) => path.join(REPO_ROOT, filePath));
   assertWriterImportGraphsDoNotReadData(writerFiles, sourceWriterFiles);
+  return false;
 }
 
 async function main(): Promise<void> {
+  assertRepositoryExtensionCoverage();
   assertFixtureIdentifiersAreValid();
-  databaseWriterLeg();
+  staticPathBindingLeg();
+  if (databaseWriterLeg()) return;
   console.log("PASS leg 5: repository-wide Prisma write snapshot and transitive no-data-read guard");
   const database = databaseUrl();
   const prisma = new PrismaClient();
@@ -1614,7 +2233,7 @@ async function main(): Promise<void> {
     importGraphLeg();
     console.log("PASS leg 2: derived import graph and root completeness");
     scriptSnapshotLeg();
-    console.log("PASS leg 4: package script name→value snapshot");
+    console.log("PASS leg 4: package scripts and dependencies snapshot");
   } finally {
     await prisma.$disconnect();
   }
