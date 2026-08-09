@@ -1,3 +1,6 @@
+# Required status check name for owner decision #1 in both AUTO_MERGE modes:
+# `Act on community source contract`.
+# Do not require `Validate community source contract`; validate is informational and always exits 0.
 name: Community sources gate
 
 on:
@@ -13,6 +16,7 @@ concurrency:
 
 jobs:
   validate:
+    name: Validate community source contract
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -40,6 +44,7 @@ jobs:
         run: npx ts-node src/scripts/community/gate.ts
 
   act:
+    name: Act on community source contract
     needs: [validate]
     runs-on: ubuntu-latest
     permissions:

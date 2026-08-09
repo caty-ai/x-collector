@@ -23,6 +23,13 @@ enum GateErrorId {
   E3 = "E3",
 }
 
+enum ActFailureKind {
+  HeadChanged = "head_changed",
+  SourceExistsOnMain = "source_exists_on_main",
+  SourceRecheckFailed = "source_recheck_failed",
+  MergeRejected = "merge_rejected",
+}
+
 type CheckId = CommunityCheckId | GateErrorId;
 type Verdict = "pass" | "fail" | "neutral_untouched" | "neutral_maintainer" | "error";
 
@@ -75,6 +82,12 @@ type TreeResponse = {
 
 class ApiError extends Error {
   constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
+
+class ActFailure extends Error {
+  constructor(readonly kind: ActFailureKind, message: string) {
     super(message);
   }
 }
@@ -224,7 +237,9 @@ async function recentSubmissionCount(login: string, baseSha: string): Promise<nu
         if (file.status !== "added" || !COMMUNITY_PATH_RE.test(file.filename)) continue;
         try {
           const content = await readPinnedContent(file.filename, commit.sha);
-          if (content.type !== "file" || content.encoding !== "base64" || typeof content.content !== "string") continue;
+          if (content.type !== "file" || content.encoding !== "base64" || typeof content.content !== "string") {
+            throw new Error("community-source content was not inspectable");
+          }
           const parsed = validateCommunitySourceBuffer(Buffer.from(content.content.replace(/\s/g, ""), "base64"), {
             filename: file.filename,
           });
@@ -378,8 +393,13 @@ function contractFromEnvironment(): Contract {
   const prNumberText = process.env.CONTRACT_PR_NUMBER ?? "";
   const prNumber = Number(prNumberText);
   const headSha = process.env.CONTRACT_HEAD_SHA ?? "";
-  if (!/^\d+$/.test(prNumberText) || !Number.isSafeInteger(prNumber) || prNumber < 1 || !SHA_RE.test(headSha)) {
-    throw new Error("invalid contract identity");
+  if (!/^\d+$/.test(prNumberText) || !Number.isSafeInteger(prNumber) || prNumber < 0) {
+    throw new Error("invalid contract pull request number");
+  }
+  if (verdict === "pass") {
+    if (prNumber < 1 || !SHA_RE.test(headSha)) throw new Error("invalid contract identity");
+  } else if (headSha !== "" && !SHA_RE.test(headSha)) {
+    throw new Error("invalid contract head SHA");
   }
   const rawIds = process.env.CONTRACT_FAILED_CHECK_IDS ?? "";
   const failedIds = rawIds === "" ? [] : rawIds.split(",");
@@ -406,8 +426,17 @@ function contractFromEnvironment(): Contract {
   };
 }
 
-function renderComment(contract: Contract, kind?: "merge_failed"): string {
-  if (kind === "merge_failed") {
+function renderComment(contract: Contract, kind?: ActFailureKind): string {
+  if (kind === ActFailureKind.HeadChanged) {
+    return `${COMMENT_MARKER}\nThe pull request head SHA changed after validation. The gate stopped before merging; rerun validation on the current head.`;
+  }
+  if (kind === ActFailureKind.SourceExistsOnMain) {
+    return `${COMMENT_MARKER}\nThe source dedup key now exists on the latest \`main\`. The gate stopped before merging to avoid duplicating a community entry.`;
+  }
+  if (kind === ActFailureKind.SourceRecheckFailed) {
+    return `${COMMENT_MARKER}\nThe gate could not re-check the latest \`main\` state before merging. A maintainer must inspect the workflow run; the gate will not retry blindly.`;
+  }
+  if (kind === ActFailureKind.MergeRejected) {
     return `${COMMENT_MARKER}\nThe merge API rejected the validated merge attempt. A maintainer must inspect the workflow run; the gate will not retry blindly.`;
   }
   if (contract.verdict === "neutral_maintainer") {
@@ -451,16 +480,24 @@ async function latestMainHasDedupKey(dedupKey: string): Promise<boolean> {
   return tree.tree.some((entry) => entry.path === `data/community-sources/x--${dedupKey}.json`);
 }
 
+function hasPullRequestIdentity(contract: Contract): boolean {
+  return contract.pr_number >= 1;
+}
+
 async function actMode(): Promise<number> {
   const contract = contractFromEnvironment();
-  await removeLabel(contract.pr_number, "community-source:validated");
+  if (hasPullRequestIdentity(contract)) {
+    await removeLabel(contract.pr_number, "community-source:validated");
+  }
 
   if (contract.verdict === "neutral_untouched") return 0;
   if (contract.verdict === "neutral_maintainer") {
+    if (!hasPullRequestIdentity(contract)) return 0;
     await upsertStickyComment(contract.pr_number, renderComment(contract));
     return 0;
   }
   if (contract.verdict === "fail" || contract.verdict === "error") {
+    if (!hasPullRequestIdentity(contract)) return 1;
     await addLabel(contract.pr_number, "community-source:rejected");
     await upsertStickyComment(contract.pr_number, renderComment(contract));
     return 1;
@@ -475,20 +512,35 @@ async function actMode(): Promise<number> {
 
   try {
     const pull = await github<{ head: { sha: string } }>(`/repos/${UPSTREAM}/pulls/${contract.pr_number}`);
-    if (pull.head.sha !== contract.head_sha) throw new Error("pull request head changed after validation");
-    if (await latestMainHasDedupKey(contract.dedup_key)) throw new Error("source now exists on main");
-    await github(`/repos/${UPSTREAM}/pulls/${contract.pr_number}/merge`, {
-      method: "PUT",
-      body: JSON.stringify({
-        sha: contract.head_sha,
-        merge_method: "squash",
-        commit_title: `community: add x source ${contract.identifier}`,
-        commit_message: `Submitted by ${contract.submitted_by}. Validated by the community-sources gate. PR #${contract.pr_number}.`,
-      }),
-    });
+    if (pull.head.sha !== contract.head_sha) {
+      throw new ActFailure(ActFailureKind.HeadChanged, "pull request head changed after validation");
+    }
+    let sourceExistsOnMain: boolean;
+    try {
+      sourceExistsOnMain = await latestMainHasDedupKey(contract.dedup_key);
+    } catch {
+      throw new ActFailure(ActFailureKind.SourceRecheckFailed, "could not re-check the latest main state");
+    }
+    if (sourceExistsOnMain) {
+      throw new ActFailure(ActFailureKind.SourceExistsOnMain, "source now exists on main");
+    }
+    try {
+      await github(`/repos/${UPSTREAM}/pulls/${contract.pr_number}/merge`, {
+        method: "PUT",
+        body: JSON.stringify({
+          sha: contract.head_sha,
+          merge_method: "squash",
+          commit_title: `community: add x source ${contract.identifier}`,
+          commit_message: `Submitted by ${contract.submitted_by}. Validated by the community-sources gate. PR #${contract.pr_number}.`,
+        }),
+      });
+    } catch {
+      throw new ActFailure(ActFailureKind.MergeRejected, "merge API rejected the validated merge attempt");
+    }
     return 0;
-  } catch {
-    await upsertStickyComment(contract.pr_number, renderComment(contract, "merge_failed"));
+  } catch (error) {
+    const kind = error instanceof ActFailure ? error.kind : ActFailureKind.MergeRejected;
+    await upsertStickyComment(contract.pr_number, renderComment(contract, kind));
     return 1;
   }
 }

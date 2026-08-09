@@ -46,12 +46,145 @@ jobs:
       - run: npm run typecheck:community
       - run: npm run validate:community
       - run: npm run test:community
+      - name: Assert docs mention the exact required action check name
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+
+          const workflowPath = ".github/workflows/community-sources.yml";
+          const docsPath = "docs/community-sources.md";
+          const workflow = fs.readFileSync(workflowPath, "utf8");
+          const docs = fs.readFileSync(docsPath, "utf8");
+
+          let currentJob = null;
+          let actionJobName = null;
+          for (const line of workflow.split(/\r?\n/)) {
+            const jobMatch = line.match(/^  ([A-Za-z0-9_-]+):\s*$/);
+            if (jobMatch) {
+              currentJob = jobMatch[1];
+              continue;
+            }
+            const jobNameMatch = line.match(/^    name:\s*(.+)\s*$/);
+            if (currentJob === "act" && jobNameMatch) {
+              actionJobName = jobNameMatch[1];
+              break;
+            }
+          }
+
+          if (!actionJobName) {
+            console.error("Failed to extract the act job name.");
+            process.exit(1);
+          }
+
+          const requiredCheckName = actionJobName;
+          if (!docs.includes(requiredCheckName)) {
+            console.error(`Missing required check name in ${docsPath}: ${requiredCheckName}`);
+            process.exit(1);
+          }
+
+          console.log(`Docs mention required check name: ${requiredCheckName}`);
+          NODE
       - name: Reject Actions expressions inside run blocks
         run: |
-          awk '
-            /^[[:space:]]*run:[[:space:]]*\|/ { in_run = 1; indent = match($0, /[^ ]/) - 1; next }
-            in_run && match($0, /[^ ]/) - 1 <= indent { in_run = 0 }
-            /^[[:space:]]*run:[[:space:]]*[^|]/ && /[$][{][{]/ { bad = 1 }
-            in_run && /[$][{][{]/ { bad = 1 }
-            END { exit bad }
-          ' .github/workflows/community-sources.yml .github/workflows/community-sources-verify.yml
+          node <<'NODE'
+          const fs = require("fs");
+
+          const exprOpen = "$" + "{{";
+          const blockScalarRe = /^[>|](?:[1-9][0-9]*[+-]?|[+-]?[1-9][0-9]*|[+-])?(?:\s+#.*)?$/;
+
+          function scanRunExpressions(filename, content) {
+            const findings = [];
+            const lines = content.split(/\r?\n/);
+            let inBlock = false;
+            let parentIndent = -1;
+
+            for (let index = 0; index < lines.length; index += 1) {
+              const line = lines[index];
+              const trimmed = line.trim();
+
+              if (inBlock) {
+                const nonSpace = line.search(/\S/);
+                if (trimmed !== "" && nonSpace !== -1 && nonSpace <= parentIndent) {
+                  inBlock = false;
+                } else {
+                  if (line.includes(exprOpen)) {
+                    findings.push(`${filename}:${index + 1}: block run contains an Actions expression opener`);
+                  }
+                  continue;
+                }
+              }
+
+              const runMatch = line.match(/^(\s*)(?:-\s*)?run:\s*(.*)$/);
+              if (!runMatch) {
+                continue;
+              }
+
+              const indent = runMatch[1].length;
+              const remainder = runMatch[2].trim();
+              if (blockScalarRe.test(remainder)) {
+                inBlock = true;
+                parentIndent = indent;
+                continue;
+              }
+
+              if (remainder.includes(exprOpen)) {
+                findings.push(`${filename}:${index + 1}: inline run contains an Actions expression opener`);
+              }
+            }
+
+            return findings;
+          }
+
+          const pipeFixture = [
+            "jobs:",
+            "  verify:",
+            "    steps:",
+            "      - run: |",
+            `          echo "${exprOpen} github.event.pull_request.title }}"`,
+          ].join("\n");
+          const foldedFixture = [
+            "jobs:",
+            "  verify:",
+            "    steps:",
+            "      - run: >-",
+            `          echo "${exprOpen} github.head_ref }}"`,
+          ].join("\n");
+          const inlineFixture = [
+            "jobs:",
+            "  verify:",
+            "    steps:",
+            `      - run: echo "${exprOpen} needs.validate.outputs.verdict }}"`,
+          ].join("\n");
+
+          const fixtureExpectations = [
+            ["pipe fixture", pipeFixture],
+            ["folded fixture", foldedFixture],
+            ["inline fixture", inlineFixture],
+          ];
+          for (const [label, fixture] of fixtureExpectations) {
+            const findings = scanRunExpressions(label, fixture);
+            if (findings.length === 0) {
+              console.error(`Self-test failed: ${label} was not rejected.`);
+              process.exit(1);
+            }
+            console.log(`Self-test rejected ${label}: ${findings.join("; ")}`);
+          }
+
+          const workflowPaths = [
+            ".github/workflows/community-sources.yml",
+            ".github/workflows/community-sources-verify.yml",
+          ];
+          let realFindings = [];
+          for (const workflowPath of workflowPaths) {
+            realFindings = realFindings.concat(
+              scanRunExpressions(workflowPath, fs.readFileSync(workflowPath, "utf8")),
+            );
+          }
+
+          if (realFindings.length > 0) {
+            console.error(realFindings.join("\n"));
+            process.exit(1);
+          }
+
+          console.log("Self-tests rejected pipe, folded, and inline fixtures; real workflows are clean.");
+          NODE

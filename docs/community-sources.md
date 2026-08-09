@@ -79,7 +79,7 @@ Gate comments contain only these fixed IDs and validated templates; raw filename
 
 Review a catalog entry as a suggestion, then open `/settings` in your own X Collector deployment and add that one handle. Confirm its topic and ownership yourself. Repeat individually for any other source you want. There is deliberately no bulk community-list import command.
 
-The five-leg `no-auto-subscribe` suite exercises the existing database writers, import graph, filesystem reads, package scripts, and database write call sites. It is a strong tripwire against maintainer regressions, not a proof; deliberate runtime wiring would necessarily require a visible test change.
+The five-leg `no-auto-subscribe` suite is a strong tripwire against maintainer regressions, not a proof. Leg 1 runs the automatic writers against a temporary discriminating fixture that adds a synthetic community sentinel absent from `data/x-handles.json`, and it fails fast if that fixture has no discriminating power. Leg 3 also fails on any writer-side `child_process` spawn, so shelling out to read `data/community-sources/` is caught even if it reuses an already allow-listed writer. The two HTTP API writers are not executed by leg 1; their transitive import graphs are covered by a static assertion that forbids reads under `data/`.
 
 ## Remove an entry
 
@@ -94,14 +94,14 @@ Deletion removes the entry from the current tree only. A merged entry is permane
 If owner decision #1 remains `"false"`:
 
 1. Keep `AUTO_MERGE: "false"` in `.github/workflows/community-sources.yml`.
-2. Register the community gate as a required status check for `main`; otherwise a maintainer could merge a head newer than the validated SHA.
+2. Require the exact check `Act on community source contract` for `main`. Do not require `Validate community source contract`; it always exits 0.
 3. Confirm `synchronize` runs clear the stale `community-source:validated` label before applying the new verdict.
-4. Maintainers merge only after the exact current head has a passing required check.
+4. Maintainers merge only after the exact current head has a passing `Act on community source contract` check.
 
 If owner decision #1 becomes `"true"`:
 
 1. Enable repository settings that allow GitHub Actions to merge and retain squash merges.
-2. If `main` gains branch protection, add the narrowly required `github-actions[bot]` carve-out without weakening contributor restrictions.
+2. If `main` gains branch protection, keep the exact required check name `Act on community source contract` and add only the narrowly required `github-actions[bot]` carve-out without weakening contributor restrictions.
 3. Change only the workflow value to `AUTO_MERGE: "true"`; do not add an Actions-expression truthiness condition.
 4. Verify the action re-asserts the PR head SHA, checks the dedup key against the latest `main` tree, and supplies explicit squash `commit_title` and `commit_message`.
 5. Exercise both a changed-head rejection and a duplicate-race rejection before enabling it as unattended policy.
