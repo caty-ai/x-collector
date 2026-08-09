@@ -1,14 +1,15 @@
 /**
  * Community sources are discoverable data, never subscription input.
  *
- * The static legs are the load-bearing tripwire: every Prisma write in the repository is snapshotted,
- * and every approved writer plus its import closure is checked for resolvable data reads. A literal-
- * string tripwire adds defence in depth for straightforward opaque-channel acquisition. The
- * behavioural legs are best-effort convenience checks; computed or otherwise opaque acquisition is
- * structurally indistinguishable from the collector's legitimate network discovery.
+ * The static legs are the load-bearing tripwire. Delegate-shaped writes fail closed without proving
+ * the receiver is a Prisma client; raw calls include a normalized SQL-body hash and DML policy; and
+ * approved writer closures reject unsafe filesystem and network acquisition. The analyzer invariant
+ * is simple: a value needed to establish safety either resolves to an exact allow-list entry or is an
+ * offender. The behavioural legs remain best-effort convenience checks for ordinary executed paths.
  */
 import assert from "assert/strict";
 import { spawnSync } from "child_process";
+import { createHash } from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -26,9 +27,19 @@ const SENTINEL_IDENTIFIER = "ZZSentinelSrc";
 const PROMOTED_IDENTIFIER = "ManualSource";
 const SENTINEL_KEY = SENTINEL_IDENTIFIER.toLowerCase();
 const SENTINEL_FILENAME = `x--${SENTINEL_KEY}.json`;
-const REPOSITORY_SOURCE_EXTENSIONS = /\.(?:ts|tsx|js|mjs|cjs)$/;
+const REPOSITORY_SOURCE_EXTENSIONS = /\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/;
 const EXCLUDED_REPOSITORY_DIRECTORIES = new Set(["node_modules", ".git", "dist", ".next"]);
 const COMMUNITY_SOURCE_LITERAL = "community-sources";
+const ALLOWED_NETWORK_ORIGINS = new Set([
+  "https://api.scrapecreators.com",
+  "https://openrouter.ai",
+]);
+const NETWORK_IMPORT_BOUNDARY_SNAPSHOTS: Record<string, string> = {
+  // Discovery imports only this scalar. Hashing the complete module makes any new top-level side
+  // effect or changed dependency a deliberate allow-list diff before it can leave the closure.
+  "src/collector/evaluate-candidates.ts->src/lib/pipeline/classify-llm.ts#DEFAULT_LLM_MODEL":
+    "e3b1844811c7427a8aa40dfa571dee6cfcc96ea6b0ea96229bbea5c9942efd1d",
+};
 
 const EXPECTED_SCRIPTS: Record<string, string> = {
   "backfill:ja:pipeline": "ts-node -r dotenv/config src/collector/pipeline-backfill-ja.ts",
@@ -182,6 +193,7 @@ const EXPECTED_DB_WRITES: Record<string, string[]> = {
     "pipelineRun.update",
     "voiceSignal.updateMany",
   ],
+  "src/lib/pipeline/topic-cluster.ts": ["pipelineCrosslinkLlmDecision.update"],
   "src/lib/pipeline/voicesignal.ts": [
     "newsletterEdition.create",
     "pipelineRun.create",
@@ -204,11 +216,17 @@ const EXPECTED_DB_WRITES: Record<string, string[]> = {
 };
 
 const EXPECTED_RAW_SQL_CALLS: Record<string, string[]> = {
-  "src/app/api/family-feed/route.ts": ["$queryRaw"],
-  "src/collector/discover.ts": ["$queryRaw"],
-  "src/collector/source-score.ts": ["$queryRaw"],
-  "src/lib/pipeline/topic-cluster.ts": ["$executeRaw", "$queryRaw"],
+  "src/app/api/family-feed/route.ts": ["$queryRaw:b0a022eccf9d5b06f5866a54bab49b23925e38e5c4dce2018f2c4807c663d4ae"],
+  "src/collector/discover.ts": ["$queryRaw:2919befd038e5bf4db376f5a47cdf05f255c2c2d0681563f1454b2545d284abb"],
+  "src/collector/source-score.ts": ["$queryRaw:ed56315227c2e1e1d870b219a1b3a76a4a7c61749fdd256c6f8c23d5b9b1d379"],
+  "src/lib/pipeline/topic-cluster.ts": [
+    "$executeRaw:745ec98b8d9edea33cdc321056526ffd2754e6fd9b0a6b17c736ddb3592f3284",
+    "$queryRaw:52ac0e7f197bbbed616a4e20fa2c6a61c6cea41b4a15ea5ce86bce9ec9f7325a",
+  ],
 };
+const ALLOWED_RAW_DML_CALLS = new Set([
+  "src/lib/pipeline/topic-cluster.ts:$executeRaw:745ec98b8d9edea33cdc321056526ffd2754e6fd9b0a6b17c736ddb3592f3284",
+]);
 const PRISMA_MODELS = prismaDelegatesFromSchema();
 const PRISMA_WRITE_METHODS = new Set([
   "create",
@@ -220,7 +238,6 @@ const PRISMA_WRITE_METHODS = new Set([
   "delete",
   "deleteMany",
 ]);
-const PRISMA_RAW_METHODS = new Set(["$executeRaw", "$executeRawUnsafe", "$queryRaw", "$queryRawUnsafe"]);
 const WRITER_COMMANDS = [
   {
     label: "import-x-handles",
@@ -261,13 +278,25 @@ type DelegateModel = string;
 type PrismaAnalysis = {
   writes: string[];
   rawSql: string[];
-  unresolvedDelegateAccesses: string[];
+  sourceTableWriter: boolean;
+  offenders: string[];
+  rawDmlOffenders: string[];
+};
+
+type PrismaMethod = {
+  kind: "write" | "raw";
+  method: string;
+  delegate?: DelegateModel;
 };
 
 type Scope = {
-  clients: Set<string>;
   delegates: Map<string, DelegateModel>;
+  methods: Map<string, PrismaMethod>;
 };
+
+function isPrismaRawMethod(method: string): boolean {
+  return /^\$(?:execute|query)Raw/.test(method);
+}
 
 function databaseUrl(): string {
   const value = process.env.DATABASE_URL;
@@ -612,8 +641,8 @@ function scriptKindFor(filePath: string): ts.ScriptKind {
 
 function cloneScope(scope: Scope): Scope {
   return {
-    clients: new Set(scope.clients),
     delegates: new Map(scope.delegates),
+    methods: new Map(scope.methods),
   };
 }
 
@@ -650,16 +679,6 @@ function bindingIdentifier(name: ts.BindingName): string | null {
   return ts.isIdentifier(name) ? name.text : null;
 }
 
-function isPrismaClientConstruction(expression: ts.Expression): boolean {
-  const candidate = unwrapExpression(expression);
-  return ts.isNewExpression(candidate) && ts.isIdentifier(candidate.expression) && candidate.expression.text === "PrismaClient";
-}
-
-function isClientExpression(expression: ts.Expression, scope: Scope): boolean {
-  const candidate = unwrapExpression(expression);
-  return ts.isIdentifier(candidate) ? scope.clients.has(candidate.text) : isPrismaClientConstruction(candidate);
-}
-
 function resolveDelegateExpression(expression: ts.Expression, scope: Scope): DelegateModel | null {
   const candidate = unwrapExpression(expression);
   if (ts.isIdentifier(candidate)) {
@@ -673,7 +692,6 @@ function resolveDelegateExpression(expression: ts.Expression, scope: Scope): Del
       && callee.expression.text === "Reflect"
       && callee.name.text === "get"
       && candidate.arguments.length >= 2
-      && isClientExpression(candidate.arguments[0], scope)
       && ts.isStringLiteralLike(candidate.arguments[1])
       && PRISMA_MODELS.has(candidate.arguments[1].text)
     ) {
@@ -687,7 +705,9 @@ function resolveDelegateExpression(expression: ts.Expression, scope: Scope): Del
   if (!propertyName || !PRISMA_MODELS.has(propertyName)) {
     return null;
   }
-  return isClientExpression(receiverExpression(candidate), scope) ? (propertyName as DelegateModel) : null;
+  // Receiver identity is intentionally irrelevant. Any receiver exposing a schema-derived delegate
+  // has the dangerous shape, including imported clients, factories, aliases, and singletons.
+  return propertyName as DelegateModel;
 }
 
 function isFunctionLikeWithBody(node: ts.Node): node is ts.FunctionLikeDeclaration & { body: ts.ConciseBody } {
@@ -695,119 +715,261 @@ function isFunctionLikeWithBody(node: ts.Node): node is ts.FunctionLikeDeclarati
   return ts.isFunctionLike(node) && functionLike.body !== undefined;
 }
 
-function isTransactionCallback(node: ts.FunctionLikeDeclaration): boolean {
-  const parent = node.parent;
-  if (!parent || !ts.isCallExpression(parent)) return false;
-  const callee = unwrapExpression(parent.expression);
-  if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return false;
-  return propertyNameText(callee) === "$transaction";
+function resolvePrismaMethodExpression(expression: ts.Expression, scope: Scope): PrismaMethod | null {
+  const candidate = unwrapExpression(expression);
+  if (ts.isIdentifier(candidate)) return scope.methods.get(candidate.text) ?? null;
+  if (ts.isCallExpression(candidate)) {
+    const callee = unwrapExpression(candidate.expression);
+    if (
+      ts.isPropertyAccessExpression(callee)
+      && ts.isIdentifier(callee.expression)
+      && callee.expression.text === "Reflect"
+      && callee.name.text === "get"
+      && candidate.arguments.length >= 2
+      && ts.isStringLiteralLike(candidate.arguments[1])
+      && isPrismaRawMethod(candidate.arguments[1].text)
+    ) return { kind: "raw", method: candidate.arguments[1].text };
+    if (
+      (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
+      && propertyNameText(callee) === "bind"
+    ) return resolvePrismaMethodExpression(receiverExpression(callee), scope);
+    return null;
+  }
+  if (!ts.isPropertyAccessExpression(candidate) && !ts.isElementAccessExpression(candidate)) return null;
+
+  const propertyName = propertyNameText(candidate);
+  if (propertyName === "bind") return resolvePrismaMethodExpression(receiverExpression(candidate), scope);
+  if (propertyName && isPrismaRawMethod(propertyName)) {
+    return { kind: "raw", method: propertyName };
+  }
+  if (
+    propertyName === "get"
+    && ts.isIdentifier(candidate.expression)
+    && candidate.expression.text === "Reflect"
+  ) return null;
+  const delegate = resolveDelegateExpression(receiverExpression(candidate), scope);
+  if (delegate && propertyName && PRISMA_WRITE_METHODS.has(propertyName)) {
+    return { kind: "write", method: propertyName, delegate };
+  }
+  return null;
 }
 
-function parameterIsPrismaClient(parameter: ts.ParameterDeclaration): boolean {
-  if (ts.isIdentifier(parameter.name) && (parameter.name.text === "prisma" || parameter.name.text === "tx")) {
-    return true;
+function setBindingAlias(name: ts.BindingName, initializer: ts.Expression, scope: Scope): void {
+  if (ts.isObjectBindingPattern(name)) {
+    const delegate = resolveDelegateExpression(initializer, scope);
+    for (const element of name.elements) {
+      if (!ts.isIdentifier(element.name)) continue;
+      const propertyName = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
+        ? element.propertyName.text
+        : element.name.text;
+      if (delegate && PRISMA_WRITE_METHODS.has(propertyName)) {
+        scope.methods.set(element.name.text, { kind: "write", method: propertyName, delegate });
+      } else if (isPrismaRawMethod(propertyName)) {
+        scope.methods.set(element.name.text, { kind: "raw", method: propertyName });
+      } else if (PRISMA_MODELS.has(propertyName)) {
+        scope.delegates.set(element.name.text, propertyName);
+      }
+    }
+    return;
   }
-  const type = parameter.type;
-  if (!type) return false;
-  if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
-    return type.typeName.text === "PrismaClient";
+  const identifier = bindingIdentifier(name);
+  if (!identifier) return;
+  const method = resolvePrismaMethodExpression(initializer, scope);
+  if (method) {
+    scope.methods.set(identifier, method);
+    return;
   }
-  return ts.isTypeReferenceNode(type)
-    && ts.isQualifiedName(type.typeName)
-    && ts.isIdentifier(type.typeName.left)
-    && type.typeName.left.text === "Prisma"
-    && type.typeName.right.text === "TransactionClient";
+  const delegate = resolveDelegateExpression(initializer, scope);
+  if (delegate) scope.delegates.set(identifier, delegate);
 }
 
 function trackAssignmentAlias(node: ts.Expression, scope: Scope): void {
   if (!ts.isBinaryExpression(node) || node.operatorToken.kind !== ts.SyntaxKind.EqualsToken || !ts.isIdentifier(node.left)) {
     return;
   }
-  const delegate = resolveDelegateExpression(node.right, scope);
-  if (delegate) {
-    scope.delegates.set(node.left.text, delegate);
-    return;
-  }
-  if (isClientExpression(node.right, scope)) {
-    scope.clients.add(node.left.text);
-  }
+  setBindingAlias(node.left, node.right, scope);
 }
 
 function trackVariableAlias(node: ts.VariableDeclaration, scope: Scope): void {
   if (!node.initializer) return;
-  if (ts.isObjectBindingPattern(node.name) && isClientExpression(node.initializer, scope)) {
-    for (const element of node.name.elements) {
-      if (!ts.isIdentifier(element.name)) continue;
-      const propertyName = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
-        ? element.propertyName.text
-        : element.name.text;
-      if (PRISMA_MODELS.has(propertyName)) scope.delegates.set(element.name.text, propertyName);
+  setBindingAlias(node.name, node.initializer, scope);
+}
+
+function normalizedTemplateText(
+  template: ts.TemplateLiteral,
+  context?: StaticPathContext,
+  seen = new Set<string>(),
+): string {
+  if (ts.isNoSubstitutionTemplateLiteral(template)) return template.text.replace(/\s+/g, " ").trim();
+  let sql = template.head.text;
+  for (const span of template.templateSpans) {
+    let interpolation = "${}";
+    if (context) {
+      const candidate = unwrapExpression(span.expression);
+      if (ts.isIdentifier(candidate) && !seen.has(candidate.text)) {
+        const initializer = context.constants.get(candidate.text);
+        if (initializer) {
+          const nextSeen = new Set(seen);
+          nextSeen.add(candidate.text);
+          const resolved = normalizedRawSql(initializer, context, nextSeen);
+          if (resolved !== null) interpolation = resolved;
+        }
+      } else if (ts.isTaggedTemplateExpression(candidate)) {
+        interpolation = normalizedTemplateText(candidate.template, context, seen);
+      }
     }
+    sql += ` ${interpolation} ` + span.literal.text;
+  }
+  return sql.replace(/\s+/g, " ").trim();
+}
+
+function normalizedRawSql(
+  expression: ts.Expression,
+  context: StaticPathContext,
+  seen = new Set<string>(),
+): string | null {
+  const candidate = unwrapExpression(expression);
+  if (ts.isStringLiteralLike(candidate) || ts.isNoSubstitutionTemplateLiteral(candidate)) {
+    return candidate.text.replace(/\s+/g, " ").trim();
+  }
+  if (ts.isTemplateExpression(candidate)) return normalizedTemplateText(candidate, context, seen);
+  if (ts.isTaggedTemplateExpression(candidate)) return normalizedTemplateText(candidate.template, context, seen);
+  if (ts.isIdentifier(candidate)) {
+    if (seen.has(candidate.text)) return null;
+    const initializer = context.constants.get(candidate.text);
+    if (!initializer) return null;
+    const nextSeen = new Set(seen);
+    nextSeen.add(candidate.text);
+    return normalizedRawSql(initializer, context, nextSeen);
+  }
+  if (ts.isBinaryExpression(candidate) && candidate.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = normalizedRawSql(candidate.left, context, seen);
+    const right = normalizedRawSql(candidate.right, context, seen);
+    return left !== null && right !== null ? `${left}${right}`.replace(/\s+/g, " ").trim() : null;
+  }
+  if (ts.isCallExpression(candidate)) {
+    const callee = unwrapExpression(candidate.expression);
+    if (
+      ts.isPropertyAccessExpression(callee)
+      && ts.isIdentifier(callee.expression)
+      && callee.expression.text === "Prisma"
+      && (callee.name.text === "raw" || callee.name.text === "sql")
+      && candidate.arguments.length === 1
+    ) return normalizedRawSql(candidate.arguments[0], context, seen);
+  }
+  return null;
+}
+
+function rawSqlSnapshot(method: string, sql: string): string {
+  return `${method}:${createHash("sha256").update(sql).digest("hex")}`;
+}
+
+function sourcePosition(sourceFile: ts.SourceFile, node: ts.Node): string {
+  const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+  return `${relative(sourceFile.fileName)}:${position.line + 1}`;
+}
+
+function recordRawSql(
+  method: string,
+  expression: ts.Expression | undefined,
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  analysis: PrismaAnalysis,
+): void {
+  if (!expression) {
+    analysis.offenders.push(`${sourcePosition(sourceFile, node)} ${method} has no SQL body`);
     return;
   }
-  const name = bindingIdentifier(node.name);
-  if (!name) return;
-  const delegate = resolveDelegateExpression(node.initializer, scope);
-  if (delegate) {
-    scope.delegates.set(name, delegate);
+  const context: StaticPathContext = { sourceFile, constants: collectConstantInitializers(sourceFile) };
+  const sql = normalizedRawSql(expression, context);
+  if (sql === null) {
+    analysis.offenders.push(`${sourcePosition(sourceFile, node)} ${method} has an unresolvable SQL body`);
     return;
   }
-  if (isClientExpression(node.initializer, scope)) {
-    scope.clients.add(name);
+  const snapshot = rawSqlSnapshot(method, sql);
+  analysis.rawSql.push(snapshot);
+  const upper = sql.toUpperCase();
+  const hasDml = /\b(?:INSERT|UPDATE|DELETE|MERGE|TRUNCATE|COPY)\b/.test(upper)
+    || (/^WITH\b/.test(upper) && /\bINTO\b/.test(upper));
+  const allowKey = `${relative(sourceFile.fileName)}:${snapshot}`;
+  if (hasDml && !ALLOWED_RAW_DML_CALLS.has(allowKey)) {
+    analysis.rawDmlOffenders.push(`${sourcePosition(sourceFile, node)} ${method} contains non-allow-listed DML`);
   }
 }
 
-function trackPrismaCall(node: ts.CallExpression, scope: Scope, analysis: PrismaAnalysis): void {
-  const callee = unwrapExpression(node.expression);
-  if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) {
-    return;
-  }
-
-  const methodName = propertyNameText(callee);
-  if (!methodName) return;
-  const receiver = receiverExpression(callee);
-
-  if (PRISMA_WRITE_METHODS.has(methodName)) {
-    const delegate = resolveDelegateExpression(receiver, scope);
-    if (delegate) {
-      analysis.writes.push(`${delegate}.${methodName}`);
-    }
-    return;
-  }
-
-  if (PRISMA_RAW_METHODS.has(methodName) && isClientExpression(receiver, scope)) {
-    analysis.rawSql.push(methodName);
-  }
-}
-
-function trackUnresolvedComputedDelegate(node: ts.Node, scope: Scope, analysis: PrismaAnalysis): void {
-  if (ts.isElementAccessExpression(node) && isClientExpression(node.expression, scope)) {
-    if (!ts.isStringLiteralLike(node.argumentExpression)) {
-      analysis.unresolvedDelegateAccesses.push(`computed Prisma property at ${node.getStart()}`);
-    }
-    return;
-  }
-  if (!ts.isCallExpression(node)) return;
-  const callee = unwrapExpression(node.expression);
+function trackPrismaCall(
+  node: ts.CallExpression,
+  scope: Scope,
+  sourceFile: ts.SourceFile,
+  analysis: PrismaAnalysis,
+): void {
+  const directCallee = unwrapExpression(node.expression);
   if (
-    ts.isPropertyAccessExpression(callee)
-    && ts.isIdentifier(callee.expression)
-    && callee.expression.text === "Reflect"
-    && callee.name.text === "get"
-    && node.arguments.length >= 2
-    && isClientExpression(node.arguments[0], scope)
-    && !ts.isStringLiteralLike(node.arguments[1])
-  ) {
-    analysis.unresolvedDelegateAccesses.push(`computed Reflect.get Prisma property at ${node.getStart()}`);
+    (ts.isPropertyAccessExpression(directCallee) || ts.isElementAccessExpression(directCallee))
+    && propertyNameText(directCallee) === "bind"
+  ) return;
+  const method = resolvePrismaMethodExpression(node.expression, scope);
+  if (method?.kind === "write") {
+    analysis.writes.push(`${method.delegate}.${method.method}`);
+    if (method.delegate === "source" || method.delegate === "alertSource") analysis.sourceTableWriter = true;
+    return;
+  }
+  if (method?.kind === "raw") {
+    recordRawSql(method.method, node.arguments[0], sourceFile, node, analysis);
   }
 }
 
-function trackPrismaRawTag(node: ts.TaggedTemplateExpression, scope: Scope, analysis: PrismaAnalysis): void {
-  const tag = unwrapExpression(node.tag);
-  if (!ts.isPropertyAccessExpression(tag) && !ts.isElementAccessExpression(tag)) return;
-  const methodName = propertyNameText(tag);
-  if (methodName && PRISMA_RAW_METHODS.has(methodName) && isClientExpression(receiverExpression(tag), scope)) {
-    analysis.rawSql.push(methodName);
+function trackUnresolvedPrismaShape(
+  node: ts.Node,
+  scope: Scope,
+  sourceFile: ts.SourceFile,
+  analysis: PrismaAnalysis,
+): void {
+  if (ts.isCallExpression(node)) {
+    const callee = unwrapExpression(node.expression);
+    if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) {
+      const methodName = propertyNameText(callee);
+      const receiver = unwrapExpression(receiverExpression(callee));
+      const computedDelegate = ts.isElementAccessExpression(receiver) && !propertyNameText(receiver);
+      const reflectedDelegate = ts.isCallExpression(receiver)
+        && ts.isPropertyAccessExpression(receiver.expression)
+        && ts.isIdentifier(receiver.expression.expression)
+        && receiver.expression.expression.text === "Reflect"
+        && receiver.expression.name.text === "get"
+        && receiver.arguments.length >= 2
+        && !ts.isStringLiteralLike(receiver.arguments[1]);
+      if (methodName && PRISMA_WRITE_METHODS.has(methodName) && (computedDelegate || reflectedDelegate)) {
+        analysis.offenders.push(`${sourcePosition(sourceFile, node)} write call has an unresolvable delegate identity`);
+      }
+    }
+    if (ts.isElementAccessExpression(callee)) {
+      const delegate = resolveDelegateExpression(callee.expression, scope);
+      if (delegate && !propertyNameText(callee)) {
+        analysis.offenders.push(`${sourcePosition(sourceFile, node)} ${delegate} call has an unresolvable method identity`);
+      }
+    }
+    if (
+      ts.isPropertyAccessExpression(callee)
+      && ts.isIdentifier(callee.expression)
+      && callee.expression.text === "Reflect"
+      && callee.name.text === "get"
+      && node.arguments.length >= 2
+      && !ts.isStringLiteralLike(node.arguments[1])
+    ) {
+      analysis.offenders.push(`${sourcePosition(sourceFile, node)} Reflect.get has an unresolvable delegate identity`);
+    }
+  }
+}
+
+function trackPrismaRawTag(
+  node: ts.TaggedTemplateExpression,
+  scope: Scope,
+  sourceFile: ts.SourceFile,
+  analysis: PrismaAnalysis,
+): void {
+  const method = resolvePrismaMethodExpression(node.tag, scope);
+  if (method?.kind === "raw") {
+    recordRawSql(method.method, node.template, sourceFile, node, analysis);
   }
 }
 
@@ -819,17 +981,26 @@ function analyzePrismaFile(filePath: string): PrismaAnalysis {
     true,
     scriptKindFor(filePath),
   );
-  const analysis: PrismaAnalysis = { writes: [], rawSql: [], unresolvedDelegateAccesses: [] };
+  const analysis: PrismaAnalysis = {
+    writes: [],
+    rawSql: [],
+    sourceTableWriter: false,
+    offenders: [],
+    rawDmlOffenders: [],
+  };
+
+  const preloadAliases = (node: ts.Node, scope: Scope): void => {
+    if (ts.isVariableDeclaration(node)) trackVariableAlias(node, scope);
+    else if (ts.isExpressionStatement(node)) trackAssignmentAlias(node.expression, scope);
+    ts.forEachChild(node, (child) => {
+      if (!isFunctionLikeWithBody(child)) preloadAliases(child, scope);
+    });
+  };
 
   const visit = (node: ts.Node, scope: Scope): void => {
     if (isFunctionLikeWithBody(node)) {
       const childScope = cloneScope(scope);
-      const transactionCallback = isTransactionCallback(node);
-      for (const parameter of node.parameters) {
-        if (!transactionCallback && !parameterIsPrismaClient(parameter)) continue;
-        const identifier = bindingIdentifier(parameter.name);
-        if (identifier) childScope.clients.add(identifier);
-      }
+      preloadAliases(node.body, childScope);
       if (node.body) visit(node.body, childScope);
       return;
     }
@@ -839,19 +1010,24 @@ function analyzePrismaFile(filePath: string): PrismaAnalysis {
     } else if (ts.isExpressionStatement(node)) {
       trackAssignmentAlias(node.expression, scope);
     } else if (ts.isCallExpression(node)) {
-      trackPrismaCall(node, scope, analysis);
+      trackPrismaCall(node, scope, sourceFile, analysis);
     } else if (ts.isTaggedTemplateExpression(node)) {
-      trackPrismaRawTag(node, scope, analysis);
+      trackPrismaRawTag(node, scope, sourceFile, analysis);
     }
-    trackUnresolvedComputedDelegate(node, scope, analysis);
+    // Fail-closed invariant: whenever a delegate, method, path, SQL body, or network target is needed
+    // to prove safety, an unresolvable value is recorded as an offender and is never silently skipped.
+    trackUnresolvedPrismaShape(node, scope, sourceFile, analysis);
 
     ts.forEachChild(node, (child) => visit(child, scope));
   };
 
-  visit(sourceFile, { clients: new Set(), delegates: new Map() });
+  const rootScope: Scope = { delegates: new Map(), methods: new Map() };
+  preloadAliases(sourceFile, rootScope);
+  visit(sourceFile, rootScope);
   analysis.writes.sort();
   analysis.rawSql.sort();
-  analysis.unresolvedDelegateAccesses.sort();
+  analysis.offenders.sort();
+  analysis.rawDmlOffenders.sort();
   return analysis;
 }
 
@@ -1008,59 +1184,103 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
     return values?.length === 1 ? values[0] : null;
   };
 
-  for (const statement of sourceFile.statements) {
-    if (ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier)) {
-      const specifier = statement.moduleSpecifier.text.replace(/^node:/, "");
-      if (specifier !== "fs" && specifier !== "fs/promises") continue;
-      const clause = statement.importClause;
-      if (clause?.name) fsNamespaces.add(clause.name.text);
-      if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) fsNamespaces.add(clause.namedBindings.name.text);
-      if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-        for (const element of clause.namedBindings.elements) {
-          const imported = element.propertyName?.text ?? element.name.text;
-          if (imported === "promises") fsNamespaces.add(element.name.text);
-          else fsFunctions.set(element.name.text, imported);
-        }
-      }
+  const registerFsBinding = (name: ts.BindingName): void => {
+    if (ts.isIdentifier(name)) {
+      fsNamespaces.add(name.text);
+      return;
     }
-    if (!ts.isVariableStatement(statement)) continue;
-    for (const declaration of statement.declarationList.declarations) {
-      if (!declaration.initializer || !ts.isCallExpression(declaration.initializer)) continue;
-      const call = declaration.initializer;
-      if (!ts.isIdentifier(call.expression) || call.expression.text !== "require" || call.arguments.length !== 1) continue;
-      const specifier = moduleName(call.arguments[0])?.replace(/^node:/, "");
-      if (specifier !== "fs" && specifier !== "fs/promises") continue;
-      if (ts.isIdentifier(declaration.name)) fsNamespaces.add(declaration.name.text);
-      if (ts.isObjectBindingPattern(declaration.name)) {
-        for (const element of declaration.name.elements) {
-          if (!ts.isIdentifier(element.name)) continue;
-          const imported = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
-            ? element.propertyName.text
-            : element.name.text;
-          fsFunctions.set(element.name.text, imported);
-        }
-      }
+    if (!ts.isObjectBindingPattern(name)) return;
+    for (const element of name.elements) {
+      if (!ts.isIdentifier(element.name)) continue;
+      const imported = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
+        ? element.propertyName.text
+        : element.name.text;
+      if (imported === "promises") fsNamespaces.add(element.name.text);
+      else fsFunctions.set(element.name.text, imported);
     }
-  }
+  };
 
-  for (const statement of sourceFile.statements) {
-    if (!ts.isVariableStatement(statement)) continue;
-    for (const declaration of statement.declarationList.declarations) {
-      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
-      const initializer = unwrapExpression(declaration.initializer);
+  const requiredFsModule = (expression: ts.Expression): string | null => {
+    const candidate = unwrapExpression(expression);
+    if (
+      !ts.isCallExpression(candidate)
+      || !ts.isIdentifier(candidate.expression)
+      || candidate.expression.text !== "require"
+      || candidate.arguments.length !== 1
+    ) return null;
+    const specifier = moduleName(candidate.arguments[0])?.replace(/^node:/, "");
+    return specifier === "fs" || specifier === "fs/promises" ? specifier : null;
+  };
+
+  const collectFsAcquisitions = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
+      const specifier = node.moduleSpecifier.text.replace(/^node:/, "");
+      if (specifier === "fs" || specifier === "fs/promises") {
+        const clause = node.importClause;
+        if (clause?.name) fsNamespaces.add(clause.name.text);
+        if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) fsNamespaces.add(clause.namedBindings.name.text);
+        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+          for (const element of clause.namedBindings.elements) {
+            const imported = element.propertyName?.text ?? element.name.text;
+            if (imported === "promises") fsNamespaces.add(element.name.text);
+            else fsFunctions.set(element.name.text, imported);
+          }
+        }
+      }
+    }
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      const initializer = unwrapExpression(node.initializer);
+      if (requiredFsModule(initializer)) registerFsBinding(node.name);
       if (
         ts.isPropertyAccessExpression(initializer)
         && initializer.name.text === "promises"
-        && ts.isCallExpression(initializer.expression)
-        && ts.isIdentifier(initializer.expression.expression)
-        && initializer.expression.expression.text === "require"
-        && initializer.expression.arguments.length === 1
-      ) {
-        const specifier = moduleName(initializer.expression.arguments[0])?.replace(/^node:/, "");
-        if (specifier === "fs") fsNamespaces.add(declaration.name.text);
-      }
+        && requiredFsModule(initializer.expression) === "fs"
+      ) registerFsBinding(node.name);
     }
-  }
+    ts.forEachChild(node, collectFsAcquisitions);
+  };
+  collectFsAcquisitions(sourceFile);
+
+  const directRequiredFsMethod = (expression: ts.Expression): string | null => {
+    const candidate = unwrapExpression(expression);
+    if (!ts.isPropertyAccessExpression(candidate) && !ts.isElementAccessExpression(candidate)) return null;
+    const method = propertyNameText(candidate);
+    if (!method) return null;
+    if (requiredFsModule(candidate.expression)) return method;
+    const namespace = unwrapExpression(candidate.expression);
+    if (
+      ts.isPropertyAccessExpression(namespace)
+      && namespace.name.text === "promises"
+      && requiredFsModule(namespace.expression) === "fs"
+    ) return method;
+    return null;
+  };
+
+  const fsAcquisitionIsRegistered = (call: ts.CallExpression, ancestors: ts.Node[]): boolean => {
+    const parent = ancestors[ancestors.length - 1];
+    const grandparent = ancestors[ancestors.length - 2];
+    const greatGrandparent = ancestors[ancestors.length - 3];
+    if (parent && ts.isVariableDeclaration(parent) && parent.initializer === call) return true;
+    if (!parent) return false;
+    if (!ts.isPropertyAccessExpression(parent) && !ts.isElementAccessExpression(parent)) return false;
+    const property = propertyNameText(parent);
+    if (property === "promises") {
+      if (grandparent && ts.isVariableDeclaration(grandparent) && grandparent.initializer === parent) return true;
+      if (grandparent && (ts.isPropertyAccessExpression(grandparent) || ts.isElementAccessExpression(grandparent))) {
+        return ts.isCallExpression(greatGrandparent) && greatGrandparent.expression === grandparent;
+      }
+      return false;
+    }
+    return ts.isCallExpression(grandparent) && grandparent.expression === parent;
+  };
+
+  const inspectFsAcquisitions = (node: ts.Node, ancestors: ts.Node[] = []): void => {
+    if (ts.isCallExpression(node) && requiredFsModule(node) && !fsAcquisitionIsRegistered(node, ancestors)) {
+      offenders.push(`${sourcePosition(sourceFile, node)} fs module acquisition is not registered`);
+    }
+    ts.forEachChild(node, (child) => inspectFsAcquisitions(child, [...ancestors, node]));
+  };
+  inspectFsAcquisitions(sourceFile);
 
   const inspectArgument = (
     node: ts.CallExpression,
@@ -1091,18 +1311,25 @@ function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
       const callee = unwrapExpression(node.expression);
       let fsMethod: string | null = null;
       if (ts.isIdentifier(callee)) fsMethod = fsFunctions.get(callee.text) ?? null;
+      fsMethod ??= directRequiredFsMethod(callee);
       if (
-        ts.isPropertyAccessExpression(callee)
+        (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
         && ts.isIdentifier(callee.expression)
         && fsNamespaces.has(callee.expression.text)
-      ) fsMethod = callee.name.text;
+      ) fsMethod = propertyNameText(callee);
       if (
-        ts.isPropertyAccessExpression(callee)
+        (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
         && ts.isPropertyAccessExpression(callee.expression)
         && ts.isIdentifier(callee.expression.expression)
         && fsNamespaces.has(callee.expression.expression.text)
         && callee.expression.name.text === "promises"
-      ) fsMethod = callee.name.text;
+      ) fsMethod = propertyNameText(callee);
+      if (
+        ts.isElementAccessExpression(callee)
+        && ts.isIdentifier(callee.expression)
+        && fsNamespaces.has(callee.expression.text)
+        && !propertyNameText(callee)
+      ) offenders.push(`${sourcePosition(sourceFile, node)} fs call has an unresolvable method identity`);
       if (fsMethod && FS_PATH_ARGUMENTS[fsMethod]) {
         for (const argumentIndex of FS_PATH_ARGUMENTS[fsMethod]) inspectArgument(node, fsMethod, argumentIndex);
       }
@@ -1134,7 +1361,172 @@ function communitySourceLiteralOffenders(sourceFile: ts.SourceFile): string[] {
   return offenders;
 }
 
-function assertWriterImportGraphsDoNotReadData(writerFiles: string[]): void {
+function networkImportClosure(rootFiles: string[]): ts.SourceFile[] {
+  const parsed = readTsConfig("tsconfig.json", "leg 5 network guard");
+  const seen = new Map<string, ts.SourceFile>();
+
+  const visitFile = (filePath: string): void => {
+    const absolute = path.resolve(filePath);
+    if (seen.has(absolute)) return;
+    const sourceFile = ts.createSourceFile(
+      absolute,
+      fs.readFileSync(absolute, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKindFor(absolute),
+    );
+    seen.set(absolute, sourceFile);
+
+    const followModule = (specifier: string, importedNames: string[] = []): void => {
+      const resolved = ts.resolveModuleName(
+        specifier,
+        absolute,
+        parsed.options,
+        ts.sys,
+      ).resolvedModule?.resolvedFileName;
+      if (!resolved) return;
+      const resolvedAbsolute = path.resolve(resolved);
+      if (!resolvedAbsolute.startsWith(`${REPO_ROOT}${path.sep}`) || resolvedAbsolute.includes(`${path.sep}node_modules${path.sep}`)) {
+        return;
+      }
+
+      const boundaryKey = `${relative(absolute)}->${relative(resolvedAbsolute)}#${importedNames.join(",")}`;
+      const expectedHash = NETWORK_IMPORT_BOUNDARY_SNAPSHOTS[boundaryKey];
+      if (expectedHash) {
+        const actualHash = createHash("sha256").update(fs.readFileSync(resolvedAbsolute)).digest("hex");
+        assert.equal(actualHash, expectedHash, `leg 5: network import-boundary snapshot changed: ${boundaryKey}`);
+        return;
+      }
+      visitFile(resolvedAbsolute);
+    };
+
+    const visitImports = (node: ts.Node): void => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
+        const clause = node.importClause;
+        const importedNames = clause?.namedBindings && ts.isNamedImports(clause.namedBindings)
+          ? clause.namedBindings.elements.map((element) => element.propertyName?.text ?? element.name.text).sort()
+          : [];
+        followModule(node.moduleSpecifier.text, importedNames);
+      } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) {
+        followModule(node.moduleSpecifier.text);
+      } else if (ts.isCallExpression(node) && node.arguments.length === 1 && ts.isStringLiteralLike(node.arguments[0])) {
+        const callee = unwrapExpression(node.expression);
+        if (callee.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(callee) && callee.text === "require")) {
+          followModule(node.arguments[0].text);
+        }
+      }
+      ts.forEachChild(node, visitImports);
+    };
+    visitImports(sourceFile);
+  };
+
+  rootFiles.forEach(visitFile);
+  return [...seen.values()];
+}
+
+function evaluateNetworkTargets(
+  expression: ts.Expression,
+  context: StaticPathContext,
+  seen = new Set<string>(),
+): string[] | null {
+  const resolved = evaluateStaticPaths(expression, context, seen);
+  if (resolved) return resolved;
+  const candidate = unwrapExpression(expression);
+  if (ts.isIdentifier(candidate)) {
+    if (seen.has(candidate.text)) return null;
+    const initializer = context.constants.get(candidate.text);
+    if (!initializer) return null;
+    const nextSeen = new Set(seen);
+    nextSeen.add(candidate.text);
+    return evaluateNetworkTargets(initializer, context, nextSeen);
+  }
+  if (ts.isTemplateExpression(candidate)) {
+    const headOrigin = candidate.head.text.match(/^https?:\/\/[^/]+/i)?.[0];
+    return headOrigin ? [headOrigin] : null;
+  }
+  if (ts.isNewExpression(candidate) && ts.isIdentifier(candidate.expression) && candidate.expression.text === "URL") {
+    const first = candidate.arguments?.[0];
+    return first ? evaluateNetworkTargets(first, context, seen) : null;
+  }
+  if (ts.isCallExpression(candidate)) {
+    const callee = unwrapExpression(candidate.expression);
+    if (
+      ts.isPropertyAccessExpression(callee)
+      && callee.name.text === "toString"
+      && candidate.arguments.length === 0
+    ) return evaluateNetworkTargets(callee.expression, context, seen);
+  }
+  return null;
+}
+
+function networkTargetOffenders(sourceFiles: ts.SourceFile[]): string[] {
+  const offenders: string[] = [];
+  for (const sourceFile of sourceFiles) {
+    const context: StaticPathContext = { sourceFile, constants: collectConstantInitializers(sourceFile) };
+    const requestNamespaces = new Set(["http", "https"]);
+    const collectRequestNamespaces = (node: ts.Node): void => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
+        const specifier = node.moduleSpecifier.text.replace(/^node:/, "");
+        if (specifier === "http" || specifier === "https") {
+          if (node.importClause?.name) requestNamespaces.add(node.importClause.name.text);
+          if (node.importClause?.namedBindings && ts.isNamespaceImport(node.importClause.namedBindings)) {
+            requestNamespaces.add(node.importClause.namedBindings.name.text);
+          }
+        }
+      }
+      if (
+        ts.isVariableDeclaration(node)
+        && ts.isIdentifier(node.name)
+        && node.initializer
+        && ts.isCallExpression(node.initializer)
+        && ts.isIdentifier(node.initializer.expression)
+        && node.initializer.expression.text === "require"
+        && node.initializer.arguments.length === 1
+        && ts.isStringLiteralLike(node.initializer.arguments[0])
+      ) {
+        const specifier = node.initializer.arguments[0].text.replace(/^node:/, "");
+        if (specifier === "http" || specifier === "https") requestNamespaces.add(node.name.text);
+      }
+      ts.forEachChild(node, collectRequestNamespaces);
+    };
+    collectRequestNamespaces(sourceFile);
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const callee = unwrapExpression(node.expression);
+        const isFetch = ts.isIdentifier(callee) && callee.text === "fetch";
+        const isHttpRequest = ts.isPropertyAccessExpression(callee)
+          && ts.isIdentifier(callee.expression)
+          && requestNamespaces.has(callee.expression.text)
+          && callee.name.text === "request";
+        if (isFetch || isHttpRequest) {
+          const target = node.arguments[0];
+          const values = target ? evaluateNetworkTargets(target, context) : null;
+          if (!values || values.length === 0) {
+            offenders.push(`${sourcePosition(sourceFile, node)} network target is unresolvable`);
+          } else {
+            for (const value of values) {
+              let parsed: URL;
+              try {
+                parsed = new URL(value);
+              } catch {
+                offenders.push(`${sourcePosition(sourceFile, node)} network target is not an absolute URL`);
+                continue;
+              }
+              if (!ALLOWED_NETWORK_ORIGINS.has(parsed.origin)) {
+                offenders.push(`${sourcePosition(sourceFile, node)} network origin is not allow-listed: ${parsed.origin}`);
+              }
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+  return offenders.sort((left, right) => left.localeCompare(right));
+}
+
+function assertWriterImportGraphsDoNotReadData(writerFiles: string[], sourceWriterFiles: string[]): void {
   const parsed = readTsConfig("tsconfig.json", "leg 5");
   const program = ts.createProgram({
     rootNames: writerFiles,
@@ -1162,21 +1554,29 @@ function assertWriterImportGraphsDoNotReadData(writerFiles: string[]): void {
     [],
     `leg 5 tripwire: approved writer import graph contains the literal ${COMMUNITY_SOURCE_LITERAL} in a string: ${literalOffenders.join("; ")}`,
   );
+  const networkOffenders = networkTargetOffenders(networkImportClosure(sourceWriterFiles));
+  assert.deepEqual(
+    networkOffenders,
+    [],
+    `leg 5: source/alertSource writer import closure has unsafe network targets: ${networkOffenders.join("; ")}`,
+  );
 }
 
 function databaseWriterLeg(): void {
   const writes: Record<string, string[]> = {};
   const rawSql: Record<string, string[]> = {};
-  const unresolvedDelegateAccesses: string[] = [];
+  const analysisOffenders: string[] = [];
+  const rawDmlOffenders: string[] = [];
+  const sourceWriterFiles: string[] = [];
 
   for (const filePath of walkSourceFiles(REPO_ROOT, true)) {
     if (path.resolve(filePath) === path.resolve(__filename)) continue;
     const analysis = analyzePrismaFile(filePath);
     if (analysis.writes.length > 0) writes[relative(filePath)] = analysis.writes;
     if (analysis.rawSql.length > 0) rawSql[relative(filePath)] = analysis.rawSql;
-    for (const finding of analysis.unresolvedDelegateAccesses) {
-      unresolvedDelegateAccesses.push(`${relative(filePath)} -> ${finding}`);
-    }
+    if (analysis.sourceTableWriter) sourceWriterFiles.push(filePath);
+    analysisOffenders.push(...analysis.offenders);
+    rawDmlOffenders.push(...analysis.rawDmlOffenders);
   }
 
   const normalizedWrites = Object.fromEntries(Object.entries(writes).sort(([left], [right]) => left.localeCompare(right)));
@@ -1192,12 +1592,13 @@ function databaseWriterLeg(): void {
       .sort(([leftFile], [rightFile]) => leftFile.localeCompare(rightFile)),
   );
 
-  assert.deepEqual(unresolvedDelegateAccesses, [], "leg 5: unresolved computed Prisma delegate access found");
+  assert.deepEqual(analysisOffenders, [], "leg 5: fail-closed Prisma analysis found unresolved values");
   assert.deepEqual(normalizedWrites, expectedWrites, "leg 5: repository-wide Prisma write call-site allow-list changed");
   assert.deepEqual(normalizedRawSql, expectedRawSql, "leg 5: Prisma raw-SQL allow-list changed");
+  assert.deepEqual(rawDmlOffenders, [], "leg 5: non-allow-listed raw SQL DML found");
   const writerFiles = [...new Set([...Object.keys(writes), ...Object.keys(rawSql)])]
     .map((filePath) => path.join(REPO_ROOT, filePath));
-  assertWriterImportGraphsDoNotReadData(writerFiles);
+  assertWriterImportGraphsDoNotReadData(writerFiles, sourceWriterFiles);
 }
 
 async function main(): Promise<void> {

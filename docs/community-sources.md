@@ -86,33 +86,36 @@ Review a catalog entry as a suggestion, then open `/settings` in your own X Coll
 
 ### What the `no-auto-subscribe` suite does and does not guarantee
 
-The **static** legs are the load-bearing ones. They snapshot every Prisma write and raw-SQL call
-across the whole repository, using delegate names derived from the schema, and they forbid any file in
-that snapshot — or anything it imports — from reading under `data/`, with the single exception of
-`import-x-handles` reading `data/x-handles.json`. Direct, bracket, destructured, aliased, transaction
-and `Reflect.get` delegate spellings are all covered, in `src/`, in `tools/`, and in any directory
-added later. Because these legs read source rather than observe execution, they also reject a read
-that is wrapped in a condition which never runs at test time.
+**What this suite is for.** It guards against this project's own future changes accidentally wiring
+the community catalog into the subscription table. It is not a defence against a maintainer who
+deliberately sets out to defeat it — anyone with commit access to this repository can change anything,
+and no test in the repository can prevent that. What the suite guarantees is that such a change cannot
+happen quietly: it becomes a failing test and therefore a deliberate, reviewed diff.
+
+**What it cannot reach.** A community contribution can never introduce any of this: check C1 rejects
+any pull request that touches a path outside `data/community-sources/`. Every construction the suite
+does not catch requires a human-authored change to this repository's own source.
+
+The **static** legs are load-bearing. A call shaped like
+`<anything>.<schema delegate>.<write method>` is treated as a database write without first proving the
+receiver is a Prisma client. Raw-method calls are tracked in direct, bracket, destructured, aliased,
+`Reflect.get`, and bound forms; each allow-listed call includes a hash of its normalized SQL body, and
+non-allow-listed DML is rejected. A value needed to decide safety — delegate, method, SQL body,
+filesystem path, module acquisition, or network target — fails closed when it cannot be resolved.
+
+Every recorded writer and its import closure is checked for reads under `data/`, with the single
+exception of `import-x-handles` reading `data/x-handles.json`. Files that write `source` or
+`alertSource` also have their reachable network targets restricted to the explicitly reviewed HTTPS
+hosts used by discovery. The repository walk includes TypeScript's `.mts` and `.cts` forms as well as
+the existing TS/JS extensions and is not limited to `src/`.
 
 The **behavioural** legs — the `Source` set-equality run and the filesystem and subprocess trace — are
 a convenience check on the ordinary executed path, not a guarantee. The filesystem patch does not
 reach `worker_threads` isolates; a writer that spawns a subprocess is rejected outright.
 
-**The known residual**, stated plainly because it will not be closed: a writer that obtains the list
-through an **opaque channel** — a network response, a URL assembled at runtime, operator-supplied
-configuration — reaches the database without touching a `data/` path, and passes every leg. A direct
-HTTPS URL containing the literal string `community-sources` is rejected by a literal-string tripwire in
-leg 5; the same URL assembled from fragments is not. That tripwire is defence in depth, not a
-guarantee, and it is the only part of the suite that relies on string matching.
-
-This residual cannot be closed by a static rule, because it is **structurally indistinguishable from
-this product's intended behaviour**: `src/collector/discover.ts` already creates `Source` rows from
-accounts discovered over the network. Any rule broad enough to forbid the residual would also forbid
-the collector's core function.
-
-Two things bound it. Introducing it requires a human-authored, human-reviewed change to this
-repository's own source. And the community contribution path cannot introduce it at all: check C1
-rejects any pull request touching a path outside `data/community-sources/`.
+Each of these rules exists because a review round demonstrated a working way around its absence. Adding
+a database write, a raw query, a `data/` read, or a network call inside the writer closure therefore
+requires updating the corresponding snapshot in the same pull request — which is the point.
 
 ## Remove an entry
 
@@ -131,10 +134,11 @@ If owner decision #1 remains `"false"`:
 3. Confirm `synchronize` runs clear the stale `community-source:validated` label before applying the new verdict.
 4. Maintainers merge only after the exact current head has a passing `Act on community source contract` check.
 
-The `act` job uses `if: always()`. `validate` normally exits 0 after emitting a contract, while a job
-failure or missing/malformed output makes `act` fail during strict contract parsing instead of being
-skipped. For a malformed event with `pr_number: 0`, `act` cannot safely select an issue for a sticky
-comment and returns failure before commenting; this is fail-closed, not a reachable comment path.
+The `act` job uses `if: ${{ !cancelled() }}`. `validate` normally exits 0 after emitting a contract,
+while a job failure or missing/malformed output makes `act` fail during strict contract parsing instead
+of being skipped. Cancellation does not start a stale privileged job. For a malformed event with
+`pr_number: 0`, `act` cannot safely select an issue for a sticky comment and returns failure before
+commenting; this is fail-closed, not a reachable comment path.
 
 If owner decision #1 becomes `"true"`:
 
