@@ -187,6 +187,8 @@ X Collector is designed so that automation never quietly takes over.
 
 ## Learn more
 
+Community source catalog and contribution guide: [docs/community-sources.md](docs/community-sources.md) — entries are suggestions and are never auto-subscribed.
+
 Entrances by purpose.
 
 | What you want to know | Where to look |

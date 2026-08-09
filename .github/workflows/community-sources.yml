@@ -1,0 +1,66 @@
+name: Community sources gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: community-sources-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      verdict: ${{ steps.gate.outputs.verdict }}
+      pr_number: ${{ steps.gate.outputs.pr_number }}
+      head_sha: ${{ steps.gate.outputs.head_sha }}
+      failed_check_ids: ${{ steps.gate.outputs.failed_check_ids }}
+      identifier: ${{ steps.gate.outputs.identifier }}
+      submitted_by: ${{ steps.gate.outputs.submitted_by }}
+      dedup_key: ${{ steps.gate.outputs.dedup_key }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - id: gate
+        env:
+          COMMUNITY_GATE_MODE: validate
+          GITHUB_TOKEN: ${{ github.token }}
+          MIN_ACCOUNT_AGE_DAYS: "30"
+        run: npx ts-node src/scripts/community/gate.ts
+
+  act:
+    needs: [validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - env:
+          COMMUNITY_GATE_MODE: act
+          GITHUB_TOKEN: ${{ github.token }}
+          AUTO_MERGE: "false"
+          CONTRACT_VERDICT: ${{ needs.validate.outputs.verdict }}
+          CONTRACT_PR_NUMBER: ${{ needs.validate.outputs.pr_number }}
+          CONTRACT_HEAD_SHA: ${{ needs.validate.outputs.head_sha }}
+          CONTRACT_FAILED_CHECK_IDS: ${{ needs.validate.outputs.failed_check_ids }}
+          CONTRACT_IDENTIFIER: ${{ needs.validate.outputs.identifier }}
+          CONTRACT_SUBMITTED_BY: ${{ needs.validate.outputs.submitted_by }}
+          CONTRACT_DEDUP_KEY: ${{ needs.validate.outputs.dedup_key }}
+        run: npx ts-node src/scripts/community/gate.ts

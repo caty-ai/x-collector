@@ -187,6 +187,8 @@ X Collector ถูกออกแบบมาไม่ให้ระบบอ�
 
 ## เรียนรู้เพิ่มเติม
 
+Community source catalog and contribution guide: [docs/community-sources.md](docs/community-sources.md) — entries are suggestions and are never auto-subscribed.
+
 ทางเข้าแยกตามจุดประสงค์
 
 | สิ่งที่อยากรู้ | ดูได้ที่ |

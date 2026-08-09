@@ -187,6 +187,8 @@ X Collector は「自動化が勝手に暴走しない」ことを設計の柱�
 
 ## もっと詳しく
 
+Community source catalog and contribution guide: [docs/community-sources.md](docs/community-sources.md) — entries are suggestions and are never auto-subscribed.
+
 目的別の入口です。
 
 | 知りたいこと | 見る場所 |

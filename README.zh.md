@@ -187,6 +187,8 @@ X Collector 的设计原则是：绝不让自动化悄悄接管一切。
 
 ## 了解更多
 
+Community source catalog and contribution guide: [docs/community-sources.md](docs/community-sources.md) — entries are suggestions and are never auto-subscribed.
+
 按目的选择入口。
 
 | 你想了解什么 | 去哪里看 |

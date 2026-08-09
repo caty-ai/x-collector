@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2020",
+    "isolatedModules": false
+  },
+  "include": [
+    "src/scripts/community/**/*.ts",
+    "src/scripts/contribute-source.ts"
+  ],
+  "exclude": ["node_modules"]
+}
