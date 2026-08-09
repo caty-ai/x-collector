@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
+import { HANDLE_RE } from "./x-handle";
 
-const HANDLE_RE = /^[A-Za-z0-9_]{1,15}$/;
 const DATA_PATH = path.resolve(__dirname, "../../data/x-handles.json");
 
 type RawEntry = {

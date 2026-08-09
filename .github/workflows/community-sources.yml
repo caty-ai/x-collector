@@ -46,6 +46,7 @@ jobs:
   act:
     name: Act on community source contract
     needs: [validate]
+    if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: write

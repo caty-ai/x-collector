@@ -1,10 +1,11 @@
 /**
  * Community sources are discoverable data, never subscription input.
  *
- * This suite is a strong tripwire against maintainer regressions, not a proof. An implementation
- * review demonstrated a seventh evasion against the first implementation; this version closes it by
- * running leg 1 against a discriminating temporary fixture and by failing leg 3 on any writer child
- * process spawn.
+ * The static legs are the load-bearing tripwire: every Prisma write in the repository is snapshotted,
+ * and every approved writer plus its import closure is checked for resolvable data reads. A literal-
+ * string tripwire adds defence in depth for straightforward opaque-channel acquisition. The
+ * behavioural legs are best-effort convenience checks; computed or otherwise opaque acquisition is
+ * structurally indistinguishable from the collector's legitimate network discovery.
  */
 import assert from "assert/strict";
 import { spawnSync } from "child_process";
@@ -13,19 +14,21 @@ import os from "os";
 import path from "path";
 import ts from "typescript";
 import { PrismaClient } from "@prisma/client";
+import { HANDLE_RE } from "../x-handle";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const SRC_ROOT = path.join(REPO_ROOT, "src");
 const DATA_ROOT = path.join(REPO_ROOT, "data");
 const COMMUNITY_DIR = path.join(DATA_ROOT, "community-sources");
 const X_HANDLES_PATH = path.join(DATA_ROOT, "x-handles.json");
-const SENTINEL_IDENTIFIER = "ZZSentinelSource";
+const PRISMA_SCHEMA_PATH = path.join(REPO_ROOT, "prisma/schema.prisma");
+const SENTINEL_IDENTIFIER = "ZZSentinelSrc";
+const PROMOTED_IDENTIFIER = "ManualSource";
 const SENTINEL_KEY = SENTINEL_IDENTIFIER.toLowerCase();
 const SENTINEL_FILENAME = `x--${SENTINEL_KEY}.json`;
-const API_ROUTE_ROOTS = [
-  "src/app/api/sources/route.ts",
-  "src/app/api/alert-sources/route.ts",
-] as const;
+const REPOSITORY_SOURCE_EXTENSIONS = /\.(?:ts|tsx|js|mjs|cjs)$/;
+const EXCLUDED_REPOSITORY_DIRECTORIES = new Set(["node_modules", ".git", "dist", ".next"]);
+const COMMUNITY_SOURCE_LITERAL = "community-sources";
 
 const EXPECTED_SCRIPTS: Record<string, string> = {
   "backfill:ja:pipeline": "ts-node -r dotenv/config src/collector/pipeline-backfill-ja.ts",
@@ -66,15 +69,138 @@ const EXPECTED_SCRIPTS: Record<string, string> = {
 };
 
 const EXPECTED_DB_WRITES: Record<string, string[]> = {
-  "src/app/api/alert-fetch/route.ts": ["alertSource.update"],
+  "src/app/api/alert-fetch/route.ts": ["alertEntry.upsert", "alertSource.update"],
   "src/app/api/alert-sources/route.ts": ["alertSource.create", "alertSource.delete", "alertSource.update"],
+  "src/app/api/candidates/route.ts": ["candidateAccount.update"],
+  "src/app/api/fb-sources/route.ts": ["fbSource.create", "fbSource.delete", "fbSource.update"],
+  "src/app/api/gh-sources/route.ts": ["ghSource.create", "ghSource.delete", "ghSource.update"],
+  "src/app/api/ig-sources/route.ts": ["igPost.deleteMany", "igSource.create", "igSource.delete", "igSource.update"],
+  "src/app/api/qiita-sources/route.ts": ["qiitaSource.create", "qiitaSource.delete", "qiitaSource.update"],
+  "src/app/api/reddit-sources/route.ts": ["redditSource.create", "redditSource.delete", "redditSource.update"],
   "src/app/api/sources/route.ts": ["source.create", "source.delete", "source.update"],
-  "src/collector/alerts.ts": ["alertSource.update"],
-  "src/collector/discover.ts": ["source.create"],
-  "src/collector/lifecycle.ts": ["source.update", "source.updateMany"],
+  "src/collector/alerts.ts": ["alertEntry.upsert", "alertSource.update", "run.create", "run.update"],
+  "src/collector/discover.ts": [
+    "candidateAccount.create",
+    "candidateAccount.update",
+    "candidateAccount.update",
+    "candidateAccount.update",
+    "candidateAccount.update",
+    "source.create",
+  ],
+  "src/collector/evaluate-candidates.ts": ["candidateAccount.update", "candidateAccount.update"],
+  "src/collector/facebook.ts": ["fbPost.upsert", "fbSource.update", "run.create", "run.update"],
+  "src/collector/github.ts": ["ghItem.upsert", "ghItem.upsert", "ghSource.update", "run.create", "run.update"],
+  "src/collector/index.ts": ["run.create", "run.update", "tweet.upsert"],
+  "src/collector/instagram.ts": ["igPost.upsert", "igSource.update", "run.create", "run.update"],
+  "src/collector/lifecycle.ts": [
+    "source.update",
+    "source.updateMany",
+    "sourceDemotionEvent.create",
+    "sourceDemotionEvent.create",
+  ],
+  "src/collector/openrouter.ts": [
+    "orModel.create",
+    "orModel.update",
+    "orModel.update",
+    "orModelEvent.create",
+    "orModelEvent.create",
+    "orModelEvent.create",
+    "orModelEvent.create",
+    "run.create",
+    "run.update",
+    "run.update",
+  ],
+  "src/collector/pipeline-backfill-ja.ts": ["pipelineClassification.update"],
+  "src/collector/pipeline-retention.ts": [
+    "alertEntry.deleteMany",
+    "fbPost.deleteMany",
+    "ghItem.deleteMany",
+    "igPost.deleteMany",
+    "orModelEvent.deleteMany",
+    "pipelineCrosslinkLlmDecision.deleteMany",
+    "pipelineItem.deleteMany",
+    "pipelineRun.deleteMany",
+    "qiitaItem.deleteMany",
+    "redditPost.deleteMany",
+    "tweet.deleteMany",
+    "voiceSignal.deleteMany",
+  ],
+  "src/collector/qiita.ts": ["qiitaItem.upsert", "qiitaSource.update", "run.create", "run.update"],
+  "src/collector/reddit.ts": ["redditPost.upsert", "redditSource.update", "run.create", "run.update"],
+  "src/collector/run-prod-collect-cycle.ts": ["run.updateMany"],
   "src/collector/source-score.ts": ["source.update"],
+  "src/lib/pipeline/classify-llm.ts": [
+    "pipelineClassification.create",
+    "pipelineRun.create",
+    "pipelineRun.update",
+    "pipelineRun.update",
+  ],
+  "src/lib/pipeline/classify.ts": [
+    "pipelineClassification.create",
+    "pipelineRun.create",
+    "pipelineRun.update",
+    "pipelineRun.update",
+  ],
+  "src/lib/pipeline/compose-edition-script.ts": [
+    "newsletterEdition.update",
+    "pipelineRun.create",
+    "pipelineRun.update",
+    "pipelineRun.update",
+  ],
+  "src/lib/pipeline/compose-edition.ts": [
+    "newsletterEdition.update",
+    "pipelineRun.create",
+    "pipelineRun.update",
+    "pipelineRun.update",
+  ],
+  "src/lib/pipeline/crosslink-llm.ts": [
+    "pipelineClassification.update",
+    "pipelineCrosslinkLlmDecision.upsert",
+    "pipelineLink.deleteMany",
+    "pipelineLink.upsert",
+    "pipelineRun.create",
+    "pipelineRun.update",
+    "pipelineRun.update",
+  ],
+  "src/lib/pipeline/crosslink.ts": [
+    "pipelineClassification.update",
+    "pipelineLink.deleteMany",
+    "pipelineLink.upsert",
+    "pipelineRun.create",
+    "pipelineRun.update",
+    "pipelineRun.update",
+  ],
+  "src/lib/pipeline/enrich-links.ts": ["pipelineItem.update"],
+  "src/lib/pipeline/enrich-youtube-transcript.ts": ["pipelineItem.update"],
+  "src/lib/pipeline/normalize.ts": ["pipelineItem.create", "pipelineItem.update"],
+  "src/lib/pipeline/publish.ts": [
+    "newsletterBinding.upsert",
+    "newsletterEdition.create",
+    "pipelineClassification.update",
+    "pipelineRun.create",
+    "pipelineRun.update",
+    "pipelineRun.update",
+    "voiceSignal.updateMany",
+  ],
+  "src/lib/pipeline/voicesignal.ts": [
+    "newsletterEdition.create",
+    "pipelineRun.create",
+    "pipelineRun.update",
+    "pipelineRun.update",
+    "voiceSignal.create",
+    "voiceSignal.update",
+  ],
   "src/scripts/import-x-handles.ts": ["source.upsert"],
-  "src/seed.ts": ["source.upsert"],
+  "src/seed.ts": [
+    "fbSource.upsert",
+    "ghSource.create",
+    "ghSource.create",
+    "ghSource.update",
+    "ghSource.update",
+    "qiitaSource.upsert",
+    "redditSource.upsert",
+    "source.upsert",
+  ],
 };
 
 const EXPECTED_RAW_SQL_CALLS: Record<string, string[]> = {
@@ -83,8 +209,17 @@ const EXPECTED_RAW_SQL_CALLS: Record<string, string[]> = {
   "src/collector/source-score.ts": ["$queryRaw"],
   "src/lib/pipeline/topic-cluster.ts": ["$executeRaw", "$queryRaw"],
 };
-const PRISMA_MODELS = new Set(["source", "alertSource"]);
-const PRISMA_WRITE_METHODS = new Set(["create", "upsert", "createMany", "update", "updateMany", "delete", "deleteMany"]);
+const PRISMA_MODELS = prismaDelegatesFromSchema();
+const PRISMA_WRITE_METHODS = new Set([
+  "create",
+  "createMany",
+  "createManyAndReturn",
+  "update",
+  "updateMany",
+  "upsert",
+  "delete",
+  "deleteMany",
+]);
 const PRISMA_RAW_METHODS = new Set(["$executeRaw", "$executeRawUnsafe", "$queryRaw", "$queryRawUnsafe"]);
 const WRITER_COMMANDS = [
   {
@@ -121,11 +256,12 @@ type TraceEvent =
       method: string;
     };
 
-type DelegateModel = "source" | "alertSource";
+type DelegateModel = string;
 
 type PrismaAnalysis = {
   writes: string[];
   rawSql: string[];
+  unresolvedDelegateAccesses: string[];
 };
 
 type Scope = {
@@ -153,18 +289,39 @@ function readTsConfig(relativePath: string, legLabel: string): ts.ParsedCommandL
   return parsed;
 }
 
-function walkSourceFiles(directory: string): string[] {
+function prismaDelegatesFromSchema(): Set<string> {
+  const schema = fs.readFileSync(PRISMA_SCHEMA_PATH, "utf8");
+  const delegates = new Set<string>();
+  for (const match of schema.matchAll(/^model\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{/gm)) {
+    const model = match[1];
+    delegates.add(`${model[0].toLowerCase()}${model.slice(1)}`);
+  }
+  assert.ok(delegates.size > 0, "leg 5: Prisma schema contains no models");
+  return delegates;
+}
+
+function walkSourceFiles(directory: string, wholeRepository = false): string[] {
   const found: string[] = [];
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isDirectory() && wholeRepository && EXCLUDED_REPOSITORY_DIRECTORIES.has(entry.name)) continue;
     const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) found.push(...walkSourceFiles(absolute));
-    else if (/\.(?:ts|tsx)$/.test(entry.name)) found.push(absolute);
+    if (entry.isDirectory()) found.push(...walkSourceFiles(absolute, wholeRepository));
+    else if ((wholeRepository ? REPOSITORY_SOURCE_EXTENSIONS : /\.(?:ts|tsx)$/).test(entry.name)) found.push(absolute);
   }
   return found;
 }
 
 function relative(filePath: string): string {
   return path.relative(REPO_ROOT, filePath).split(path.sep).join("/");
+}
+
+function assertFixtureIdentifiersAreValid(): void {
+  for (const [label, identifier] of [
+    ["sentinel", SENTINEL_IDENTIFIER],
+    ["promoted candidate", PROMOTED_IDENTIFIER],
+  ] as const) {
+    assert.ok(HANDLE_RE.test(identifier), `startup: ${label} fixture identifier must satisfy HANDLE_RE: ${identifier}`);
+  }
 }
 
 function communityIdentifiers(communityDir: string): string[] {
@@ -236,22 +393,29 @@ const Module = require("module");
 const { fileURLToPath } = require("url");
 const trace = ${JSON.stringify(tracePath)};
 const append = fs.appendFileSync.bind(fs);
+let recording = false;
 function record(event) {
+  if (recording) return;
   try {
+    recording = true;
     append(trace, JSON.stringify(event) + "\\n");
-  } catch {}
+  } catch {} finally {
+    recording = false;
+  }
 }
 function normalizePath(value) {
   if (value instanceof URL) return fileURLToPath(value);
   if (Buffer.isBuffer(value)) return value.toString();
   return String(value);
 }
-function wrapPathMethod(target, name) {
+function wrapPathMethod(target, name, pathIndexes = [0]) {
   const original = target[name];
   if (typeof original !== "function") return;
-  target[name] = function(pathValue, ...args) {
-    record({ kind: "path", method: name, value: normalizePath(pathValue) });
-    return original.call(this, pathValue, ...args);
+  target[name] = function(...args) {
+    for (const index of pathIndexes) {
+      if (index < args.length) record({ kind: "path", method: name, value: normalizePath(args[index]) });
+    }
+    return original.apply(this, args);
   };
 }
 function wrapChildProcessModule(moduleName) {
@@ -267,12 +431,19 @@ function wrapChildProcessModule(moduleName) {
     }
   } catch {}
 }
-for (const name of ["readFileSync", "readFile", "createReadStream", "openSync", "open", "readdirSync", "readdir"]) {
+for (const name of [
+  "readFileSync", "readFile", "createReadStream", "openSync", "open", "readdirSync", "readdir",
+  "opendirSync", "opendir", "writeFileSync", "writeFile", "realpathSync", "realpath",
+]) {
   wrapPathMethod(fs, name);
 }
-for (const name of ["readFile", "open", "readdir"]) {
+for (const name of ["copyFileSync", "copyFile"]) {
+  wrapPathMethod(fs, name, [0, 1]);
+}
+for (const name of ["readFile", "open", "readdir", "opendir", "writeFile", "realpath"]) {
   wrapPathMethod(fs.promises, name);
 }
+wrapPathMethod(fs.promises, "copyFile", [0, 1]);
 wrapChildProcessModule("child_process");
 wrapChildProcessModule("node:child_process");
 const originalJson = Module._extensions[".json"];
@@ -319,7 +490,11 @@ async function behaviouralAndFilesystemLeg(prisma: PrismaClient, database: strin
     const fixtureCommunityDir = path.join(fixture.repoRoot, "data/community-sources");
     const fixtureXHandlesPath = path.join(fixture.repoRoot, "data/x-handles.json");
     const fixtureCommunityIds = communityIdentifiers(fixtureCommunityDir);
+    const originalXHandles = fs.readFileSync(fixtureXHandlesPath);
     const fixtureXHandleIds = new Set(xHandleIdentifiers(fixtureXHandlesPath));
+    const nonCommunity = JSON.parse(originalXHandles.toString("utf8")) as Array<{ handle: string }>;
+    const expected = [...new Set([...nonCommunity.map((entry) => entry.handle), PROMOTED_IDENTIFIER])]
+      .sort((left, right) => left.localeCompare(right));
 
     assert.ok(fixtureCommunityIds.length > 0, "leg 1: fixture requires a populated community-source directory");
     assert.ok(
@@ -336,7 +511,7 @@ async function behaviouralAndFilesystemLeg(prisma: PrismaClient, database: strin
     await prisma.candidateAccount.deleteMany();
     await prisma.run.deleteMany();
     await prisma.candidateAccount.create({
-      data: { handle: "ManualSource", status: "approved", mentionCount: 1 },
+      data: { handle: PROMOTED_IDENTIFIER, status: "approved", mentionCount: 1 },
     });
 
     const { hookPath, tracePath } = createTraceHook(tempDir);
@@ -344,11 +519,14 @@ async function behaviouralAndFilesystemLeg(prisma: PrismaClient, database: strin
       runWriter(fixture.repoRoot, writer.label, [...writer.args], hookPath, database);
     }
 
+    assert.deepEqual(
+      fs.readFileSync(fixtureXHandlesPath),
+      originalXHandles,
+      "leg 1: data/x-handles.json changed while automatic writers ran",
+    );
+
     const actual = (await prisma.source.findMany({ select: { handle: true }, orderBy: { handle: "asc" } }))
       .map((row) => row.handle)
-      .sort((left, right) => left.localeCompare(right));
-    const nonCommunity = JSON.parse(fs.readFileSync(fixtureXHandlesPath, "utf8")) as Array<{ handle: string }>;
-    const expected = [...new Set([...nonCommunity.map((entry) => entry.handle), "ManualSource"])]
       .sort((left, right) => left.localeCompare(right));
     assert.deepEqual(
       actual,
@@ -427,7 +605,9 @@ function scriptSnapshotLeg(): void {
 }
 
 function scriptKindFor(filePath: string): ts.ScriptKind {
-  return filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  if (filePath.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (filePath.endsWith(".js") || filePath.endsWith(".mjs") || filePath.endsWith(".cjs")) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
 }
 
 function cloneScope(scope: Scope): Scope {
@@ -485,6 +665,21 @@ function resolveDelegateExpression(expression: ts.Expression, scope: Scope): Del
   if (ts.isIdentifier(candidate)) {
     return scope.delegates.get(candidate.text) ?? null;
   }
+  if (ts.isCallExpression(candidate)) {
+    const callee = unwrapExpression(candidate.expression);
+    if (
+      ts.isPropertyAccessExpression(callee)
+      && ts.isIdentifier(callee.expression)
+      && callee.expression.text === "Reflect"
+      && callee.name.text === "get"
+      && candidate.arguments.length >= 2
+      && isClientExpression(candidate.arguments[0], scope)
+      && ts.isStringLiteralLike(candidate.arguments[1])
+      && PRISMA_MODELS.has(candidate.arguments[1].text)
+    ) {
+      return candidate.arguments[1].text;
+    }
+  }
   if (!ts.isPropertyAccessExpression(candidate) && !ts.isElementAccessExpression(candidate)) {
     return null;
   }
@@ -509,6 +704,9 @@ function isTransactionCallback(node: ts.FunctionLikeDeclaration): boolean {
 }
 
 function parameterIsPrismaClient(parameter: ts.ParameterDeclaration): boolean {
+  if (ts.isIdentifier(parameter.name) && (parameter.name.text === "prisma" || parameter.name.text === "tx")) {
+    return true;
+  }
   const type = parameter.type;
   if (!type) return false;
   if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
@@ -536,8 +734,19 @@ function trackAssignmentAlias(node: ts.Expression, scope: Scope): void {
 }
 
 function trackVariableAlias(node: ts.VariableDeclaration, scope: Scope): void {
+  if (!node.initializer) return;
+  if (ts.isObjectBindingPattern(node.name) && isClientExpression(node.initializer, scope)) {
+    for (const element of node.name.elements) {
+      if (!ts.isIdentifier(element.name)) continue;
+      const propertyName = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
+        ? element.propertyName.text
+        : element.name.text;
+      if (PRISMA_MODELS.has(propertyName)) scope.delegates.set(element.name.text, propertyName);
+    }
+    return;
+  }
   const name = bindingIdentifier(node.name);
-  if (!name || !node.initializer) return;
+  if (!name) return;
   const delegate = resolveDelegateExpression(node.initializer, scope);
   if (delegate) {
     scope.delegates.set(name, delegate);
@@ -571,6 +780,28 @@ function trackPrismaCall(node: ts.CallExpression, scope: Scope, analysis: Prisma
   }
 }
 
+function trackUnresolvedComputedDelegate(node: ts.Node, scope: Scope, analysis: PrismaAnalysis): void {
+  if (ts.isElementAccessExpression(node) && isClientExpression(node.expression, scope)) {
+    if (!ts.isStringLiteralLike(node.argumentExpression)) {
+      analysis.unresolvedDelegateAccesses.push(`computed Prisma property at ${node.getStart()}`);
+    }
+    return;
+  }
+  if (!ts.isCallExpression(node)) return;
+  const callee = unwrapExpression(node.expression);
+  if (
+    ts.isPropertyAccessExpression(callee)
+    && ts.isIdentifier(callee.expression)
+    && callee.expression.text === "Reflect"
+    && callee.name.text === "get"
+    && node.arguments.length >= 2
+    && isClientExpression(node.arguments[0], scope)
+    && !ts.isStringLiteralLike(node.arguments[1])
+  ) {
+    analysis.unresolvedDelegateAccesses.push(`computed Reflect.get Prisma property at ${node.getStart()}`);
+  }
+}
+
 function trackPrismaRawTag(node: ts.TaggedTemplateExpression, scope: Scope, analysis: PrismaAnalysis): void {
   const tag = unwrapExpression(node.tag);
   if (!ts.isPropertyAccessExpression(tag) && !ts.isElementAccessExpression(tag)) return;
@@ -588,7 +819,7 @@ function analyzePrismaFile(filePath: string): PrismaAnalysis {
     true,
     scriptKindFor(filePath),
   );
-  const analysis: PrismaAnalysis = { writes: [], rawSql: [] };
+  const analysis: PrismaAnalysis = { writes: [], rawSql: [], unresolvedDelegateAccesses: [] };
 
   const visit = (node: ts.Node, scope: Scope): void => {
     if (isFunctionLikeWithBody(node)) {
@@ -612,6 +843,7 @@ function analyzePrismaFile(filePath: string): PrismaAnalysis {
     } else if (ts.isTaggedTemplateExpression(node)) {
       trackPrismaRawTag(node, scope, analysis);
     }
+    trackUnresolvedComputedDelegate(node, scope, analysis);
 
     ts.forEachChild(node, (child) => visit(child, scope));
   };
@@ -619,60 +851,332 @@ function analyzePrismaFile(filePath: string): PrismaAnalysis {
   visit(sourceFile, { clients: new Set(), delegates: new Map() });
   analysis.writes.sort();
   analysis.rawSql.sort();
+  analysis.unresolvedDelegateAccesses.sort();
   return analysis;
 }
 
-function dataPathRegex(): RegExp {
-  return /(^|[./\\])data(?:[/\\]|$)/;
+const FS_PATH_ARGUMENTS: Record<string, number[]> = {
+  access: [0], accessSync: [0], appendFile: [0], appendFileSync: [0], chmod: [0], chmodSync: [0],
+  chown: [0], chownSync: [0], copyFile: [0, 1], copyFileSync: [0, 1], cp: [0, 1], cpSync: [0, 1],
+  createReadStream: [0], createWriteStream: [0], exists: [0], existsSync: [0], lstat: [0], lstatSync: [0],
+  mkdir: [0], mkdirSync: [0], mkdtemp: [0], mkdtempSync: [0], open: [0], openSync: [0], opendir: [0],
+  opendirSync: [0], readFile: [0], readFileSync: [0], readdir: [0], readdirSync: [0], readlink: [0],
+  readlinkSync: [0], realpath: [0], realpathSync: [0], rename: [0, 1], renameSync: [0, 1], rm: [0],
+  rmSync: [0], rmdir: [0], rmdirSync: [0], stat: [0], statSync: [0], symlink: [0, 1], symlinkSync: [0, 1],
+  truncate: [0], truncateSync: [0], unlink: [0], unlinkSync: [0], utimes: [0], utimesSync: [0],
+  watch: [0], watchFile: [0], writeFile: [0], writeFileSync: [0],
+};
+
+const SAFE_COMPUTED_FS_READS: Record<string, Record<string, string>> = {
+  // The default path is `docs/prompts/step1-3`; these four established prompt reads predate this
+  // guard and are reviewed as outside data/. Keep this exact so it cannot become a general bypass.
+  "src/lib/pipeline/classify-llm.ts": {
+    sharedPath: "final-shared-common.md",
+    groupAPath: "group-a-short-social.md",
+    groupBPath: "group-b-longform.md",
+    groupCPath: "group-c-repo.md",
+  },
+};
+
+type StaticPathContext = {
+  sourceFile: ts.SourceFile;
+  constants: Map<string, ts.Expression>;
+};
+
+function collectConstantInitializers(sourceFile: ts.SourceFile): Map<string, ts.Expression> {
+  const constants = new Map<string, ts.Expression>();
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.initializer
+    ) {
+      constants.set(node.name.text, node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return constants;
 }
 
-function collectDataPathLiterals(sourceFile: ts.SourceFile): string[] {
-  const literals = new Set<string>();
+function evaluateStaticPaths(
+  expression: ts.Expression,
+  context: StaticPathContext,
+  seen = new Set<string>(),
+): string[] | null {
+  const candidate = unwrapExpression(expression);
+  if (ts.isStringLiteralLike(candidate) || ts.isNoSubstitutionTemplateLiteral(candidate)) return [candidate.text];
+  if (ts.isIdentifier(candidate)) {
+    if (candidate.text === "__dirname") return [path.dirname(context.sourceFile.fileName)];
+    if (candidate.text === "__filename") return [context.sourceFile.fileName];
+    if (seen.has(candidate.text)) return null;
+    const initializer = context.constants.get(candidate.text);
+    if (!initializer) return null;
+    const nextSeen = new Set(seen);
+    nextSeen.add(candidate.text);
+    return evaluateStaticPaths(initializer, context, nextSeen);
+  }
+  if (
+    ts.isBinaryExpression(candidate)
+    && candidate.operatorToken.kind === ts.SyntaxKind.PlusToken
+  ) {
+    const left = evaluateStaticPaths(candidate.left, context, seen);
+    const right = evaluateStaticPaths(candidate.right, context, seen);
+    if (!left || !right) return null;
+    return left.flatMap((leftValue) => right.map((rightValue) => leftValue + rightValue));
+  }
+  if (ts.isConditionalExpression(candidate)) {
+    const whenTrue = evaluateStaticPaths(candidate.whenTrue, context, seen);
+    const whenFalse = evaluateStaticPaths(candidate.whenFalse, context, seen);
+    return whenTrue && whenFalse ? [...whenTrue, ...whenFalse] : null;
+  }
+  if (!ts.isCallExpression(candidate)) return null;
+  const callee = unwrapExpression(candidate.expression);
+  if (
+    ts.isPropertyAccessExpression(callee)
+    && ts.isIdentifier(callee.expression)
+    && callee.expression.text === "process"
+    && callee.name.text === "cwd"
+    && candidate.arguments.length === 0
+  ) {
+    return [REPO_ROOT];
+  }
+  if (
+    ts.isPropertyAccessExpression(callee)
+    && ts.isIdentifier(callee.expression)
+    && callee.expression.text === "path"
+    && (callee.name.text === "join" || callee.name.text === "resolve")
+  ) {
+    const parts = candidate.arguments.map((argument) => evaluateStaticPaths(argument, context, seen));
+    if (parts.some((part) => part === null)) return null;
+    let combinations = [""];
+    for (const part of parts as string[][]) {
+      combinations = combinations.flatMap((prefix) => part.map((value) => {
+        if (prefix === "") return value;
+        return callee.name.text === "resolve" ? path.resolve(prefix, value) : path.join(prefix, value);
+      }));
+    }
+    return combinations;
+  }
+  return null;
+}
+
+function resolvedRepositoryPath(sourceFile: ts.SourceFile, value: string, moduleSpecifier: boolean): string | null {
+  if (moduleSpecifier && !value.startsWith(".") && !path.isAbsolute(value) && !/^data(?:[/\\]|$)/.test(value)) {
+    return null;
+  }
+  if (path.isAbsolute(value)) return path.normalize(value);
+  if (value.startsWith(".")) return path.resolve(path.dirname(sourceFile.fileName), value);
+  return path.resolve(REPO_ROOT, value);
+}
+
+function pathIsUnderData(filePath: string): boolean {
+  const normalized = path.resolve(filePath);
+  return normalized === DATA_ROOT || normalized.startsWith(`${DATA_ROOT}${path.sep}`);
+}
+
+function isOnlyAllowedDataRead(sourceFile: ts.SourceFile, filePath: string): boolean {
+  return relative(sourceFile.fileName) === "src/scripts/import-x-handles.ts"
+    && path.resolve(filePath) === X_HANDLES_PATH;
+}
+
+function isVerifiedSafeComputedFsRead(
+  relativeFile: string,
+  argument: ts.Expression,
+  context: StaticPathContext,
+): boolean {
+  if (!ts.isIdentifier(argument)) return false;
+  const expectedFilename = SAFE_COMPUTED_FS_READS[relativeFile]?.[argument.text];
+  if (!expectedFilename) return false;
+  const pathInitializer = context.constants.get(argument.text);
+  const baseInitializer = context.constants.get("base");
+  if (!pathInitializer || !baseInitializer) return false;
+  const compact = (expression: ts.Expression): string => expression.getText(context.sourceFile).replace(/\s+/g, "");
+  return compact(pathInitializer) === `path.join(base,"${expectedFilename}")`
+    && compact(baseInitializer) === "promptDir||path.join(process.cwd(),\"docs\",\"prompts\",\"step1-3\")";
+}
+
+function staticDataReadOffenders(sourceFile: ts.SourceFile): string[] {
+  const context: StaticPathContext = { sourceFile, constants: collectConstantInitializers(sourceFile) };
+  const fsNamespaces = new Set<string>();
+  const fsFunctions = new Map<string, string>();
+  const offenders: string[] = [];
+  const relativeFile = relative(sourceFile.fileName);
+
+  const moduleName = (expression: ts.Expression): string | null => {
+    const values = evaluateStaticPaths(expression, context);
+    return values?.length === 1 ? values[0] : null;
+  };
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier)) {
+      const specifier = statement.moduleSpecifier.text.replace(/^node:/, "");
+      if (specifier !== "fs" && specifier !== "fs/promises") continue;
+      const clause = statement.importClause;
+      if (clause?.name) fsNamespaces.add(clause.name.text);
+      if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) fsNamespaces.add(clause.namedBindings.name.text);
+      if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const element of clause.namedBindings.elements) {
+          const imported = element.propertyName?.text ?? element.name.text;
+          if (imported === "promises") fsNamespaces.add(element.name.text);
+          else fsFunctions.set(element.name.text, imported);
+        }
+      }
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!declaration.initializer || !ts.isCallExpression(declaration.initializer)) continue;
+      const call = declaration.initializer;
+      if (!ts.isIdentifier(call.expression) || call.expression.text !== "require" || call.arguments.length !== 1) continue;
+      const specifier = moduleName(call.arguments[0])?.replace(/^node:/, "");
+      if (specifier !== "fs" && specifier !== "fs/promises") continue;
+      if (ts.isIdentifier(declaration.name)) fsNamespaces.add(declaration.name.text);
+      if (ts.isObjectBindingPattern(declaration.name)) {
+        for (const element of declaration.name.elements) {
+          if (!ts.isIdentifier(element.name)) continue;
+          const imported = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
+            ? element.propertyName.text
+            : element.name.text;
+          fsFunctions.set(element.name.text, imported);
+        }
+      }
+    }
+  }
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+      const initializer = unwrapExpression(declaration.initializer);
+      if (
+        ts.isPropertyAccessExpression(initializer)
+        && initializer.name.text === "promises"
+        && ts.isCallExpression(initializer.expression)
+        && ts.isIdentifier(initializer.expression.expression)
+        && initializer.expression.expression.text === "require"
+        && initializer.expression.arguments.length === 1
+      ) {
+        const specifier = moduleName(initializer.expression.arguments[0])?.replace(/^node:/, "");
+        if (specifier === "fs") fsNamespaces.add(declaration.name.text);
+      }
+    }
+  }
+
+  const inspectArgument = (
+    node: ts.CallExpression,
+    method: string,
+    argumentIndex: number,
+    moduleSpecifier = false,
+  ): void => {
+    const argument = node.arguments[argumentIndex];
+    if (!argument) return;
+    const values = evaluateStaticPaths(argument, context);
+    if (!values) {
+      if (!moduleSpecifier && isVerifiedSafeComputedFsRead(relativeFile, argument, context)) return;
+      const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+      offenders.push(`${relativeFile}:${position.line + 1} ${method} has a non-literal path`);
+      return;
+    }
+    for (const value of values) {
+      const resolved = resolvedRepositoryPath(sourceFile, value, moduleSpecifier);
+      if (resolved && pathIsUnderData(resolved) && !isOnlyAllowedDataRead(sourceFile, resolved)) {
+        const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+        offenders.push(`${relativeFile}:${position.line + 1} ${method} reads ${relative(resolved)}`);
+      }
+    }
+  };
+
   const visit = (node: ts.Node): void => {
-    if (ts.isStringLiteralLike(node)) {
-      const text = node.text.trim();
-      if (text === "data" || dataPathRegex().test(text)) {
-        literals.add(text);
+    if (ts.isCallExpression(node)) {
+      const callee = unwrapExpression(node.expression);
+      let fsMethod: string | null = null;
+      if (ts.isIdentifier(callee)) fsMethod = fsFunctions.get(callee.text) ?? null;
+      if (
+        ts.isPropertyAccessExpression(callee)
+        && ts.isIdentifier(callee.expression)
+        && fsNamespaces.has(callee.expression.text)
+      ) fsMethod = callee.name.text;
+      if (
+        ts.isPropertyAccessExpression(callee)
+        && ts.isPropertyAccessExpression(callee.expression)
+        && ts.isIdentifier(callee.expression.expression)
+        && fsNamespaces.has(callee.expression.expression.text)
+        && callee.expression.name.text === "promises"
+      ) fsMethod = callee.name.text;
+      if (fsMethod && FS_PATH_ARGUMENTS[fsMethod]) {
+        for (const argumentIndex of FS_PATH_ARGUMENTS[fsMethod]) inspectArgument(node, fsMethod, argumentIndex);
+      }
+      if (callee.kind === ts.SyntaxKind.ImportKeyword) inspectArgument(node, "import", 0, true);
+      if (ts.isIdentifier(callee) && callee.text === "require") inspectArgument(node, "require", 0, true);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return offenders;
+}
+
+function communitySourceLiteralOffenders(sourceFile: ts.SourceFile): string[] {
+  const offenders: string[] = [];
+  const visit = (node: ts.Node): void => {
+    const isTemplateFragment = node.kind === ts.SyntaxKind.TemplateHead
+      || node.kind === ts.SyntaxKind.TemplateMiddle
+      || node.kind === ts.SyntaxKind.TemplateTail;
+    if (ts.isStringLiteralLike(node) || isTemplateFragment) {
+      const text = (node as ts.LiteralLikeNode).text;
+      if (text.includes(COMMUNITY_SOURCE_LITERAL)) {
+        const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+        offenders.push(`${relative(sourceFile.fileName)}:${position.line + 1}`);
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return [...literals].sort((left, right) => left.localeCompare(right));
+  return offenders;
 }
 
-function assertApiRouteImportGraphsDoNotReadData(): void {
-  const appParsed = readTsConfig("tsconfig.json", "leg 5");
-  const rootNames = API_ROUTE_ROOTS.map((relativePath) => path.join(REPO_ROOT, relativePath));
-  const program = ts.createProgram({ rootNames, options: appParsed.options });
+function assertWriterImportGraphsDoNotReadData(writerFiles: string[]): void {
+  const parsed = readTsConfig("tsconfig.json", "leg 5");
+  const program = ts.createProgram({
+    rootNames: writerFiles,
+    options: { ...parsed.options, allowJs: true, checkJs: false, noEmit: true },
+  });
   const reachable = program.getSourceFiles()
     .filter((source) => !source.isDeclarationFile)
-    .filter((source) => path.resolve(source.fileName).startsWith(`${SRC_ROOT}${path.sep}`));
-
-  const offenders: string[] = [];
-  for (const sourceFile of reachable) {
-    const literals = collectDataPathLiterals(sourceFile);
-    if (literals.length > 0) {
-      offenders.push(`${relative(sourceFile.fileName)} -> ${literals.join(", ")}`);
-    }
-  }
-
+    .filter((source) => {
+      const absolute = path.resolve(source.fileName);
+      return absolute.startsWith(`${REPO_ROOT}${path.sep}`)
+        && ![...EXCLUDED_REPOSITORY_DIRECTORIES].some((directory) => absolute.includes(`${path.sep}${directory}${path.sep}`))
+        && absolute !== path.resolve(__filename);
+    });
+  const dataReadOffenders = reachable.flatMap(staticDataReadOffenders).sort((left, right) => left.localeCompare(right));
   assert.deepEqual(
-    offenders,
+    dataReadOffenders,
     [],
-    `leg 5: API source route import graph must not read under data/: ${offenders.join("; ")}`,
+    `leg 5: approved writer import graph has unsafe data reads: ${dataReadOffenders.join("; ")}`,
+  );
+  const literalOffenders = reachable
+    .flatMap(communitySourceLiteralOffenders)
+    .sort((left, right) => left.localeCompare(right));
+  assert.deepEqual(
+    literalOffenders,
+    [],
+    `leg 5 tripwire: approved writer import graph contains the literal ${COMMUNITY_SOURCE_LITERAL} in a string: ${literalOffenders.join("; ")}`,
   );
 }
 
 function databaseWriterLeg(): void {
   const writes: Record<string, string[]> = {};
   const rawSql: Record<string, string[]> = {};
+  const unresolvedDelegateAccesses: string[] = [];
 
-  for (const filePath of walkSourceFiles(SRC_ROOT)) {
-    if (filePath === __filename) continue;
+  for (const filePath of walkSourceFiles(REPO_ROOT, true)) {
+    if (path.resolve(filePath) === path.resolve(__filename)) continue;
     const analysis = analyzePrismaFile(filePath);
     if (analysis.writes.length > 0) writes[relative(filePath)] = analysis.writes;
     if (analysis.rawSql.length > 0) rawSql[relative(filePath)] = analysis.rawSql;
+    for (const finding of analysis.unresolvedDelegateAccesses) {
+      unresolvedDelegateAccesses.push(`${relative(filePath)} -> ${finding}`);
+    }
   }
 
   const normalizedWrites = Object.fromEntries(Object.entries(writes).sort(([left], [right]) => left.localeCompare(right)));
@@ -688,12 +1192,18 @@ function databaseWriterLeg(): void {
       .sort(([leftFile], [rightFile]) => leftFile.localeCompare(rightFile)),
   );
 
-  assert.deepEqual(normalizedWrites, expectedWrites, "leg 5: Source/AlertSource write call-site allow-list changed");
+  assert.deepEqual(unresolvedDelegateAccesses, [], "leg 5: unresolved computed Prisma delegate access found");
+  assert.deepEqual(normalizedWrites, expectedWrites, "leg 5: repository-wide Prisma write call-site allow-list changed");
   assert.deepEqual(normalizedRawSql, expectedRawSql, "leg 5: Prisma raw-SQL allow-list changed");
-  assertApiRouteImportGraphsDoNotReadData();
+  const writerFiles = [...new Set([...Object.keys(writes), ...Object.keys(rawSql)])]
+    .map((filePath) => path.join(REPO_ROOT, filePath));
+  assertWriterImportGraphsDoNotReadData(writerFiles);
 }
 
 async function main(): Promise<void> {
+  assertFixtureIdentifiersAreValid();
+  databaseWriterLeg();
+  console.log("PASS leg 5: repository-wide Prisma write snapshot and transitive no-data-read guard");
   const database = databaseUrl();
   const prisma = new PrismaClient();
   try {
@@ -704,8 +1214,6 @@ async function main(): Promise<void> {
     console.log("PASS leg 2: derived import graph and root completeness");
     scriptSnapshotLeg();
     console.log("PASS leg 4: package script name→value snapshot");
-    databaseWriterLeg();
-    console.log("PASS leg 5: AST DB-writer allow-list, raw-SQL allow-list, and API no-data-read graph");
   } finally {
     await prisma.$disconnect();
   }

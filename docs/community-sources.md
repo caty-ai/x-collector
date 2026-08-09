@@ -75,11 +75,44 @@ Gate comments contain only these fixed IDs and validated templates; raw filename
 | `C9` | The author account must meet the configured age floor; invalid configuration or lookup failure rejects. |
 | `C10` | The author must be below three merged entries in the preceding 30 days, counted from repository commit timestamps, never `first_seen`. |
 
+C10 fails closed if any relevant historical blob cannot be inspected. One malformed or unavailable
+blob therefore blocks every new submission until it can be inspected again. A transient GitHub API
+failure is indistinguishable from a permanent historical-data failure; rerun after a transient error,
+but do not bypass C10 or treat the missing inspection as zero submissions.
+
 ## Subscribe manually
 
 Review a catalog entry as a suggestion, then open `/settings` in your own X Collector deployment and add that one handle. Confirm its topic and ownership yourself. Repeat individually for any other source you want. There is deliberately no bulk community-list import command.
 
-The five-leg `no-auto-subscribe` suite is a strong tripwire against maintainer regressions, not a proof. Leg 1 runs the automatic writers against a temporary discriminating fixture that adds a synthetic community sentinel absent from `data/x-handles.json`, and it fails fast if that fixture has no discriminating power. Leg 3 also fails on any writer-side `child_process` spawn, so shelling out to read `data/community-sources/` is caught even if it reuses an already allow-listed writer. The two HTTP API writers are not executed by leg 1; their transitive import graphs are covered by a static assertion that forbids reads under `data/`.
+### What the `no-auto-subscribe` suite does and does not guarantee
+
+The **static** legs are the load-bearing ones. They snapshot every Prisma write and raw-SQL call
+across the whole repository, using delegate names derived from the schema, and they forbid any file in
+that snapshot — or anything it imports — from reading under `data/`, with the single exception of
+`import-x-handles` reading `data/x-handles.json`. Direct, bracket, destructured, aliased, transaction
+and `Reflect.get` delegate spellings are all covered, in `src/`, in `tools/`, and in any directory
+added later. Because these legs read source rather than observe execution, they also reject a read
+that is wrapped in a condition which never runs at test time.
+
+The **behavioural** legs — the `Source` set-equality run and the filesystem and subprocess trace — are
+a convenience check on the ordinary executed path, not a guarantee. The filesystem patch does not
+reach `worker_threads` isolates; a writer that spawns a subprocess is rejected outright.
+
+**The known residual**, stated plainly because it will not be closed: a writer that obtains the list
+through an **opaque channel** — a network response, a URL assembled at runtime, operator-supplied
+configuration — reaches the database without touching a `data/` path, and passes every leg. A direct
+HTTPS URL containing the literal string `community-sources` is rejected by a literal-string tripwire in
+leg 5; the same URL assembled from fragments is not. That tripwire is defence in depth, not a
+guarantee, and it is the only part of the suite that relies on string matching.
+
+This residual cannot be closed by a static rule, because it is **structurally indistinguishable from
+this product's intended behaviour**: `src/collector/discover.ts` already creates `Source` rows from
+accounts discovered over the network. Any rule broad enough to forbid the residual would also forbid
+the collector's core function.
+
+Two things bound it. Introducing it requires a human-authored, human-reviewed change to this
+repository's own source. And the community contribution path cannot introduce it at all: check C1
+rejects any pull request touching a path outside `data/community-sources/`.
 
 ## Remove an entry
 
@@ -97,6 +130,11 @@ If owner decision #1 remains `"false"`:
 2. Require the exact check `Act on community source contract` for `main`. Do not require `Validate community source contract`; it always exits 0.
 3. Confirm `synchronize` runs clear the stale `community-source:validated` label before applying the new verdict.
 4. Maintainers merge only after the exact current head has a passing `Act on community source contract` check.
+
+The `act` job uses `if: always()`. `validate` normally exits 0 after emitting a contract, while a job
+failure or missing/malformed output makes `act` fail during strict contract parsing instead of being
+skipped. For a malformed event with `pr_number: 0`, `act` cannot safely select an issue for a sticky
+comment and returns failure before commenting; this is fail-closed, not a reachable comment path.
 
 If owner decision #1 becomes `"true"`:
 

@@ -2,6 +2,9 @@ import fs from "fs";
 import path from "path";
 import { TextDecoder } from "util";
 import { z } from "zod";
+import { HANDLE_RE } from "../x-handle";
+
+export { HANDLE_RE } from "../x-handle";
 
 export enum CommunityCheckId {
   C1 = "C1",
@@ -16,7 +19,6 @@ export enum CommunityCheckId {
   C10 = "C10",
 }
 
-export const HANDLE_RE = /^[A-Za-z0-9_]{1,15}$/;
 export const GITHUB_LOGIN_RE = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 export const COMMUNITY_PATH_RE = /^data\/community-sources\/[a-z0-9][a-z0-9._-]{0,99}\.json$/;
 export const COMMUNITY_DIRECTORY = path.resolve(process.cwd(), "data/community-sources");
