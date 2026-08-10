@@ -86,81 +86,21 @@ Review a catalog entry as a suggestion, then open `/settings` in your own X Coll
 
 ### What the `no-auto-subscribe` suite does and does not guarantee
 
-**What this suite is for.** It guards against this project's own future changes accidentally wiring
-the community catalog into the subscription table. It is not a defence against a maintainer who
-deliberately sets out to defeat it — anyone with commit access to this repository can change anything,
-and no test in the repository can prevent that. The suite is built to catch code a maintainer could
-plausibly write during ordinary work. A contributor who deliberately chooses an unusual spelling to
-avoid the recognised shapes can succeed. Direct `Reflect.apply` on a delegate and direct
-`fs.openAsBlob` are caught by the general rules, not by dedicated regression cases. The in-suite
-self-regressions cover the supported path bindings and path idioms, lexical constant shadowing,
-descriptor-first filesystem APIs, repository-data writes, type-only imports, and dynamic module
-acquisition. Reflective/wrapper variants, paths assembled from opaque fragments, and harness detection
-are outside the coverage promise.
+The suite is now intentionally narrow. It keeps four checks:
 
-**What it cannot reach.** A community contribution can never introduce any of this: check C1 rejects
-any pull request that touches a path outside `data/community-sources/`. Every construction the suite
-does not catch requires a human-authored change to this repository's own source.
+- One behavioural check that uses a sentinel entry plus the real writers and filesystem/subprocess tracing to prove automatic flows populate `Source` only from non-community inputs and do not read `data/community-sources/`.
+- One TypeScript-program reachability check that keeps `src/scripts/community` outside runtime import roots.
+- One package/dependency snapshot check for the community-related script surface.
+- One catalog-name allow-list that restricts which source files may mention `community-sources`.
 
-The **static** legs are load-bearing within that bound. A direct call shaped like
-`<anything>.<schema delegate>.<write method>` is treated as a database write without first proving the
-receiver is a Prisma client. A delegate-shaped write-method reference that is not directly invoked is
-rejected, and inline Prisma relation `create`, `update`, `connectOrCreate`, and `upsert` objects are
-walked for nested writes. Raw-method calls are tracked in direct, bracket, destructured, aliased,
-`Reflect.get`, and bound forms; each allow-listed call includes a hash of its normalized SQL body, and
-non-allow-listed DML is rejected. Values used by these recognised shapes fail closed when unresolved.
+This is aimed at catching ordinary maintenance mistakes in this repository, not at stopping a person
+with commit access who deliberately wants to bypass it. A community contribution still cannot add such
+code directly because check C1 rejects pull requests that touch paths outside `data/community-sources/`.
 
-The filesystem read and write rules scan every loadable source file in the repository. An access that
-can land under `data/` is rejected unless it matches a named allow entry. The named read entries are
-`import-x-handles` reading `data/x-handles.json`, the community validator reading the community
-catalog, and the contribution helper listing that catalog. `ALLOWED_DATA_WRITES` is empty today. An
-unresolvable write fails closed unless its root is proven outside the repository; supported safe roots
-include `os.tmpdir()`, `os.homedir()`, and directories returned by `mkdtempSync` beneath a safe root.
-If a file both reads the catalog and writes under `data/`, both accesses are reported.
-
-One lexical binding resolver serves `fs`, `fs/promises`, `path`, `os`, `process`, network modules, and
-Prisma aliases. It follows namespace and named imports, `require`, dynamic import, rebinding, object
-destructuring, member aliases, and `fs.promises`. A tracked name hidden by an ambiguous redeclaration
-is reported with the binding name instead of silently losing coverage. Files that write `source` or
-`alertSource` still have their downward local import closure checked for network targets; reachability
-is used for that network closure only. Bare and `globalThis` fetches are inspected, network-module
-acquisition is allow-listed, and calls through acquired aliases are inspected. Type-only imports are
-not runtime acquisitions. Statically resolved targets must use an allow-listed HTTPS origin, while
-each legitimate dynamic target has an exact allow-list entry.
-
-The repository walk covers Next's effective page extensions plus Node's JS/TS module extensions and
-fails if a `next.config.js` `pageExtensions` override declares an extension the analyzer does not
-cover. It is not limited to `src/`; both filesystem data-access rules use this same repository walk.
-
-The filesystem guard follows `fs`/`fs/promises` acquisition, including dynamic import, and inspects
-every namespace call. Known APIs use their read/write path positions; descriptor-first APIs such as
-`writeSync`, `fsyncSync`, and `closeSync` are not treated as path calls, and definitely numeric
-arguments are not path candidates. Supported static paths include resolvable template expressions,
-`path.posix`/`path.win32`, destructured path methods, and path-method rebinding. Calls rooted at
-`os.tmpdir()` or `os.homedir()` resolve outside the repository and are safe, while a path that can land
-under `data/` is rejected. The package script map and both dependency maps are snapshotted, so a new
-execution path or database/network client is a visible test change.
-
-The **behavioural** legs — the `Source` set-equality run and the filesystem and subprocess trace — are
-a convenience check on the ordinary executed path, not a guarantee. The filesystem patch does not
-reach `worker_threads` isolates; a writer that spawns a subprocess is rejected outright.
-
-If an ordinary non-Prisma object happens to have a delegate-shaped call, add its exact callee expression
-to `ALLOWED_NON_PRISMA_DELEGATE_SHAPES` after review. If a legitimate network target cannot be resolved
-statically, add the exact expression or reported call hash to `ALLOWED_UNRESOLVED_NETWORK_TARGETS`.
-An intentional filesystem access under repository `data/` requires an exact named entry in the
-corresponding data-access allow-list. These are narrow false-positive responses, not instructions to
-weaken the general rule.
-
-To regenerate raw-SQL body hashes after deliberately editing a legitimate query, run:
-
-```sh
-npx ts-node src/scripts/community/no-auto-subscribe.test.ts --print-raw-sql-snapshot
-```
-
-Review the normalized query and any DML warning, then update `EXPECTED_RAW_SQL_CALLS` and, only when the
-DML itself is intended, the exact `ALLOWED_RAW_DML_CALLS` entry. The command prints candidates; it does
-not modify or auto-approve the snapshot.
+The replacement removes the bespoke static analyzer and keeps checks that are easier to understand,
+review, and maintain in public. In exchange, the suite no longer claims broad source-shape coverage;
+it verifies the executed writer path, the runtime import boundary, the package snapshot, and the small
+set of files allowed to reference the community catalog by name.
 
 ## Remove an entry
 
