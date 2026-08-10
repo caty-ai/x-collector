@@ -11,3 +11,6 @@ prisma/*.db
 .omx/
 .claude/
 _handoffs/
+
+# Local community-source contribution declines
+.community-source-declines.json

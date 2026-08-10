@@ -34,6 +34,10 @@ docs: restructure README for public release
 - 既存コードのスタイル（命名・コメント密度・エラーハンドリング）に合わせてください
 - 本番挙動に影響する変更は、本番 DB 実測ベースで効果を確認してから PR に記載してください
 
+## Community source contributions
+
+公開 X ソースをコミュニティ一覧へ提案する場合は、スキーマ、ヘルパー、手動 PR 手順、永続性の注意事項を [Community sources guide](docs/community-sources.md) で確認してください。一覧への掲載だけでは購読されません。
+
 ## 質問・提案
 
 バグ報告・機能提案は [Issues](../../issues) へお願いします。

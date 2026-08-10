@@ -34,7 +34,11 @@
     "retention:prod": "node dist/collector/pipeline-retention.js",
     "seed:prod": "node dist/seed.js",
     "summary": "ts-node -r dotenv/config src/summary/daily.ts",
-    "summary:prod": "node dist/summary/daily.js"
+    "summary:prod": "node dist/summary/daily.js",
+    "contribute:source": "ts-node -r dotenv/config src/scripts/contribute-source.ts",
+    "validate:community": "ts-node src/scripts/community/validate-community-source.ts --all",
+    "test:community": "ts-node src/scripts/community/no-auto-subscribe.test.ts",
+    "typecheck:community": "tsc --noEmit -p tsconfig.community.json"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
