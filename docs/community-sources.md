@@ -110,24 +110,27 @@ walked for nested writes. Raw-method calls are tracked in direct, bracket, destr
 `Reflect.get`, and bound forms; each allow-listed call includes a hash of its normalized SQL body, and
 non-allow-listed DML is rejected. Values used by these recognised shapes fail closed when unresolved.
 
-The filesystem-write rule scans every loadable source file in the repository. A write that can land
-under `data/` is rejected unless its exact file, API, and resolved target are in `ALLOWED_DATA_WRITES`;
-that allow-list is empty today. An unresolvable write path also fails closed. If such a file both reads
-the catalog and writes under `data/`, both accesses are reported. This repository-wide write set is
-deliberately broader than the read set: reads under `data/` are checked for every recorded Prisma or
-raw-SQL writer and its downward local import closure, with the single exception of
-`import-x-handles` reading `data/x-handles.json`. The constant resolver follows lexical scope, so a
-same-named binding in another function or block cannot supply the value. Files that write `source` or
-`alertSource` have their downward local import closure checked for network targets. Bare and
-`globalThis` fetches are inspected; runtime network-module acquisition, including dynamic import, is
-allow-listed; and calls through an acquired namespace or function alias are inspected. Type-only
-imports are not runtime acquisitions. Statically resolved targets must use an allow-listed HTTPS
-origin, while each legitimate dynamic target has an exact allow-list entry.
+The filesystem read and write rules scan every loadable source file in the repository. An access that
+can land under `data/` is rejected unless it matches a named allow entry. The named read entries are
+`import-x-handles` reading `data/x-handles.json`, the community validator reading the community
+catalog, and the contribution helper listing that catalog. `ALLOWED_DATA_WRITES` is empty today. An
+unresolvable write fails closed unless its root is proven outside the repository; supported safe roots
+include `os.tmpdir()`, `os.homedir()`, and directories returned by `mkdtempSync` beneath a safe root.
+If a file both reads the catalog and writes under `data/`, both accesses are reported.
+
+One lexical binding resolver serves `fs`, `fs/promises`, `path`, `os`, `process`, network modules, and
+Prisma aliases. It follows namespace and named imports, `require`, dynamic import, rebinding, object
+destructuring, member aliases, and `fs.promises`. A tracked name hidden by an ambiguous redeclaration
+is reported with the binding name instead of silently losing coverage. Files that write `source` or
+`alertSource` still have their downward local import closure checked for network targets; reachability
+is used for that network closure only. Bare and `globalThis` fetches are inspected, network-module
+acquisition is allow-listed, and calls through acquired aliases are inspected. Type-only imports are
+not runtime acquisitions. Statically resolved targets must use an allow-listed HTTPS origin, while
+each legitimate dynamic target has an exact allow-list entry.
 
 The repository walk covers Next's effective page extensions plus Node's JS/TS module extensions and
 fails if a `next.config.js` `pageExtensions` override declares an extension the analyzer does not
-cover. It is not limited to `src/`. Thus “writer plus imports” describes only the data-read and literal
-tripwire set; it does not describe the repository-wide filesystem-write set.
+cover. It is not limited to `src/`; both filesystem data-access rules use this same repository walk.
 
 The filesystem guard follows `fs`/`fs/promises` acquisition, including dynamic import, and inspects
 every namespace call. Known APIs use their read/write path positions; descriptor-first APIs such as
@@ -145,11 +148,9 @@ reach `worker_threads` isolates; a writer that spawns a subprocess is rejected o
 If an ordinary non-Prisma object happens to have a delegate-shaped call, add its exact callee expression
 to `ALLOWED_NON_PRISMA_DELEGATE_SHAPES` after review. If a legitimate network target cannot be resolved
 statically, add the exact expression or reported call hash to `ALLOWED_UNRESOLVED_NETWORK_TARGETS`.
-If a legitimate filesystem read cannot be resolved statically, add an exact, shape-checked entry to
-`SAFE_COMPUTED_FS_READS`; each entry must identify the file, binding, expected filename, and initializer
-shape. Legitimate computed writes use the equally narrow `SAFE_COMPUTED_FS_WRITES` path, while an
-intentional write under repository `data/` requires an exact `ALLOWED_DATA_WRITES` entry. These are
-narrow false-positive responses, not instructions to weaken the general rule.
+An intentional filesystem access under repository `data/` requires an exact named entry in the
+corresponding data-access allow-list. These are narrow false-positive responses, not instructions to
+weaken the general rule.
 
 To regenerate raw-SQL body hashes after deliberately editing a legitimate query, run:
 

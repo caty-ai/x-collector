@@ -3,8 +3,8 @@
  *
  * The static legs are the load-bearing tripwire. Delegate-shaped writes fail closed without proving
  * the receiver is a Prisma client; raw calls include a normalized SQL-body hash and DML policy; and
- * approved writer closures reject unsafe filesystem reads and network acquisition, while every
- * repository source file is checked for writes under data/. The checks target ordinary code shapes
+ * every repository source file is checked for reads and writes under data/, while source-writer
+ * closures reject unsafe network acquisition. The checks target ordinary code shapes
  * and fail closed when a value used by a recognised shape cannot be resolved.
  * Deliberately unusual spellings remain outside the stated threat model. The behavioural legs remain
  * best-effort convenience checks for ordinary executed paths.
@@ -36,7 +36,6 @@ const REPOSITORY_SOURCE_EXTENSIONS = new Set(
   [...NEXT_DEFAULT_PAGE_EXTENSIONS, ...NODE_LOADABLE_SOURCE_EXTENSIONS].map((extension) => `.${extension}`),
 );
 const EXCLUDED_REPOSITORY_DIRECTORIES = new Set(["node_modules", ".git", "dist", ".next"]);
-const COMMUNITY_SOURCE_LITERAL = "community-sources";
 const ALLOWED_NETWORK_ORIGINS = new Set([
   "https://api.scrapecreators.com",
   "https://openrouter.ai",
@@ -332,10 +331,100 @@ type PrismaMethod =
   | { kind: "write"; method: string; delegate: DelegateModel }
   | { kind: "raw"; method: string };
 
-type Scope = {
-  delegates: Map<string, DelegateModel>;
-  methods: Map<string, PrismaMethod>;
-};
+type StaticPathModule = "os" | "path" | "process";
+type NetworkModule = string;
+type TrackedModule = StaticPathModule | "fs" | "fs/promises" | NetworkModule;
+type TrackedBinding =
+  | { kind: "module"; module: TrackedModule; pathFlavor?: "posix" | "win32" }
+  | { kind: "member"; module: TrackedModule; member: string; pathFlavor?: "posix" | "win32" }
+  | { kind: "prisma-delegate"; delegate: DelegateModel }
+  | { kind: "prisma-method"; method: PrismaMethod };
+
+type ShadowReporter = boolean | ((binding: TrackedBinding) => boolean);
+
+class BindingResolver {
+  readonly lexicalScopes: Map<ts.Node, StaticLexicalScope>;
+  readonly acquisitions: Array<{ module: TrackedModule; node: ts.Node }> = [];
+  private readonly values = new Map<StaticLexicalScope, Map<string, TrackedBinding>>();
+  private readonly implicit = new Map<string, TrackedBinding>();
+  private readonly reported = new Set<string>();
+
+  constructor(
+    private readonly sourceFile: ts.SourceFile,
+    readonly offenders: string[],
+  ) {
+    this.lexicalScopes = collectConstantInitializers(sourceFile);
+  }
+
+  private scopeAt(node: ts.Node): StaticLexicalScope {
+    return this.lexicalScopes.get(node) ?? this.lexicalScopes.get(this.sourceFile)!;
+  }
+
+  private declarationScope(name: string, node: ts.Node): StaticLexicalScope | null {
+    let scope: StaticLexicalScope | null = this.scopeAt(node);
+    while (scope) {
+      if (scope.bindings.has(name)) return scope;
+      scope = scope.parent;
+    }
+    return null;
+  }
+
+  private reportRedeclared(name: string, node: ts.Node): void {
+    if (!this.reported.has(name)) {
+      this.reported.add(name);
+      this.offenders.push(`${sourcePosition(this.sourceFile, node)} tracked binding is redeclared: ${name}`);
+    }
+  }
+
+  set(name: string, value: TrackedBinding, node: ts.Node): void {
+    const scope = this.declarationScope(name, node);
+    if (!scope || scope.bindings.get(name) === null) {
+      this.reportRedeclared(name, node);
+      return;
+    }
+    const frame = this.values.get(scope) ?? new Map<string, TrackedBinding>();
+    frame.set(name, value);
+    this.values.set(scope, frame);
+  }
+
+  setImplicit(name: string, value: TrackedBinding): void {
+    this.implicit.set(name, value);
+  }
+
+  recordAcquisition(module: TrackedModule, node: ts.Node): void {
+    this.acquisitions.push({ module, node });
+  }
+
+  get(name: string, node: ts.Node, reportShadow: ShadowReporter = false): TrackedBinding | null {
+    const shouldReport = (binding: TrackedBinding): boolean => reportShadow === true
+      || (typeof reportShadow === "function" && reportShadow(binding));
+    let scope: StaticLexicalScope | null = this.scopeAt(node);
+    while (scope) {
+      if (scope.bindings.has(name)) {
+        const value = this.values.get(scope)?.get(name) ?? null;
+        if (value) return value;
+        if (reportShadow) {
+          const implicit = this.implicit.get(name);
+          if (implicit && shouldReport(implicit)) this.reportRedeclared(name, node);
+          let outer = scope.parent;
+          while (outer) {
+            const outerValue = this.values.get(outer)?.get(name);
+            if (outerValue && shouldReport(outerValue)) {
+              this.reportRedeclared(name, node);
+              break;
+            }
+            outer = outer.parent;
+          }
+        }
+        return null;
+      }
+      scope = scope.parent;
+    }
+    return this.implicit.get(name) ?? null;
+  }
+}
+
+type Scope = BindingResolver;
 
 function isPrismaRawMethod(method: string): boolean {
   return /^\$(?:execute|query)Raw/.test(method);
@@ -738,13 +827,6 @@ function scriptKindFor(filePath: string): ts.ScriptKind {
   return ts.ScriptKind.TS;
 }
 
-function cloneScope(scope: Scope): Scope {
-  return {
-    delegates: new Map(scope.delegates),
-    methods: new Map(scope.methods),
-  };
-}
-
 function unwrapExpression(expression: ts.Expression): ts.Expression {
   let current = expression;
   for (;;) {
@@ -778,14 +860,11 @@ function receiverExpression(node: ts.PropertyAccessExpression | ts.ElementAccess
   return node.expression;
 }
 
-function bindingIdentifier(name: ts.BindingName): string | null {
-  return ts.isIdentifier(name) ? name.text : null;
-}
-
 function resolveDelegateExpression(expression: ts.Expression, scope: Scope): DelegateModel | null {
   const candidate = unwrapExpression(expression);
   if (ts.isIdentifier(candidate)) {
-    return scope.delegates.get(candidate.text) ?? null;
+    const binding = scope.get(candidate.text, candidate, isPrismaBinding);
+    return binding?.kind === "prisma-delegate" ? binding.delegate : null;
   }
   if (ts.isCallExpression(candidate)) {
     const callee = unwrapExpression(candidate.expression);
@@ -813,14 +892,12 @@ function resolveDelegateExpression(expression: ts.Expression, scope: Scope): Del
   return propertyName as DelegateModel;
 }
 
-function isFunctionLikeWithBody(node: ts.Node): node is ts.FunctionLikeDeclaration & { body: ts.ConciseBody } {
-  const functionLike = node as ts.FunctionLikeDeclaration;
-  return ts.isFunctionLike(node) && functionLike.body !== undefined;
-}
-
 function resolvePrismaMethodExpression(expression: ts.Expression, scope: Scope): PrismaMethod | null {
   const candidate = unwrapExpression(expression);
-  if (ts.isIdentifier(candidate)) return scope.methods.get(candidate.text) ?? null;
+  if (ts.isIdentifier(candidate)) {
+    const binding = scope.get(candidate.text, candidate, isPrismaBinding);
+    return binding?.kind === "prisma-method" ? binding.method : null;
+  }
   if (ts.isCallExpression(candidate)) {
     const callee = unwrapExpression(candidate.expression);
     if (
@@ -850,52 +927,12 @@ function resolvePrismaMethodExpression(expression: ts.Expression, scope: Scope):
     && ts.isIdentifier(candidate.expression)
     && candidate.expression.text === "Reflect"
   ) return null;
+  if (!propertyName || !PRISMA_WRITE_METHODS.has(propertyName)) return null;
   const delegate = resolveDelegateExpression(receiverExpression(candidate), scope);
   if (delegate && propertyName && PRISMA_WRITE_METHODS.has(propertyName)) {
     return { kind: "write", method: propertyName, delegate };
   }
   return null;
-}
-
-function setBindingAlias(name: ts.BindingName, initializer: ts.Expression, scope: Scope): void {
-  if (ts.isObjectBindingPattern(name)) {
-    const delegate = resolveDelegateExpression(initializer, scope);
-    for (const element of name.elements) {
-      if (!ts.isIdentifier(element.name)) continue;
-      const propertyName = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
-        ? element.propertyName.text
-        : element.name.text;
-      if (delegate && PRISMA_WRITE_METHODS.has(propertyName)) {
-        scope.methods.set(element.name.text, { kind: "write", method: propertyName, delegate });
-      } else if (isPrismaRawMethod(propertyName)) {
-        scope.methods.set(element.name.text, { kind: "raw", method: propertyName });
-      } else if (PRISMA_MODELS.has(propertyName)) {
-        scope.delegates.set(element.name.text, propertyName);
-      }
-    }
-    return;
-  }
-  const identifier = bindingIdentifier(name);
-  if (!identifier) return;
-  const method = resolvePrismaMethodExpression(initializer, scope);
-  if (method) {
-    scope.methods.set(identifier, method);
-    return;
-  }
-  const delegate = resolveDelegateExpression(initializer, scope);
-  if (delegate) scope.delegates.set(identifier, delegate);
-}
-
-function trackAssignmentAlias(node: ts.Expression, scope: Scope): void {
-  if (!ts.isBinaryExpression(node) || node.operatorToken.kind !== ts.SyntaxKind.EqualsToken || !ts.isIdentifier(node.left)) {
-    return;
-  }
-  setBindingAlias(node.left, node.right, scope);
-}
-
-function trackVariableAlias(node: ts.VariableDeclaration, scope: Scope): void {
-  if (!node.initializer) return;
-  setBindingAlias(node.name, node.initializer, scope);
 }
 
 function normalizedTemplateText(
@@ -1244,13 +1281,9 @@ function trackPrismaRawTag(
   }
 }
 
-function analyzePrismaFile(filePath: string): PrismaAnalysis {
-  const sourceFile = ts.createSourceFile(
-    filePath,
-    fs.readFileSync(filePath, "utf8"),
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKindFor(filePath),
+function analyzePrismaFile(filePath: string, existingSourceFile?: ts.SourceFile): PrismaAnalysis {
+  const sourceFile = existingSourceFile ?? ts.createSourceFile(
+    filePath, fs.readFileSync(filePath, "utf8"), ts.ScriptTarget.Latest, true, scriptKindFor(filePath),
   );
   const analysis: PrismaAnalysis = {
     writes: [],
@@ -1261,27 +1294,8 @@ function analyzePrismaFile(filePath: string): PrismaAnalysis {
   };
   const context = staticPathContext(sourceFile);
 
-  const preloadAliases = (node: ts.Node, scope: Scope): void => {
-    if (ts.isVariableDeclaration(node)) trackVariableAlias(node, scope);
-    else if (ts.isExpressionStatement(node)) trackAssignmentAlias(node.expression, scope);
-    ts.forEachChild(node, (child) => {
-      if (!isFunctionLikeWithBody(child)) preloadAliases(child, scope);
-    });
-  };
-
   const visit = (node: ts.Node, scope: Scope): void => {
-    if (isFunctionLikeWithBody(node)) {
-      const childScope = cloneScope(scope);
-      preloadAliases(node.body, childScope);
-      if (node.body) visit(node.body, childScope);
-      return;
-    }
-
-    if (ts.isVariableDeclaration(node)) {
-      trackVariableAlias(node, scope);
-    } else if (ts.isExpressionStatement(node)) {
-      trackAssignmentAlias(node.expression, scope);
-    } else if (ts.isCallExpression(node)) {
+    if (ts.isCallExpression(node)) {
       trackPrismaCall(node, scope, sourceFile, analysis, context);
     } else if (ts.isTaggedTemplateExpression(node)) {
       trackPrismaRawTag(node, scope, sourceFile, analysis);
@@ -1296,9 +1310,10 @@ function analyzePrismaFile(filePath: string): PrismaAnalysis {
     ts.forEachChild(node, (child) => visit(child, scope));
   };
 
-  const rootScope: Scope = { delegates: new Map(), methods: new Map() };
-  preloadAliases(sourceFile, rootScope);
+  const rootScope = context.bindings;
+  const initialBindingOffenderCount = rootScope.offenders.length;
   visit(sourceFile, rootScope);
+  analysis.offenders.push(...rootScope.offenders.slice(initialBindingOffenderCount));
   analysis.writes.sort();
   analysis.rawSql.sort();
   analysis.offenders.sort();
@@ -1319,7 +1334,7 @@ const FS_PATH_ARGUMENTS: Record<string, FsPathArguments> = {
   open: { read: [0], write: [0] }, openSync: { read: [0], write: [0] },
   opendir: { read: [0] }, opendirSync: { read: [0] }, readFile: { read: [0] }, readFileSync: { read: [0] },
   readdir: { read: [0] }, readdirSync: { read: [0] }, readlink: { read: [0] }, readlinkSync: { read: [0] },
-  realpath: { read: [0] }, realpathSync: { read: [0] }, rename: { write: [0, 1] },
+  realpath: { read: [0] }, realpathSync: { read: [0] }, rename: { read: [0], write: [0, 1] },
   renameSync: { read: [0], write: [0, 1] }, rm: { write: [0] }, rmSync: { write: [0] },
   rmdir: { write: [0] }, rmdirSync: { write: [0] }, stat: { read: [0] }, statSync: { read: [0] },
   symlink: { write: [1] }, symlinkSync: { write: [1] }, truncate: { write: [0] },
@@ -1350,29 +1365,22 @@ const SAFE_COMPUTED_FS_READS: Record<string, Record<string, string>> = {
 // Product code currently has no sanctioned write under data/.
 const ALLOWED_DATA_WRITES = new Set<string>();
 
-const SAFE_COMPUTED_FS_WRITES = new Set([
-  // GitHub Actions owns this runner-temporary path; the workflow supplies it as GITHUB_OUTPUT.
-  "src/scripts/community/gate.ts:appendFileSync:output",
-]);
-
 type StaticPathContext = {
   sourceFile: ts.SourceFile;
   lexicalScopes: Map<ts.Node, StaticLexicalScope>;
-  moduleNamespaces: Map<string, StaticPathModule>;
-  moduleFunctions: Map<string, StaticModuleFunction>;
+  bindings: BindingResolver;
 };
 
 type StaticLexicalScope = {
   parent: StaticLexicalScope | null;
   bindings: Map<string, StaticLexicalBinding | null>;
+  varScope: StaticLexicalScope;
 };
 
 type StaticLexicalBinding = {
   initializer: ts.Expression | null;
   numeric: boolean;
 };
-
-type StaticPathModule = "os" | "path" | "process";
 
 type StaticModuleFunction = {
   module: StaticPathModule;
@@ -1391,46 +1399,147 @@ function staticPathModuleName(specifier: string): StaticPathModule | null {
   return normalized === "os" || normalized === "path" || normalized === "process" ? normalized : null;
 }
 
-function requiredStaticPathModule(expression: ts.Expression): StaticPathModule | null {
+function trackedModuleName(specifier: string): TrackedModule | null {
+  const normalized = specifier.replace(/^node:/, "");
+  if (normalized === "fs" || normalized === "fs/promises") return normalized;
+  if (normalized === "os" || normalized === "path" || normalized === "process") return normalized;
+  if (NETWORK_CAPABLE_BUILTINS.has(normalized) || KNOWN_HTTP_CLIENT_PACKAGES.has(normalized)) return normalized;
+  return null;
+}
+
+function acquiredTrackedModule(expression: ts.Expression): TrackedModule | null {
   const candidate = unwrapExpression(expression);
   if (
     !ts.isCallExpression(candidate)
-    || !ts.isIdentifier(candidate.expression)
-    || candidate.expression.text !== "require"
     || candidate.arguments.length !== 1
     || !ts.isStringLiteralLike(candidate.arguments[0])
   ) return null;
-  return staticPathModuleName(candidate.arguments[0].text);
+  const callee = unwrapExpression(candidate.expression);
+  if (callee.kind !== ts.SyntaxKind.ImportKeyword && !(ts.isIdentifier(callee) && callee.text === "require")) return null;
+  return trackedModuleName(candidate.arguments[0].text);
 }
 
-function collectStaticPathModuleBindings(sourceFile: ts.SourceFile): {
-  namespaces: Map<string, StaticPathModule>;
-  functions: Map<string, StaticModuleFunction>;
-} {
-  const namespaces = new Map<string, StaticPathModule>([["process", "process"]]);
-  const functions = new Map<string, StaticModuleFunction>();
-  const explicitNamespaces = new Set<string>();
+function isRecognizedTrackedMember(member: string): boolean {
+  return member === "promises"
+    || member === "posix"
+    || member === "win32"
+    || PRISMA_MODELS.has(member)
+    || PRISMA_WRITE_METHODS.has(member)
+    || isPrismaRawMethod(member)
+    || Object.prototype.hasOwnProperty.call(FS_PATH_ARGUMENTS, member)
+    || FS_DESCRIPTOR_FIRST_METHODS.has(member)
+    || Object.values(STATIC_PATH_MODULE_METHODS).some((methods) => methods.has(member))
+    || ["connect", "fetch", "get", "post", "put", "request"].includes(member);
+}
 
-  const setNamespace = (name: string, module: StaticPathModule): void => {
-    namespaces.set(name, module);
-    explicitNamespaces.add(name);
-  };
+function isPrismaBinding(binding: TrackedBinding): boolean {
+  return binding.kind === "prisma-delegate" || binding.kind === "prisma-method";
+}
 
-  const registerBinding = (name: ts.BindingName, module: StaticPathModule): void => {
+function isFilesystemBinding(binding: TrackedBinding): boolean {
+  return (binding.kind === "module" || binding.kind === "member")
+    && (binding.module === "fs" || binding.module === "fs/promises");
+}
+
+function isStaticPathOrFilesystemCallableBinding(binding: TrackedBinding): boolean {
+  if (binding.kind !== "member") return false;
+  if (binding.module === "fs" || binding.module === "fs/promises") return true;
+  const module = staticPathModuleName(binding.module);
+  return module !== null && STATIC_PATH_MODULE_METHODS[module].has(binding.member);
+}
+
+function isNetworkCallableBinding(binding: TrackedBinding): boolean {
+  return binding.kind === "member"
+    && (NETWORK_CAPABLE_BUILTINS.has(binding.module) || KNOWN_HTTP_CLIENT_PACKAGES.has(binding.module));
+}
+
+function resolvedTrackedBinding(
+  expression: ts.Expression,
+  resolver: BindingResolver,
+  reportIdentifierShadow: ShadowReporter = false,
+): TrackedBinding | null {
+  const candidate = unwrapExpression(expression);
+  if (ts.isIdentifier(candidate)) return resolver.get(candidate.text, candidate, reportIdentifierShadow);
+  const acquired = acquiredTrackedModule(candidate);
+  if (acquired) return { kind: "module", module: acquired };
+  if (ts.isCallExpression(candidate)) {
+    const callee = unwrapExpression(candidate.expression);
+    if (
+      (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
+      && propertyNameText(callee) === "bind"
+    ) return resolvedTrackedBinding(receiverExpression(callee), resolver, reportIdentifierShadow);
+    if (
+      ts.isPropertyAccessExpression(callee)
+      && ts.isIdentifier(callee.expression)
+      && callee.expression.text === "Reflect"
+      && callee.name.text === "get"
+      && candidate.arguments.length >= 2
+      && ts.isStringLiteralLike(candidate.arguments[1])
+    ) {
+      const member = candidate.arguments[1].text;
+      if (PRISMA_MODELS.has(member)) return { kind: "prisma-delegate", delegate: member };
+      if (isPrismaRawMethod(member)) return { kind: "prisma-method", method: { kind: "raw", method: member } };
+    }
+    return null;
+  }
+  if (!ts.isPropertyAccessExpression(candidate) && !ts.isElementAccessExpression(candidate)) return null;
+  const member = propertyNameText(candidate);
+  if (!member) return null;
+  const baseExpression = unwrapExpression(candidate.expression);
+  const base = ts.isIdentifier(baseExpression)
+    ? resolver.get(baseExpression.text, baseExpression, isRecognizedTrackedMember(member))
+    : resolvedTrackedBinding(baseExpression, resolver);
+  if (base?.kind === "module") {
+    if (base.module === "fs" && member === "promises") return { kind: "module", module: "fs/promises" };
+    if (base.module === "path" && (member === "posix" || member === "win32")) {
+      return { kind: "module", module: "path", pathFlavor: member };
+    }
+    return { kind: "member", module: base.module, member, pathFlavor: base.pathFlavor };
+  }
+  if (base?.kind === "prisma-delegate" && PRISMA_WRITE_METHODS.has(member)) {
+    return { kind: "prisma-method", method: { kind: "write", delegate: base.delegate, method: member } };
+  }
+  if (PRISMA_MODELS.has(member)) return { kind: "prisma-delegate", delegate: member };
+  if (isPrismaRawMethod(member)) return { kind: "prisma-method", method: { kind: "raw", method: member } };
+  return null;
+}
+
+function bindingsFor(sourceFile: ts.SourceFile): BindingResolver {
+  const resolver = new BindingResolver(sourceFile, []);
+  resolver.setImplicit("process", { kind: "module", module: "process" });
+
+  const registerPattern = (name: ts.BindingName, value: TrackedBinding): void => {
     if (ts.isIdentifier(name)) {
-      setNamespace(name.text, module);
+      resolver.set(name.text, value, name);
       return;
     }
     if (!ts.isObjectBindingPattern(name)) return;
     for (const element of name.elements) {
       if (!ts.isIdentifier(element.name)) continue;
-      const imported = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
+      const member = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
         ? element.propertyName.text
         : element.name.text;
-      if (STATIC_PATH_MODULE_METHODS[module].has(imported)) {
-        functions.set(element.name.text, { module, method: imported });
+      let rebound: TrackedBinding | null = null;
+      if (value.kind === "module") {
+        rebound = value.module === "fs" && member === "promises"
+          ? { kind: "module", module: "fs/promises" }
+          : { kind: "member", module: value.module, member, pathFlavor: value.pathFlavor };
+      } else if (value.kind === "prisma-delegate" && PRISMA_WRITE_METHODS.has(member)) {
+        rebound = { kind: "prisma-method", method: { kind: "write", delegate: value.delegate, method: member } };
+      } else if (PRISMA_MODELS.has(member)) {
+        rebound = { kind: "prisma-delegate", delegate: member };
+      } else if (isPrismaRawMethod(member)) {
+        rebound = { kind: "prisma-method", method: { kind: "raw", method: member } };
       }
+      if (rebound) resolver.set(element.name.text, rebound, element.name);
     }
+  };
+
+  const importHasValueBinding = (node: ts.ImportDeclaration): boolean => {
+    const clause = node.importClause;
+    if (!clause || clause.isTypeOnly) return false;
+    if (clause.name || !clause.namedBindings || ts.isNamespaceImport(clause.namedBindings)) return true;
+    return clause.namedBindings.elements.some((element) => !element.isTypeOnly);
   };
 
   const visit = (node: ts.Node): void => {
@@ -1440,76 +1549,72 @@ function collectStaticPathModuleBindings(sourceFile: ts.SourceFile): {
       && node.moduleReference.expression
       && ts.isStringLiteralLike(node.moduleReference.expression)
     ) {
-      const module = staticPathModuleName(node.moduleReference.expression.text);
-      if (module) setNamespace(node.name.text, module);
-    }
-    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
-      const module = staticPathModuleName(node.moduleSpecifier.text);
+      const module = trackedModuleName(node.moduleReference.expression.text);
       if (module) {
+        resolver.recordAcquisition(module, node);
+        resolver.set(node.name.text, { kind: "module", module }, node.name);
+      }
+    }
+    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier) && !node.importClause?.isTypeOnly) {
+      const module = trackedModuleName(node.moduleSpecifier.text);
+      const hasValueBinding = importHasValueBinding(node);
+      if (module && (!node.importClause || hasValueBinding)) {
+        resolver.recordAcquisition(module, node);
+        if (!hasValueBinding) {
+          ts.forEachChild(node, visit);
+          return;
+        }
         const clause = node.importClause;
-        if (clause?.name) setNamespace(clause.name.text, module);
+        if (clause?.name) resolver.set(clause.name.text, { kind: "module", module }, clause.name);
         if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-          setNamespace(clause.namedBindings.name.text, module);
+          resolver.set(clause.namedBindings.name.text, { kind: "module", module }, clause.namedBindings.name);
         }
         if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
           for (const element of clause.namedBindings.elements) {
             if (element.isTypeOnly) continue;
             const imported = element.propertyName?.text ?? element.name.text;
-            if (STATIC_PATH_MODULE_METHODS[module].has(imported)) {
-              functions.set(element.name.text, { module, method: imported });
-            }
+            const value = module === "fs" && imported === "promises"
+              ? { kind: "module", module: "fs/promises" } satisfies TrackedBinding
+              : { kind: "member", module, member: imported } satisfies TrackedBinding;
+            resolver.set(element.name.text, value, element.name);
           }
         }
       }
     }
+    if (ts.isCallExpression(node)) {
+      const module = acquiredTrackedModule(node);
+      if (module) resolver.recordAcquisition(module, node);
+    }
     if (ts.isVariableDeclaration(node) && node.initializer) {
-      const initializer = unwrapExpression(node.initializer);
-      const module = requiredStaticPathModule(initializer);
-      if (module) registerBinding(node.name, module);
-      if (ts.isIdentifier(initializer)) {
-        const reboundModule = namespaces.get(initializer.text);
-        if (reboundModule) registerBinding(node.name, reboundModule);
-      }
-      if (
-        ts.isIdentifier(node.name)
-        && (ts.isPropertyAccessExpression(initializer) || ts.isElementAccessExpression(initializer))
-      ) {
-        const receiver = unwrapExpression(initializer.expression);
-        const requiredModule = requiredStaticPathModule(receiver)
-          ?? (ts.isIdentifier(receiver) ? namespaces.get(receiver.text) ?? null : null);
-        const method = propertyNameText(initializer);
-        if (requiredModule && method && STATIC_PATH_MODULE_METHODS[requiredModule].has(method)) {
-          functions.set(node.name.text, { module: requiredModule, method });
-        }
-      }
+      const value = resolvedTrackedBinding(node.initializer, resolver, true);
+      if (value) registerPattern(node.name, value);
+    }
+    if (
+      ts.isBinaryExpression(node)
+      && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && ts.isIdentifier(node.left)
+    ) {
+      const value = resolvedTrackedBinding(node.right, resolver, true);
+      if (value) resolver.set(node.left.text, value, node.left);
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  const declarationCounts = collectDeclarationCounts(sourceFile);
-  for (const name of namespaces.keys()) {
-    const expectedCount = name === "process" && !explicitNamespaces.has(name) ? 0 : 1;
-    if ((declarationCounts.get(name) ?? 0) !== expectedCount) namespaces.delete(name);
-  }
-  for (const name of functions.keys()) {
-    if ((declarationCounts.get(name) ?? 0) !== 1) functions.delete(name);
-  }
-  return { namespaces, functions };
+  return resolver;
 }
 
 function staticPathContext(sourceFile: ts.SourceFile): StaticPathContext {
-  const bindings = collectStaticPathModuleBindings(sourceFile);
   return {
     sourceFile,
     lexicalScopes: collectConstantInitializers(sourceFile),
-    moduleNamespaces: bindings.namespaces,
-    moduleFunctions: bindings.functions,
+    bindings: bindingsFor(sourceFile),
   };
 }
 
 function collectConstantInitializers(sourceFile: ts.SourceFile): Map<ts.Node, StaticLexicalScope> {
   const scopes = new Map<ts.Node, StaticLexicalScope>();
-  const rootScope: StaticLexicalScope = { parent: null, bindings: new Map() };
+  const rootScope = { parent: null, bindings: new Map() } as StaticLexicalScope;
+  rootScope.varScope = rootScope;
 
   const registerName = (
     scope: StaticLexicalScope,
@@ -1535,48 +1640,45 @@ function collectConstantInitializers(sourceFile: ts.SourceFile): Map<ts.Node, St
       || ts.isModuleBlock(node)
       || ts.isCaseBlock(node)
       || ts.isCatchClause(node)
+      || ts.isForStatement(node)
+      || ts.isForInStatement(node)
+      || ts.isForOfStatement(node)
+      || ts.isClassExpression(node)
       || ts.isFunctionLike(node)
     );
-    const scope = createsScope ? { parent: inheritedScope, bindings: new Map<string, StaticLexicalBinding | null>() } : inheritedScope;
+    let scope = inheritedScope;
+    if (createsScope) {
+      scope = {
+        parent: inheritedScope,
+        bindings: new Map<string, StaticLexicalBinding | null>(),
+      } as StaticLexicalScope;
+      scope.varScope = ts.isFunctionLike(node) || ts.isModuleBlock(node) ? scope : inheritedScope.varScope;
+    }
     scopes.set(node, scope);
+
+    if ((ts.isFunctionExpression(node) || ts.isClassExpression(node)) && node.name) {
+      registerName(scope, node.name, null);
+    }
 
     if (ts.isVariableDeclaration(node)) {
       const numeric = node.type?.kind === ts.SyntaxKind.NumberKeyword
         || (node.initializer !== undefined && ts.isNumericLiteral(unwrapExpression(node.initializer)));
-      registerName(scope, node.name, node.initializer ?? null, numeric);
+      const declarationList = ts.isVariableDeclarationList(node.parent) ? node.parent : null;
+      const isBlockScoped = declarationList !== null
+        && (declarationList.flags & ts.NodeFlags.BlockScoped) !== 0;
+      registerName(isBlockScoped || !declarationList ? scope : scope.varScope, node.name, node.initializer ?? null, numeric);
     }
     if (ts.isParameter(node)) registerName(scope, node.name, null, node.type?.kind === ts.SyntaxKind.NumberKeyword);
     if (ts.isImportClause(node) && node.name) registerName(scope, node.name, null);
     if (ts.isImportSpecifier(node)) registerName(scope, node.name, null);
     if (ts.isNamespaceImport(node)) registerName(scope, node.name, null);
+    if (ts.isImportEqualsDeclaration(node)) registerName(scope, node.name, null);
 
     ts.forEachChild(node, (child) => visit(child, scope));
   };
   scopes.set(sourceFile, rootScope);
   ts.forEachChild(sourceFile, (child) => visit(child, rootScope));
   return scopes;
-}
-
-function collectDeclarationCounts(sourceFile: ts.SourceFile): Map<string, number> {
-  const counts = new Map<string, number>();
-  const addName = (name: ts.BindingName): void => {
-    if (ts.isIdentifier(name)) {
-      counts.set(name.text, (counts.get(name.text) ?? 0) + 1);
-      return;
-    }
-    for (const element of name.elements) {
-      if (!ts.isOmittedExpression(element)) addName(element.name);
-    }
-  };
-  const visit = (node: ts.Node): void => {
-    if (ts.isVariableDeclaration(node) || ts.isParameter(node)) addName(node.name);
-    else if (ts.isImportClause(node) && node.name) addName(node.name);
-    else if (ts.isImportSpecifier(node) || ts.isNamespaceImport(node) || ts.isImportEqualsDeclaration(node)) addName(node.name);
-    else if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name) addName(node.name);
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return counts;
 }
 
 function constantInitializerAt(node: ts.Node, name: string, context: StaticPathContext): ts.Expression | null {
@@ -1637,29 +1739,36 @@ function evaluateStaticPaths(
     const whenFalse = evaluateStaticPaths(candidate.whenFalse, context, seen);
     return whenTrue && whenFalse ? [...whenTrue, ...whenFalse] : null;
   }
+  if (
+    ts.isPropertyAccessExpression(candidate)
+    && (candidate.name.text === "GITHUB_OUTPUT" || candidate.name.text === "GITHUB_EVENT_PATH")
+    && ts.isPropertyAccessExpression(candidate.expression)
+    && candidate.expression.name.text === "env"
+    && ts.isIdentifier(candidate.expression.expression)
+    && candidate.expression.expression.text === "process"
+  ) {
+    // GitHub defines this command-file variable as a runner-created temporary file. Model that
+    // external root directly instead of exempting an arbitrary computed write expression.
+    return [path.join(os.tmpdir(), `__${candidate.name.text.toLowerCase().replace(/_/g, "-")}__`)];
+  }
   if (!ts.isCallExpression(candidate)) return null;
   const callee = unwrapExpression(candidate.expression);
+  const trackedCallee = resolvedTrackedBinding(callee, context.bindings, isStaticPathOrFilesystemCallableBinding);
+  if (
+    trackedCallee?.kind === "member"
+    && (trackedCallee.module === "fs" || trackedCallee.module === "fs/promises")
+    && (trackedCallee.member === "mkdtemp" || trackedCallee.member === "mkdtempSync")
+    && candidate.arguments.length >= 1
+  ) {
+    const prefixes = evaluateStaticPaths(candidate.arguments[0], context, seen);
+    return prefixes?.map((prefix) => `${prefix}__generated__`) ?? null;
+  }
   const staticFunction = (() => {
-    if (ts.isIdentifier(callee)) return context.moduleFunctions.get(callee.text) ?? null;
-    if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return null;
-    const method = propertyNameText(callee);
-    if (!method) return null;
-    const receiver = unwrapExpression(callee.expression);
-    let pathFlavor: "posix" | "win32" | undefined;
-    let module = ts.isIdentifier(receiver)
-      ? context.moduleNamespaces.get(receiver.text) ?? null
-      : requiredStaticPathModule(receiver);
-    if (
-      !module
-      && (ts.isPropertyAccessExpression(receiver) || ts.isElementAccessExpression(receiver))
-      && (propertyNameText(receiver) === "posix" || propertyNameText(receiver) === "win32")
-    ) {
-      const base = unwrapExpression(receiver.expression);
-      module = ts.isIdentifier(base) ? context.moduleNamespaces.get(base.text) ?? null : requiredStaticPathModule(base);
-      pathFlavor = propertyNameText(receiver) as "posix" | "win32";
-    }
-    if (!module || !STATIC_PATH_MODULE_METHODS[module].has(method)) return null;
-    return { module, method, pathFlavor } satisfies StaticModuleFunction;
+    const binding = trackedCallee;
+    if (binding?.kind !== "member") return null;
+    const module = staticPathModuleName(binding.module);
+    if (!module || !STATIC_PATH_MODULE_METHODS[module].has(binding.member)) return null;
+    return { module, method: binding.member, pathFlavor: binding.pathFlavor } satisfies StaticModuleFunction;
   })();
   if (!staticFunction) return null;
   if (staticFunction.module === "os") {
@@ -1708,14 +1817,91 @@ function resolvedRepositoryPath(sourceFile: ts.SourceFile, value: string, module
   return path.resolve(REPO_ROOT, portableValue);
 }
 
+function isProvablyOutsideRepository(
+  expression: ts.Expression,
+  context: StaticPathContext,
+  seen = new Set<string>(),
+): boolean {
+  const values = evaluateStaticPaths(expression, context, seen);
+  if (values) {
+    return values.every((value) => {
+      const resolved = resolvedRepositoryPath(context.sourceFile, value, false);
+      return resolved !== null
+        && resolved !== REPO_ROOT
+        && !resolved.startsWith(`${REPO_ROOT}${path.sep}`);
+    });
+  }
+  const candidate = unwrapExpression(expression);
+  if (ts.isIdentifier(candidate)) {
+    if (seen.has(candidate.text)) return false;
+    const initializer = constantInitializerAt(candidate, candidate.text, context);
+    if (!initializer) return false;
+    const nextSeen = new Set(seen);
+    nextSeen.add(candidate.text);
+    return isProvablyOutsideRepository(initializer, context, nextSeen);
+  }
+  if (!ts.isCallExpression(candidate)) return false;
+  const binding = resolvedTrackedBinding(candidate.expression, context.bindings, true);
+  if (binding?.kind === "member" && (binding.module === "fs" || binding.module === "fs/promises")) {
+    if ((binding.member === "mkdtemp" || binding.member === "mkdtempSync") && candidate.arguments[0]) {
+      return isProvablyOutsideRepository(candidate.arguments[0], context, seen);
+    }
+    return false;
+  }
+  if (binding?.kind !== "member" || binding.module !== "path" || !candidate.arguments[0]) return false;
+  if (!["join", "normalize", "dirname"].includes(binding.member)) return false;
+  return isProvablyOutsideRepository(candidate.arguments[0], context, seen);
+}
+
 function pathIsUnderData(filePath: string): boolean {
   const normalized = path.resolve(filePath);
   return normalized === DATA_ROOT || normalized.startsWith(`${DATA_ROOT}${path.sep}`);
 }
 
-function isOnlyAllowedDataRead(sourceFile: ts.SourceFile, filePath: string): boolean {
-  return relative(sourceFile.fileName) === "src/scripts/import-x-handles.ts"
-    && path.resolve(filePath) === X_HANDLES_PATH;
+type AllowedDataRead = {
+  name: string;
+  file: string;
+  methods: Set<string>;
+  root: string;
+  recursive: boolean;
+  computedBindings?: Partial<Record<string, Set<string>>>;
+};
+
+const ALLOWED_DATA_READS: AllowedDataRead[] = [
+  {
+    name: "import-x-handles reads its operator-maintained input",
+    file: "src/scripts/import-x-handles.ts",
+    methods: new Set(["readFileSync"]),
+    root: X_HANDLES_PATH,
+    recursive: false,
+  },
+  {
+    name: "community tooling reads the community catalog",
+    file: "src/scripts/community/validate-community-source.ts",
+    methods: new Set(["readdirSync", "readFileSync"]),
+    root: COMMUNITY_DIR,
+    recursive: true,
+    computedBindings: {
+      readdirSync: new Set(["againstDir"]),
+      readFileSync: new Set(["candidatePath", "filePath"]),
+    },
+  },
+  {
+    name: "community contribution helper reads the community catalog",
+    file: "src/scripts/contribute-source.ts",
+    methods: new Set(["readdirSync"]),
+    root: COMMUNITY_DIR,
+    recursive: true,
+    computedBindings: { readdirSync: new Set(["COMMUNITY_DIRECTORY"]) },
+  },
+];
+
+function isAllowedDataRead(sourceFile: ts.SourceFile, method: string, filePath: string): boolean {
+  const source = relative(sourceFile.fileName);
+  const target = path.resolve(filePath);
+  return ALLOWED_DATA_READS.some((entry) => entry.file === source
+    && entry.methods.has(method)
+    && (target === entry.root || (entry.recursive && target.startsWith(`${entry.root}${path.sep}`))));
 }
 
 function isAllowedDataWrite(sourceFile: ts.SourceFile, method: string, filePath: string): boolean {
@@ -1724,10 +1910,14 @@ function isAllowedDataWrite(sourceFile: ts.SourceFile, method: string, filePath:
 
 function isVerifiedSafeComputedFsRead(
   relativeFile: string,
+  method: string,
   argument: ts.Expression,
   context: StaticPathContext,
 ): boolean {
   if (!ts.isIdentifier(argument)) return false;
+  if (ALLOWED_DATA_READS.some((entry) => entry.file === relativeFile
+    && entry.methods.has(method)
+    && entry.computedBindings?.[method]?.has(argument.text))) return true;
   const expectedFilename = SAFE_COMPUTED_FS_READS[relativeFile]?.[argument.text];
   if (!expectedFilename) return false;
   const pathInitializer = constantInitializerAt(argument, argument.text, context);
@@ -1738,137 +1928,13 @@ function isVerifiedSafeComputedFsRead(
     && compact(baseInitializer) === "promptDir||path.join(process.cwd(),\"docs\",\"prompts\",\"step1-3\")";
 }
 
-function isVerifiedSafeComputedFsWrite(
-  relativeFile: string,
-  method: string,
-  argument: ts.Expression,
-  context: StaticPathContext,
-): boolean {
-  const compact = (expression: ts.Expression): string => expression.getText(context.sourceFile).replace(/\s+/g, "");
-  if (SAFE_COMPUTED_FS_WRITES.has(`${relativeFile}:${method}:${compact(argument)}`)) return true;
-  if (relativeFile !== "src/scripts/contribute-source.ts") return false;
-
-  const tempDir = constantInitializerAt(argument, "tempDir", context);
-  if (!tempDir) return false;
-  const safeCloneRoot = compact(tempDir) === 'fs.mkdtempSync(path.join(os.tmpdir(),"x-collector-community-"))';
-  if (method === "rmSync") return safeCloneRoot && compact(argument) === "tempDir";
-  const relativePath = constantInitializerAt(argument, "relativePath", context);
-  const destination = constantInitializerAt(argument, "destination", context);
-  if (!relativePath || !destination) return false;
-  const cloneRelativeDestination = compact(relativePath) === '`data/community-sources/${filename}`'
-    && compact(destination) === "path.join(tempDir,relativePath)";
-  if (!safeCloneRoot || !cloneRelativeDestination) return false;
-  const argumentText = compact(argument);
-  return (method === "mkdirSync" && argumentText === "path.dirname(destination)")
-    || (method === "writeFileSync" && argumentText === "destination");
-}
-
 type FilesystemAccess = "read" | "write";
 
 function staticDataAccessOffenders(sourceFile: ts.SourceFile, access: FilesystemAccess): string[] {
   const context = staticPathContext(sourceFile);
-  const fsNamespaces = new Set<string>();
-  const fsFunctions = new Map<string, string>();
-  const offenders: string[] = [];
+  const initialBindingOffenderCount = context.bindings.offenders.length;
+  const offenders: string[] = access === "read" ? [...context.bindings.offenders] : [];
   const relativeFile = relative(sourceFile.fileName);
-
-  const moduleName = (expression: ts.Expression): string | null => {
-    const values = evaluateStaticPaths(expression, context);
-    return values?.length === 1 ? values[0] : null;
-  };
-
-  const registerFsBinding = (name: ts.BindingName): void => {
-    if (ts.isIdentifier(name)) {
-      fsNamespaces.add(name.text);
-      return;
-    }
-    if (!ts.isObjectBindingPattern(name)) return;
-    for (const element of name.elements) {
-      if (!ts.isIdentifier(element.name)) continue;
-      const imported = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
-        ? element.propertyName.text
-        : element.name.text;
-      if (imported === "promises") fsNamespaces.add(element.name.text);
-      else fsFunctions.set(element.name.text, imported);
-    }
-  };
-
-  const requiredFsModule = (expression: ts.Expression): string | null => {
-    const candidate = unwrapExpression(expression);
-    if (
-      !ts.isCallExpression(candidate)
-      || candidate.arguments.length !== 1
-    ) return null;
-    const callee = unwrapExpression(candidate.expression);
-    if (callee.kind !== ts.SyntaxKind.ImportKeyword && !(ts.isIdentifier(callee) && callee.text === "require")) return null;
-    const specifier = moduleName(candidate.arguments[0])?.replace(/^node:/, "");
-    return specifier === "fs" || specifier === "fs/promises" ? specifier : null;
-  };
-
-  const importHasValueBinding = (node: ts.ImportDeclaration): boolean => {
-    const clause = node.importClause;
-    if (!clause || clause.isTypeOnly) return false;
-    if (clause.name || !clause.namedBindings || ts.isNamespaceImport(clause.namedBindings)) return true;
-    return clause.namedBindings.elements.some((element) => !element.isTypeOnly);
-  };
-
-  const collectFsAcquisitions = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier) && importHasValueBinding(node)) {
-      const specifier = node.moduleSpecifier.text.replace(/^node:/, "");
-      if (specifier === "fs" || specifier === "fs/promises") {
-        const clause = node.importClause;
-        if (clause?.name) fsNamespaces.add(clause.name.text);
-        if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) fsNamespaces.add(clause.namedBindings.name.text);
-        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-          for (const element of clause.namedBindings.elements) {
-            if (element.isTypeOnly) continue;
-            const imported = element.propertyName?.text ?? element.name.text;
-            if (imported === "promises") fsNamespaces.add(element.name.text);
-            else fsFunctions.set(element.name.text, imported);
-          }
-        }
-      }
-    }
-    if (ts.isVariableDeclaration(node) && node.initializer) {
-      const initializer = unwrapExpression(node.initializer);
-      if (requiredFsModule(initializer)) registerFsBinding(node.name);
-      if (
-        ts.isPropertyAccessExpression(initializer)
-        && initializer.name.text === "promises"
-        && requiredFsModule(initializer.expression) === "fs"
-      ) registerFsBinding(node.name);
-    }
-    ts.forEachChild(node, collectFsAcquisitions);
-  };
-  collectFsAcquisitions(sourceFile);
-  const fsDeclarationCounts = collectDeclarationCounts(sourceFile);
-  for (const name of fsNamespaces) {
-    if ((fsDeclarationCounts.get(name) ?? 0) !== 1) {
-      fsNamespaces.delete(name);
-      offenders.push(`${relativeFile}: fs acquisition binding is redeclared: ${name}`);
-    }
-  }
-  for (const name of fsFunctions.keys()) {
-    if ((fsDeclarationCounts.get(name) ?? 0) !== 1) {
-      fsFunctions.delete(name);
-      offenders.push(`${relativeFile}: fs acquisition binding is redeclared: ${name}`);
-    }
-  }
-
-  const directRequiredFsMethod = (expression: ts.Expression): string | null => {
-    const candidate = unwrapExpression(expression);
-    if (!ts.isPropertyAccessExpression(candidate) && !ts.isElementAccessExpression(candidate)) return null;
-    const method = propertyNameText(candidate);
-    if (!method) return null;
-    if (requiredFsModule(candidate.expression)) return method;
-    const namespace = unwrapExpression(candidate.expression);
-    if (
-      ts.isPropertyAccessExpression(namespace)
-      && namespace.name.text === "promises"
-      && requiredFsModule(namespace.expression) === "fs"
-    ) return method;
-    return null;
-  };
 
   const fsAcquisitionIsRegistered = (call: ts.CallExpression, ancestors: ts.Node[]): boolean => {
     let index = ancestors.length - 1;
@@ -1897,7 +1963,8 @@ function staticDataAccessOffenders(sourceFile: ts.SourceFile, access: Filesystem
   };
 
   const inspectFsAcquisitions = (node: ts.Node, ancestors: ts.Node[] = []): void => {
-    if (ts.isCallExpression(node) && requiredFsModule(node) && !fsAcquisitionIsRegistered(node, ancestors)) {
+    const module = ts.isCallExpression(node) ? acquiredTrackedModule(node) : null;
+    if ((module === "fs" || module === "fs/promises") && !fsAcquisitionIsRegistered(node as ts.CallExpression, ancestors)) {
       offenders.push(`${sourcePosition(sourceFile, node)} fs module acquisition is not registered`);
     }
     ts.forEachChild(node, (child) => inspectFsAcquisitions(child, [...ancestors, node]));
@@ -1914,8 +1981,8 @@ function staticDataAccessOffenders(sourceFile: ts.SourceFile, access: Filesystem
     if (!argument) return;
     const values = evaluateStaticPaths(argument, context);
     if (!values) {
-      if (access === "read" && !moduleSpecifier && isVerifiedSafeComputedFsRead(relativeFile, argument, context)) return;
-      if (access === "write" && isVerifiedSafeComputedFsWrite(relativeFile, method, argument, context)) return;
+      if (access === "read" && !moduleSpecifier && isVerifiedSafeComputedFsRead(relativeFile, method, argument, context)) return;
+      if (access === "write" && isProvablyOutsideRepository(argument, context)) return;
       const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
       offenders.push(`${relativeFile}:${position.line + 1} ${method} has a non-literal ${access} path`);
       return;
@@ -1923,7 +1990,7 @@ function staticDataAccessOffenders(sourceFile: ts.SourceFile, access: Filesystem
     for (const value of values) {
       const resolved = resolvedRepositoryPath(sourceFile, value, moduleSpecifier);
       const allowed = access === "read"
-        ? isOnlyAllowedDataRead(sourceFile, resolved ?? "")
+        ? isAllowedDataRead(sourceFile, method, resolved ?? "")
         : isAllowedDataWrite(sourceFile, method, resolved ?? "");
       if (resolved && pathIsUnderData(resolved) && !allowed) {
         const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
@@ -1955,27 +2022,17 @@ function staticDataAccessOffenders(sourceFile: ts.SourceFile, access: Filesystem
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
       const callee = unwrapExpression(node.expression);
-      let fsMethod: string | null = null;
-      if (ts.isIdentifier(callee)) fsMethod = fsFunctions.get(callee.text) ?? null;
-      fsMethod ??= directRequiredFsMethod(callee);
-      if (
-        (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
-        && ts.isIdentifier(callee.expression)
-        && fsNamespaces.has(callee.expression.text)
-      ) fsMethod = propertyNameText(callee);
-      if (
-        (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
-        && ts.isPropertyAccessExpression(callee.expression)
-        && ts.isIdentifier(callee.expression.expression)
-        && fsNamespaces.has(callee.expression.expression.text)
-        && callee.expression.name.text === "promises"
-      ) fsMethod = propertyNameText(callee);
-      if (
-        ts.isElementAccessExpression(callee)
-        && ts.isIdentifier(callee.expression)
-        && fsNamespaces.has(callee.expression.text)
-        && !propertyNameText(callee)
-      ) offenders.push(`${sourcePosition(sourceFile, node)} fs call has an unresolvable method identity`);
+      const fsBinding = resolvedTrackedBinding(callee, context.bindings, isFilesystemBinding);
+      const fsMethod = fsBinding?.kind === "member"
+        && (fsBinding.module === "fs" || fsBinding.module === "fs/promises")
+        ? fsBinding.member
+        : null;
+      if (ts.isElementAccessExpression(callee) && !propertyNameText(callee)) {
+        const namespace = resolvedTrackedBinding(callee.expression, context.bindings, isFilesystemBinding);
+        if (namespace?.kind === "module" && (namespace.module === "fs" || namespace.module === "fs/promises")) {
+          offenders.push(`${sourcePosition(sourceFile, node)} fs call has an unresolvable method identity`);
+        }
+      }
       if (fsMethod) {
         const methodPathArguments = FS_PATH_ARGUMENTS[fsMethod];
         let argumentIndexes = methodPathArguments
@@ -1995,6 +2052,7 @@ function staticDataAccessOffenders(sourceFile: ts.SourceFile, access: Filesystem
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
+  if (access === "read") offenders.push(...context.bindings.offenders.slice(initialBindingOffenderCount));
   return offenders;
 }
 
@@ -2227,6 +2285,31 @@ function staticPathBindingLeg(): void {
     unsafeWrite.some((offender) => offender.includes("writes data/x-handles.json")),
     `leg 5 filesystem writes: data/x-handles.json write was not rejected: ${unsafeWrite.join("; ")}`,
   );
+  const renameRead = analyze(`
+    import fs from "fs";
+    fs.rename("data/community-sources/fixture.json", "/tmp/fixture.json", () => undefined);
+  `);
+  assert.ok(
+    renameRead.some((offender) => offender.includes("rename reads data/community-sources/fixture.json")),
+    `leg 5 filesystem reads: rename source was not inspected: ${renameRead.join("; ")}`,
+  );
+  for (const [label, source] of [
+    ["fs.promises member alias", `
+      import fs from "fs";
+      const promiseFs = fs.promises;
+      promiseFs.readFile("data/community-sources/fixture.json");
+    `],
+    ["require destructuring", `
+      const { readFileSync: read } = require("fs");
+      read("data/community-sources/fixture.json", "utf8");
+    `],
+  ] as const) {
+    const offenders = analyze(source);
+    assert.ok(
+      offenders.some((offender) => offender.includes("reads data/community-sources/fixture.json")),
+      `leg 5 filesystem bindings: ${label} escaped: ${offenders.join("; ")}`,
+    );
+  }
   const twoHopSource = `
     import fs from "fs";
     const entries = fs.readdirSync("data/community-sources");
@@ -2237,26 +2320,8 @@ function staticPathBindingLeg(): void {
       && analyzeWrites(twoHopSource).some((offender) => offender.includes("writes data/x-handles.json")),
     "leg 5 filesystem writes: filesystem-mediated two-hop did not fail on both its read and write",
   );
+  console.log("PASS leg 5 round 8: filesystem-mediated two-hop fails on read and write");
   console.log("PASS leg 5 lexical constants, descriptor APIs, and repository data-write policy regressions");
-}
-
-function communitySourceLiteralOffenders(sourceFile: ts.SourceFile): string[] {
-  const offenders: string[] = [];
-  const visit = (node: ts.Node): void => {
-    const isTemplateFragment = node.kind === ts.SyntaxKind.TemplateHead
-      || node.kind === ts.SyntaxKind.TemplateMiddle
-      || node.kind === ts.SyntaxKind.TemplateTail;
-    if (ts.isStringLiteralLike(node) || isTemplateFragment) {
-      const text = (node as ts.LiteralLikeNode).text;
-      if (text.includes(COMMUNITY_SOURCE_LITERAL)) {
-        const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-        offenders.push(`${relative(sourceFile.fileName)}:${position.line + 1}`);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return offenders;
 }
 
 function networkImportClosure(rootFiles: string[]): ts.SourceFile[] {
@@ -2350,118 +2415,16 @@ function networkTargetOffenders(sourceFiles: ts.SourceFile[]): string[] {
   const offenders: string[] = [];
   for (const sourceFile of sourceFiles) {
     const context = staticPathContext(sourceFile);
-    const networkNamespaces = new Set<string>();
-    const networkFunctions = new Set<string>();
     const relativeFile = relative(sourceFile.fileName);
-
-    const acquisitionAllowed = (specifier: string): boolean => {
-      const allowed = ALLOWED_NETWORK_MODULE_ACQUISITIONS.has(`${relativeFile}:${specifier}`);
-      if (!allowed) offenders.push(`${relativeFile}: network module acquisition is not allow-listed: ${specifier}`);
-      return allowed;
-    };
-
-    const registerBindings = (name: ts.BindingName, specifier: string): void => {
-      if (ts.isIdentifier(name)) {
-        networkNamespaces.add(name.text);
-        return;
-      }
-      if (!ts.isObjectBindingPattern(name)) return;
-      for (const element of name.elements) {
-        if (!ts.isIdentifier(element.name)) continue;
-        const imported = element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))
-          ? element.propertyName.text
-          : element.name.text;
-        if (`${relativeFile}:${specifier}:${imported}` !== "src/lib/net/safe-fetch.ts:net:isIP") {
-          networkFunctions.add(element.name.text);
-        }
-      }
-    };
-
-    const requiredNetworkModule = (expression: ts.Expression): string | null => {
-      const candidate = unwrapExpression(expression);
+    const initialBindingOffenderCount = context.bindings.offenders.length;
+    offenders.push(...context.bindings.offenders);
+    for (const acquisition of context.bindings.acquisitions) {
+      const specifier = acquisition.module;
       if (
-        !ts.isCallExpression(candidate)
-        || candidate.arguments.length !== 1
-        || !ts.isStringLiteralLike(candidate.arguments[0])
-      ) return null;
-      const callee = unwrapExpression(candidate.expression);
-      if (callee.kind !== ts.SyntaxKind.ImportKeyword && !(ts.isIdentifier(callee) && callee.text === "require")) return null;
-      const specifier = candidate.arguments[0].text.replace(/^node:/, "");
-      return NETWORK_CAPABLE_BUILTINS.has(specifier) || KNOWN_HTTP_CLIENT_PACKAGES.has(specifier)
-        ? specifier
-        : null;
-    };
-
-    const importHasValueBinding = (node: ts.ImportDeclaration): boolean => {
-      const clause = node.importClause;
-      if (!clause || clause.isTypeOnly) return false;
-      if (clause.name || !clause.namedBindings || ts.isNamespaceImport(clause.namedBindings)) return true;
-      return clause.namedBindings.elements.some((element) => !element.isTypeOnly);
-    };
-
-    const isAcquiredNetworkFunction = (expression: ts.Expression): boolean => {
-      const candidate = unwrapExpression(expression);
-      if (ts.isIdentifier(candidate)) return networkFunctions.has(candidate.text);
-      if (
-        (ts.isPropertyAccessExpression(candidate) || ts.isElementAccessExpression(candidate))
-        && ts.isIdentifier(candidate.expression)
-      ) return networkNamespaces.has(candidate.expression.text);
-      if (ts.isConditionalExpression(candidate)) {
-        return isAcquiredNetworkFunction(candidate.whenTrue) || isAcquiredNetworkFunction(candidate.whenFalse);
-      }
-      return false;
-    };
-
-    const collectAcquisitionsAndAliases = (node: ts.Node): void => {
-      if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier) && importHasValueBinding(node)) {
-        const specifier = node.moduleSpecifier.text.replace(/^node:/, "");
-        if (NETWORK_CAPABLE_BUILTINS.has(specifier) || KNOWN_HTTP_CLIENT_PACKAGES.has(specifier)) {
-          if (acquisitionAllowed(specifier)) {
-            const clause = node.importClause;
-            if (clause?.name) networkNamespaces.add(clause.name.text);
-            if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-              networkNamespaces.add(clause.namedBindings.name.text);
-            }
-            if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-              for (const element of clause.namedBindings.elements) {
-                if (element.isTypeOnly) continue;
-                const imported = element.propertyName?.text ?? element.name.text;
-                if (`${relativeFile}:${specifier}:${imported}` !== "src/lib/net/safe-fetch.ts:net:isIP") {
-                  networkFunctions.add(element.name.text);
-                }
-              }
-            }
-          }
-        }
-      }
-      if (ts.isVariableDeclaration(node) && node.initializer) {
-        const specifier = requiredNetworkModule(node.initializer);
-        if (specifier && acquisitionAllowed(specifier)) registerBindings(node.name, specifier);
-        if (ts.isIdentifier(node.name)) {
-          const initializer = unwrapExpression(node.initializer);
-          if (isAcquiredNetworkFunction(initializer)) networkFunctions.add(node.name.text);
-        }
-      }
-      if (
-        ts.isBinaryExpression(node)
-        && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-        && ts.isIdentifier(node.left)
-        && isAcquiredNetworkFunction(node.right)
-      ) networkFunctions.add(node.left.text);
-      ts.forEachChild(node, collectAcquisitionsAndAliases);
-    };
-    collectAcquisitionsAndAliases(sourceFile);
-    const networkDeclarationCounts = collectDeclarationCounts(sourceFile);
-    for (const name of networkNamespaces) {
-      if ((networkDeclarationCounts.get(name) ?? 0) !== 1) {
-        networkNamespaces.delete(name);
-        offenders.push(`${relativeFile}: network module binding is redeclared: ${name}`);
-      }
-    }
-    for (const name of networkFunctions) {
-      if ((networkDeclarationCounts.get(name) ?? 0) !== 1) {
-        networkFunctions.delete(name);
-        offenders.push(`${relativeFile}: network module binding is redeclared: ${name}`);
+        (NETWORK_CAPABLE_BUILTINS.has(specifier) || KNOWN_HTTP_CLIENT_PACKAGES.has(specifier))
+        && !ALLOWED_NETWORK_MODULE_ACQUISITIONS.has(`${relativeFile}:${specifier}`)
+      ) {
+        offenders.push(`${relativeFile}: network module acquisition is not allow-listed: ${specifier}`);
       }
     }
 
@@ -2502,19 +2465,21 @@ function networkTargetOffenders(sourceFiles: ts.SourceFile[]): string[] {
           && ts.isIdentifier(callee.expression)
           && callee.expression.text === "globalThis"
           && callee.name.text === "fetch";
-        const isAcquiredFunction = isAcquiredNetworkFunction(callee);
-        const isNamespaceMember = (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
-          && ts.isIdentifier(callee.expression)
-          && networkNamespaces.has(callee.expression.text);
-        const directSpecifier = (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
-          ? requiredNetworkModule(callee.expression)
-          : null;
-        if (directSpecifier) acquisitionAllowed(directSpecifier);
-        if (isFetch || isGlobalFetch || isAcquiredFunction || isNamespaceMember || directSpecifier) inspectTarget(node);
+        const binding = resolvedTrackedBinding(callee, context.bindings, isNetworkCallableBinding);
+        const isNetworkBinding = binding !== null && (
+          (binding.kind === "module"
+            && (NETWORK_CAPABLE_BUILTINS.has(binding.module) || KNOWN_HTTP_CLIENT_PACKAGES.has(binding.module)))
+          || (binding.kind === "member"
+            && (NETWORK_CAPABLE_BUILTINS.has(binding.module) || KNOWN_HTTP_CLIENT_PACKAGES.has(binding.module))
+            && `${relativeFile}:${binding.module}:${binding.member}` !== "src/lib/net/safe-fetch.ts:net:isIP"
+          )
+        );
+        if (isFetch || isGlobalFetch || isNetworkBinding) inspectTarget(node);
       }
       ts.forEachChild(node, visit);
     };
     visit(sourceFile);
+    offenders.push(...context.bindings.offenders.slice(initialBindingOffenderCount));
   }
   return offenders.sort((left, right) => left.localeCompare(right));
 }
@@ -2566,41 +2531,315 @@ function acquisitionRegressionLeg(): void {
     dynamicNetwork.some((offender) => offender.includes("network module acquisition is not allow-listed: http")),
     `leg 5 acquisitions: dynamic network import was not registered: ${dynamicNetwork.join("; ")}`,
   );
+  const requiredNetworkMember = networkTargetOffenders([sourceFile(`
+    const { get: request } = require("https");
+    request("https://example.com");
+  `)]);
+  assert.ok(
+    requiredNetworkMember.some((offender) => offender.includes("network origin is not allow-listed")),
+    `leg 5 acquisitions: destructured network member alias escaped: ${requiredNetworkMember.join("; ")}`,
+  );
   console.log("PASS leg 5 type-only and dynamic module acquisition regressions");
 }
 
-function assertWriterImportGraphsDoNotReadData(writerFiles: string[], sourceWriterFiles: string[]): void {
-  // Scanned sets are intentionally different: data writes are checked across every repository source
-  // file in databaseWriterLeg. Data reads and the community-sources literal are checked here only for
-  // every recorded Prisma/raw-SQL writer plus its downward local import closure. Network targets are
-  // checked for source/alertSource writers plus their downward local import closure.
-  const parsed = readTsConfig("tsconfig.json", "leg 5");
-  const program = ts.createProgram({
-    rootNames: writerFiles,
-    options: { ...parsed.options, allowJs: true, checkJs: false, noEmit: true },
-  });
-  const reachable = program.getSourceFiles()
-    .filter((source) => !source.isDeclarationFile)
-    .filter((source) => {
-      const absolute = path.resolve(source.fileName);
-      return absolute.startsWith(`${REPO_ROOT}${path.sep}`)
-        && ![...EXCLUDED_REPOSITORY_DIRECTORIES].some((directory) => absolute.includes(`${path.sep}${directory}${path.sep}`))
-        && absolute !== path.resolve(__filename);
-    });
-  const dataReadOffenders = reachable.flatMap(staticDataReadOffenders).sort((left, right) => left.localeCompare(right));
-  assert.deepEqual(
-    dataReadOffenders,
-    [],
-    `leg 5: approved writer import graph has unsafe data reads: ${dataReadOffenders.join("; ")}`,
+function roundEightRegressionLeg(): void {
+  const sourceFile = (name: string, source: string, kind = ts.ScriptKind.TS): ts.SourceFile => ts.createSourceFile(
+    path.join(REPO_ROOT, "src", name), source, ts.ScriptTarget.Latest, true, kind,
   );
-  const literalOffenders = reachable
-    .flatMap(communitySourceLiteralOffenders)
-    .sort((left, right) => left.localeCompare(right));
-  assert.deepEqual(
-    literalOffenders,
-    [],
-    `leg 5 tripwire: approved writer import graph contains the literal ${COMMUNITY_SOURCE_LITERAL} in a string: ${literalOffenders.join("; ")}`,
+  const read = (source: string): string[] => staticDataReadOffenders(sourceFile("__round8-read.ts", source));
+  const write = (source: string): string[] => staticDataWriteOffenders(sourceFile("__round8-write.ts", source));
+  const assertRedeclared = (label: string, offenders: string[], binding: string): void => {
+    assert.ok(
+      offenders.some((offender) => offender.includes(`binding is redeclared: ${binding}`)),
+      `leg 5 round 8: ${label} shadow did not name the redeclared binding: ${offenders.join("; ")}`,
+    );
+  };
+
+  const callerDirectionFiles = [
+    sourceFile("__round8-reader.ts", `
+      import fs from "fs";
+      import { persist } from "./__round8-writer";
+      export function collect() {
+        const entries = fs.readdirSync("data/community-sources");
+        return persist(entries);
+      }
+    `),
+    sourceFile("__round8-writer.ts", `
+      export function persist(entries: string[]) {
+        return prisma.source.create({ data: { handle: entries[0] } });
+      }
+    `),
+    sourceFile("app/__round8-route.jsx", `
+      import { collect } from "../__round8-reader";
+      export default function Route() { return collect(); }
+    `, ts.ScriptKind.JSX),
+  ];
+  const callerDirectionOffenders = callerDirectionFiles.flatMap(staticDataReadOffenders);
+  assert.ok(
+    callerDirectionOffenders.some((offender) => offender.includes("reads data/community-sources")),
+    `leg 5 round 8: caller-direction filesystem two-hop escaped repo-wide reads: ${callerDirectionOffenders.join("; ")}`,
   );
+  console.log("PASS leg 5 round 8: caller-direction filesystem two-hop fails closed");
+  assert.deepEqual(
+    read(`export function ordinary(value: string) { return value.trim(); }`),
+    [],
+    "leg 5 round 8: legitimate non-writer with no data path was rejected",
+  );
+  assert.ok(
+    staticDataReadOffenders(sourceFile("app/__round8-data-route.jsx", `
+      const fs = require("fs");
+      export default function Route() { return fs.readFileSync("data/x-handles.json", "utf8"); }
+    `, ts.ScriptKind.JSX)).some((offender) => offender.includes("reads data/x-handles.json")),
+    "leg 5 round 8: .jsx route was omitted from the repository data-read rule",
+  );
+  console.log("PASS leg 5 round 8: .jsx route data read fails closed");
+
+  const homeRelativeRepoArguments = path.relative(os.homedir(), REPO_ROOT)
+    .split(path.sep)
+    .filter(Boolean)
+    .map((part) => JSON.stringify(part))
+    .join(", ");
+  for (const [label, unsafe, shadow, binding] of [
+    ["fs", `
+      import fs from "fs";
+      const rebound = fs;
+      rebound.readFileSync("data/x-handles.json", "utf8");
+    `, `
+      import fs from "fs";
+      function read(fs: { readFileSync(path: string): string }) {
+        return fs.readFileSync("data/x-handles.json");
+      }
+    `, "fs"],
+    ["path", `
+      import fs from "fs";
+      import path from "path";
+      const rebound = path.join;
+      fs.readFileSync(rebound(process.cwd(), "data", "x-handles.json"), "utf8");
+    `, `
+      import fs from "fs";
+      import path from "path";
+      function read(path: { join(...parts: string[]): string }) {
+        return fs.readFileSync(path.join("data", "x-handles.json"), "utf8");
+      }
+    `, "path"],
+    ["os", `
+      import fs from "fs";
+      import os from "os";
+      import path from "path";
+      const rebound = os;
+      fs.readFileSync(path.join(rebound.homedir(), ${homeRelativeRepoArguments}, "data", "x-handles.json"));
+    `, `
+      import fs from "fs";
+      import os from "os";
+      import path from "path";
+      function read(os: { tmpdir(): string }) { return fs.readFileSync(path.join(os.tmpdir(), "x")); }
+    `, "os"],
+    ["process", `
+      import fs from "fs";
+      const rebound = process;
+      fs.readFileSync(rebound.cwd() + "/data/x-handles.json", "utf8");
+    `, `
+      import fs from "fs";
+      function read(process: { cwd(): string }) { return fs.readFileSync(process.cwd()); }
+    `, "process"],
+  ] as const) {
+    const unsafeOffenders = read(unsafe);
+    assert.ok(
+      unsafeOffenders.some((offender) => offender.includes("reads data/x-handles.json")),
+      `leg 5 round 8: rebound ${label} spelling escaped data-read analysis: ${unsafeOffenders.join("; ")}`,
+    );
+    assertRedeclared(label, read(shadow), binding);
+  }
+
+  assert.deepEqual(
+    read(`
+      import fs from "fs";
+      import path from "path";
+      function normalize(path: string) { return path.trim(); }
+      fs.readFileSync("/tmp/report.txt", "utf8");
+      void normalize;
+    `),
+    [],
+    "leg 5 round 8: harmless normalize(path: string) parameter was treated as a module shadow",
+  );
+
+  const reboundNetwork = networkTargetOffenders([sourceFile("__round8-network.ts", `
+    import https from "https";
+    const rebound = https.get;
+    rebound("https://example.com");
+  `)]);
+  assert.ok(
+    reboundNetwork.some((offender) => offender.includes("network origin is not allow-listed")),
+    `leg 5 round 8: rebound https.get escaped network analysis: ${reboundNetwork.join("; ")}`,
+  );
+  assertRedeclared("network", networkTargetOffenders([sourceFile("__round8-network-shadow.ts", `
+    import https from "https";
+    function request(https: { get(url: string): void }) { https.get("https://example.com"); }
+  `)]), "https");
+
+  const prismaSource = sourceFile("__round8-prisma.ts", `
+    prisma.source.create({ data: { handle: "x", demotionEvents: { create: { action: "demote" } } } });
+    const detached = prisma.source.create;
+    function shadow(create: (value: unknown) => unknown) { return create({}); }
+    const { create } = prisma.source;
+  `);
+  const prismaAnalysis = analyzePrismaFile(prismaSource.fileName, prismaSource);
+  assert.ok(prismaAnalysis.writes.includes("sourceDemotionEvent.create"), "leg 5 round 8: nested relation create escaped");
+  console.log("PASS leg 5 round 8: nested relation create is detected");
+  assert.ok(
+    prismaAnalysis.offenders.some((offender) => offender.includes("method reference is not directly invoked")),
+    "leg 5 round 8: detached delegate reference escaped",
+  );
+  assertRedeclared("Prisma", prismaAnalysis.offenders, "create");
+
+  for (const [label, source] of [
+    ["destructured fs write", `
+      import fs from "fs";
+      const { writeFileSync } = fs;
+      writeFileSync("data/x-handles.json", "[]");
+    `],
+    ["fs member alias write", `
+      import fs from "fs";
+      const write = fs.writeFileSync;
+      write("data/x-handles.json", "[]");
+    `],
+    ["fs.promises namespace write", `
+      import fs from "fs";
+      const fsp = fs.promises;
+      void fsp.writeFile("data/x-handles.json", "[]");
+    `],
+  ] as const) {
+    const offenders = write(source);
+    assert.ok(
+      offenders.some((offender) => offender.includes("writes data/x-handles.json")),
+      `leg 5 round 8: ${label} escaped: ${offenders.join("; ")}`,
+    );
+    console.log(`PASS leg 5 round 8: ${label} fails closed`);
+  }
+
+  const tempReport = `
+    import fs from "fs";
+    import os from "os";
+    import path from "path";
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "report-"));
+    const nested = path.join(root, "nested");
+    const source = path.join(root, "source.txt");
+    const copy = path.join(nested, "copy.txt");
+    fs.mkdirSync(nested, { recursive: true });
+    fs.writeFileSync(source, "report");
+    fs.copyFileSync(source, copy);
+    fs.writeFileSync(path.join(os.homedir(), ".x-collector-report"), "report");
+    fs.rmSync(root, { recursive: true, force: true });
+  `;
+  assert.deepEqual(write(tempReport), [], "leg 5 round 8: safe tmp/home/mkdtemp report writes were rejected");
+  console.log("PASS leg 5 round 8: temp-report writer passes");
+  assert.ok(
+    write(`import fs from "fs"; fs.writeFileSync("data/x-handles.json", "[]");`)
+      .some((offender) => offender.includes("writes data/x-handles.json")),
+    "leg 5 round 8: repository data write no longer fails",
+  );
+  console.log("PASS leg 5 round 8: write reaching data/ fails closed");
+  console.log("PASS leg 5 round 8 repo-wide, lexical binding, Prisma, network, and safe-root regressions");
+}
+
+function roundNineRegressionLeg(): void {
+  const sourceFile = (name: string, source: string): ts.SourceFile => ts.createSourceFile(
+    path.join(REPO_ROOT, "src", name), source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS,
+  );
+  const analyze = (name: string, source: string): {
+    prisma: string[];
+    reads: string[];
+    writes: string[];
+  } => {
+    const file = sourceFile(name, source);
+    return {
+      prisma: analyzePrismaFile(file.fileName, file).offenders,
+      reads: staticDataReadOffenders(file),
+      writes: staticDataWriteOffenders(file),
+    };
+  };
+  const assertPasses = (label: string, source: string): void => {
+    const result = analyze(`__round9-${label.replace(/[^a-z0-9]+/gi, "-")}.ts`, source);
+    assert.deepEqual(result, { prisma: [], reads: [], writes: [] }, `leg 5 round 9: ${label} poisoned a sibling scope`);
+    console.log(`PASS leg 5 round 9: ${label} does not poison a sibling scope`);
+  };
+
+  assertPasses("parameter alone", `
+    import path from "path";
+    export function zzNorm(path: string) { return path.trim(); }
+  `);
+  assertPasses("parameter plus sibling filesystem use", `
+    import fs from "fs";
+    import path from "path";
+    export function zzNorm(path: string) { return path.trim(); }
+    export function zzWrite() { fs.writeFileSync(path.join("/tmp", "o.json"), "x"); }
+  `);
+  assertPasses("local const plus sibling filesystem use", `
+    import fs from "fs";
+    import path from "path";
+    export function zzNorm() { const path = "value"; return path.trim(); }
+    export function zzWrite() { fs.writeFileSync(path.join("/tmp", "o.json"), "x"); }
+  `);
+  assertPasses("no shadow", `
+    import fs from "fs";
+    import path from "path";
+    export function zzWrite() { fs.writeFileSync(path.join("/tmp", "o.json"), "x"); }
+  `);
+  assertPasses("destructured parameter", `
+    import fs from "fs";
+    import path from "path";
+    export function zzNorm({ path }: { path: string }) { return path.trim(); }
+    export function zzWrite() { fs.writeFileSync(path.join("/tmp", "o.json"), "x"); }
+  `);
+  assertPasses("catch binding", `
+    import fs from "fs";
+    import path from "path";
+    export function zzNorm() { try { throw "value"; } catch (path) { return String(path); } }
+    export function zzWrite() { fs.writeFileSync(path.join("/tmp", "o.json"), "x"); }
+  `);
+  assertPasses("for-of binding", `
+    import fs from "fs";
+    import path from "path";
+    for (const path of ["value"]) { void path; }
+    export function zzWrite() { fs.writeFileSync(path.join("/tmp", "o.json"), "x"); }
+  `);
+  assertPasses("function declaration", `
+    import fs from "fs";
+    import path from "path";
+    export function zzNorm() { function path() { return "value"; } return path(); }
+    export function zzWrite() { fs.writeFileSync(path.join("/tmp", "o.json"), "x"); }
+  `);
+  assertPasses("class declaration", `
+    import fs from "fs";
+    import path from "path";
+    export function zzNorm() { class path {} return new path(); }
+    export function zzWrite() { fs.writeFileSync(path.join("/tmp", "o.json"), "x"); }
+  `);
+  assertPasses("function-scoped var", `
+    import fs from "fs";
+    import path from "path";
+    export function zzNorm() { if (true) { var path = "value"; } return path.trim(); }
+    export function zzWrite() { fs.writeFileSync(path.join("/tmp", "o.json"), "x"); }
+  `);
+
+  const sameScope = analyze("__round9-same-scope.ts", `
+    import fs from "fs";
+    import path from "path";
+    export function zzRead(path: string) { return fs.readFileSync(path, "utf8"); }
+    void path;
+  `);
+  assert.deepEqual(sameScope.prisma, [], "leg 5 round 9: filesystem/path resolution failure was reported as Prisma");
+  assert.ok(
+    sameScope.reads.some((offender) => offender.includes("readFileSync has a non-literal read path")),
+    `leg 5 round 9: same-scope parameter path became a bypass: ${sameScope.reads.join("; ")}`,
+  );
+  console.log("PASS leg 5 round 9: same-scope parameter path fails under filesystem analysis, not Prisma analysis");
+  console.log("PASS leg 5 round 9 lexical bindings, same-scope fail-closed path, and diagnostic ownership regressions");
+}
+
+function assertSourceWriterImportGraphsHaveSafeNetworkTargets(sourceWriterFiles: string[]): void {
+  // Reachability remains necessary only for network policy: a source/alertSource writer can acquire
+  // a target in a local dependency. Filesystem reads and writes are checked directly repo-wide.
   const networkOffenders = networkTargetOffenders(networkImportClosure(sourceWriterFiles));
   assert.deepEqual(
     networkOffenders,
@@ -2614,6 +2853,7 @@ function databaseWriterLeg(): boolean {
   const rawSql: Record<string, string[]> = {};
   const analysisOffenders: string[] = [];
   const rawDmlOffenders: string[] = [];
+  const dataReadOffenders: string[] = [];
   const dataWriteOffenders: string[] = [];
   const sourceWriterFiles: string[] = [];
 
@@ -2626,10 +2866,9 @@ function databaseWriterLeg(): boolean {
       true,
       scriptKindFor(filePath),
     );
-    const fileWriteOffenders = staticDataWriteOffenders(sourceFile);
-    dataWriteOffenders.push(...fileWriteOffenders);
-    if (fileWriteOffenders.length > 0) dataWriteOffenders.push(...staticDataReadOffenders(sourceFile));
-    const analysis = analyzePrismaFile(filePath);
+    dataReadOffenders.push(...staticDataReadOffenders(sourceFile));
+    dataWriteOffenders.push(...staticDataWriteOffenders(sourceFile));
+    const analysis = analyzePrismaFile(filePath, sourceFile);
     if (analysis.writes.length > 0) writes[relative(filePath)] = analysis.writes;
     if (analysis.rawSql.length > 0) rawSql[relative(filePath)] = analysis.rawSql;
     if (analysis.sourceTableWriter) sourceWriterFiles.push(filePath);
@@ -2662,13 +2901,16 @@ function databaseWriterLeg(): boolean {
   assert.deepEqual(normalizedRawSql, expectedRawSql, "leg 5: Prisma raw-SQL allow-list changed");
   assert.deepEqual(rawDmlOffenders, [], "leg 5: non-allow-listed raw SQL DML found");
   assert.deepEqual(
+    dataReadOffenders.sort((left, right) => left.localeCompare(right)),
+    [],
+    `leg 5: repository-wide filesystem guard found unsafe data reads: ${dataReadOffenders.join("; ")}`,
+  );
+  assert.deepEqual(
     dataWriteOffenders.sort((left, right) => left.localeCompare(right)),
     [],
     `leg 5: repository-wide filesystem guard found unsafe access in a file that writes under data/: ${dataWriteOffenders.join("; ")}`,
   );
-  const writerFiles = [...new Set([...Object.keys(writes), ...Object.keys(rawSql)])]
-    .map((filePath) => path.join(REPO_ROOT, filePath));
-  assertWriterImportGraphsDoNotReadData(writerFiles, sourceWriterFiles);
+  assertSourceWriterImportGraphsHaveSafeNetworkTargets(sourceWriterFiles);
   return false;
 }
 
@@ -2677,8 +2919,10 @@ async function main(): Promise<void> {
   assertFixtureIdentifiersAreValid();
   staticPathBindingLeg();
   acquisitionRegressionLeg();
+  roundEightRegressionLeg();
+  roundNineRegressionLeg();
   if (databaseWriterLeg()) return;
-  console.log("PASS leg 5: repository-wide Prisma write snapshot and transitive no-data-read guard");
+  console.log("PASS leg 5: repository-wide Prisma write snapshot and repository-wide data-access guard");
   const database = databaseUrl();
   const prisma = new PrismaClient();
   try {
