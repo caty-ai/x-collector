@@ -18,8 +18,6 @@ import { HANDLE_RE } from "../x-handle";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const SRC_ROOT = path.join(REPO_ROOT, "src");
-const DATA_ROOT = path.join(REPO_ROOT, "data");
-const X_HANDLES_PATH = path.join(DATA_ROOT, "x-handles.json");
 const NEXT_CONFIG_PATH = path.join(REPO_ROOT, "next.config.js");
 const SENTINEL_IDENTIFIER = "ZZSentinelSrc";
 const PROMOTED_IDENTIFIER = "ManualSource";
@@ -166,8 +164,14 @@ function readTsConfig(relativePath: string, legLabel: string): ts.ParsedCommandL
 
 function walkSourceFiles(directory: string, wholeRepository = false): string[] {
   const found: string[] = [];
+  const isRepositoryRoot = path.resolve(directory) === REPO_ROOT;
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (entry.isDirectory() && wholeRepository && EXCLUDED_REPOSITORY_DIRECTORIES.has(entry.name)) continue;
+    if (
+      entry.isDirectory()
+      && wholeRepository
+      && isRepositoryRoot
+      && EXCLUDED_REPOSITORY_DIRECTORIES.has(entry.name)
+    ) continue;
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) found.push(...walkSourceFiles(absolute, wholeRepository));
     else if (REPOSITORY_SOURCE_EXTENSIONS.has(path.extname(entry.name))) found.push(absolute);
@@ -432,6 +436,10 @@ function importGraphLeg(): void {
   const collectorParsed = readTsConfig("tsconfig.collector.json", "leg 2");
   const appParsed = readTsConfig("tsconfig.json", "leg 2");
   const appRoots = walkSourceFiles(path.join(SRC_ROOT, "app"));
+
+  // Runtime roots come only from the collector build configuration plus the Next app. `src/scripts`
+  // is deliberately a tooling boundary, not a runtime root; making it a root would make the target
+  // community validator reachable by definition and would destroy the assertion this leg exists for.
   const roots = [...new Set([...collectorParsed.fileNames, ...appRoots])];
   const program = ts.createProgram({ rootNames: roots, options: { ...appParsed.options, ...collectorParsed.options } });
   const reachable = program.getSourceFiles()
@@ -475,6 +483,17 @@ function scriptSnapshotLeg(): void {
 function catalogNameAllowListLeg(): void {
   const sourceFiles = new Set(walkSourceFiles(REPO_ROOT, true).map(relative));
   if (fs.existsSync(NEXT_CONFIG_PATH)) sourceFiles.add(relative(NEXT_CONFIG_PATH));
+  const missingPositiveControls = [...ALLOWED_CATALOG_REFERENCES]
+    .sort((left, right) => left.localeCompare(right))
+    .filter((filePath) => {
+      return !sourceFiles.has(filePath)
+        || !fs.readFileSync(path.join(REPO_ROOT, filePath), "utf8").includes("community-sources");
+    });
+  assert.equal(
+    missingPositiveControls.length,
+    0,
+    `catalog-name allow-list positive control: expected scanned files containing community-sources:\n${missingPositiveControls.join("\n")}`,
+  );
   const offenders = [...sourceFiles]
     .sort((left, right) => left.localeCompare(right))
     .filter((filePath) => {
@@ -497,12 +516,12 @@ async function main(): Promise<void> {
     await behaviouralAndFilesystemLeg(prisma, database);
     console.log("PASS leg 1: behavioural Source set-equality with discriminating fixture");
     console.log("PASS leg 3: filesystem trace and child-process spawn rejection");
+    catalogNameAllowListLeg();
+    console.log("PASS catalog-name allow-list");
     importGraphLeg();
     console.log("PASS leg 2: derived import graph and root completeness");
     scriptSnapshotLeg();
     console.log("PASS leg 4: package scripts and dependencies snapshot");
-    catalogNameAllowListLeg();
-    console.log("PASS catalog-name allow-list");
   } finally {
     await prisma.$disconnect();
   }

@@ -86,19 +86,19 @@ Review a catalog entry as a suggestion, then open `/settings` in your own X Coll
 
 ### What the `no-auto-subscribe` suite does and does not guarantee
 
-The suite is now intentionally narrow. It keeps four checks:
+The suite intentionally keeps four focused checks:
 
-- One behavioural check that uses a sentinel entry plus the real writers and filesystem/subprocess tracing to prove automatic flows populate `Source` only from non-community inputs and do not read `data/community-sources/`.
+- One behavioural check that uses a sentinel entry plus the real writers and filesystem/subprocess tracing to verify that the executed writer paths populate `Source` only from non-community inputs and do not read `data/community-sources/`. This checks the executed paths, not every possible code shape.
 - One TypeScript-program reachability check that keeps `src/scripts/community` outside runtime import roots.
-- One package/dependency snapshot check for the community-related script surface.
+- One snapshot check that pins the complete `package.json` scripts map, dependencies, and devDependencies.
 - One catalog-name allow-list that restricts which source files may mention `community-sources`.
 
 This is aimed at catching ordinary maintenance mistakes in this repository, not at stopping a person
 with commit access who deliberately wants to bypass it. A community contribution still cannot add such
 code directly because check C1 rejects pull requests that touch paths outside `data/community-sources/`.
 
-The replacement removes the bespoke static analyzer and keeps checks that are easier to understand,
-review, and maintain in public. In exchange, the suite no longer claims broad source-shape coverage;
+A previous revision used a bespoke static analyzer; it was replaced with checks that are easier to
+understand, review, and maintain in public. In exchange, the suite does not claim broad source-shape coverage;
 it verifies the executed writer path, the runtime import boundary, the package snapshot, and the small
 set of files allowed to reference the community catalog by name.
 
