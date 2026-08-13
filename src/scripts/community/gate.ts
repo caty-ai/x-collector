@@ -12,6 +12,7 @@ import {
 const UPSTREAM = "caty-ai/x-collector";
 const API_ROOT = "https://api.github.com";
 const SHA_RE = /^[0-9a-f]{40}$/;
+const COMPARE_FILE_STATUSES = new Set(["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"]);
 const SAFE_DEDUP_RE = /^[a-z0-9_]{1,15}$/;
 const MAX_COMMUNITY_SUBMISSIONS_PER_30_DAYS = 3;
 const COMMENT_MARKER = "<!-- community-sources-gate -->";
@@ -58,6 +59,7 @@ type PullRequestEvent = {
 
 type CompareFile = {
   filename: string;
+  previous_filename?: string;
   status: string;
   sha: string;
 };
@@ -175,7 +177,14 @@ async function compareSnapshot(baseSha: string, headSha: string): Promise<{ file
       || file.filename.length === 0
       || typeof file.status !== "string"
       || file.status.length === 0
+      || !COMPARE_FILE_STATUSES.has(file.status)
       || typeof file.sha !== "string"
+      || !SHA_RE.test(file.sha)
+      || (file.previous_filename !== undefined && (
+        typeof file.previous_filename !== "string"
+        || file.previous_filename.length === 0
+      ))
+      || (file.status === "renamed" && file.previous_filename === undefined)
     ))
   ) {
     throw new Error("compare response failed the completeness assertion");
@@ -276,7 +285,10 @@ async function validateMode(): Promise<Contract> {
     return emptyContract("error", prNumber, headSha, [GateErrorId.E2]);
   }
 
-  const touchesCommunity = snapshot.files.some((file) => file.filename.startsWith("data/community-sources/"));
+  const touchesCommunity = snapshot.files.some((file) => (
+    file.filename.startsWith("data/community-sources/")
+    || file.previous_filename?.startsWith("data/community-sources/")
+  ));
   if (!touchesCommunity) return emptyContract("neutral_untouched", prNumber, headSha);
 
   const trusted = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
