@@ -74,6 +74,7 @@ const EXPECTED_DEV_DEPENDENCIES: Record<string, string> = {
   tailwindcss: "^3.4.19",
   "ts-node": "^10.9.2",
   typescript: "^5.5.0",
+  vitest: "^2.1.9",
 };
 
 const EXPECTED_SCRIPTS: Record<string, string> = {
@@ -107,7 +108,9 @@ const EXPECTED_SCRIPTS: Record<string, string> = {
   "step4:crosslink:llm": "ts-node -r dotenv/config src/collector/pipeline-crosslink-llm.ts",
   summary: "ts-node -r dotenv/config src/summary/daily.ts",
   "summary:prod": "node dist/summary/daily.js",
+  test: "vitest run",
   "test:community": "ts-node src/scripts/community/no-auto-subscribe.test.ts",
+  "test:watch": "vitest",
   "topic-cluster:pipeline": "ts-node -r dotenv/config src/collector/pipeline-topic-cluster.ts",
   "typecheck:community": "tsc --noEmit -p tsconfig.community.json",
   "validate:community": "ts-node src/scripts/community/validate-community-source.ts --all",
