@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build && tsc -p tsconfig.collector.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "start": "next start",
     "collect": "ts-node -r dotenv/config src/collector/run.ts",
     "collect:prod:cycle": "ts-node -r dotenv/config src/collector/run-prod-collect-cycle.ts",
@@ -63,6 +65,7 @@
     "prisma": "^5.20.0",
     "tailwindcss": "^3.4.19",
     "ts-node": "^10.9.2",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.9"
   }
 }
