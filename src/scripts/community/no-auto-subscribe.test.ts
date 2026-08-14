@@ -47,6 +47,9 @@ const ALLOWED_CATALOG_REFERENCES = new Set([
   "src/scripts/community/validate-community-source.ts",
   "src/scripts/community/gate.ts",
   "src/scripts/community/no-auto-subscribe.test.ts",
+  // Regression tests for gate.ts reference community-source paths in their
+  // synthetic events and assertions (Issue #12); test-only, no subscribe path.
+  "src/scripts/community/__tests__/gate.test.ts",
 ]);
 
 const EXPECTED_DEPENDENCIES: Record<string, string> = {

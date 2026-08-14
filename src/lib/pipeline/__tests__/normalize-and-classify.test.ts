@@ -1,7 +1,5 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { carryForwardClassificationFlags } from "../classify-llm";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { carryForwardClassificationFlags, classifyPipelineItemsByLlm } from "../classify-llm";
 import { clampPublishedAt, normalizePipelineItems } from "../normalize";
 import { alertEntry, quietLogger } from "./helpers/fixtures";
 
@@ -29,6 +27,11 @@ async function normalizeAlertPermutation(entries: ReturnType<typeof alertEntry>[
 }
 
 describe("normalize and classify invariants", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("carries published and headline flags forward and keeps the pending-only floor load-bearing", async () => {
     expect(
       carryForwardClassificationFlags({
@@ -38,20 +41,108 @@ describe("normalize and classify invariants", () => {
       }),
     ).toEqual({ isDup: true, isHeadlineCandidate: true, isPublished: true });
 
-    const classifySource = await readFile(
-      path.join(process.cwd(), "src/lib/pipeline/classify-llm.ts"),
-      "utf8",
-    );
-    expect(classifySource).toMatch(/if \(pendingOnly\) \{[\s\S]{0,160}where\.ingestedAt = \{ gte:/);
-    expect(classifySource).toMatch(
-      /D1's isPublished bind guard depends on these flags surviving reclassification/,
-    );
-    expect(classifySource).toMatch(
-      /const carriedFlags = carryForwardClassificationFlags\(item\.classifications\[0\]\)/,
-    );
-    expect(classifySource).toMatch(
-      /pipelineClassification\.create\(\{[\s\S]{0,800}\.\.\.carriedFlags/,
-    );
+    const queryPrisma = {
+      pipelineItem: {
+        findMany: vi.fn(async () => []),
+      },
+    } as any;
+
+    await classifyPipelineItemsByLlm(queryPrisma, {
+      apiKey: "stub-or-key",
+      logger: quietLogger,
+      model: "vitest-classify-model",
+      promptVersion: "vitest-prompt-version",
+    });
+
+    expect(queryPrisma.pipelineItem.findMany).toHaveBeenCalledTimes(1);
+    const queryArgs = queryPrisma.pipelineItem.findMany.mock.calls[0][0];
+    expect(queryArgs.where.ingestedAt.gte).toBeInstanceOf(Date);
+    expect(queryArgs.where.NOT).toEqual({
+      runs: {
+        some: {
+          step: "step1_3_classify",
+          status: "completed",
+          output: {
+            path: ["result", "promptVersion"],
+            equals: "vitest-prompt-version",
+          },
+        },
+      },
+    });
+
+    const classificationWrites: Array<Record<string, any>> = [];
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              noise: false,
+              noiseReason: null,
+              primaryTag: "TECH",
+              subTag: null,
+              actionTag: "INFO",
+              titleJa: "分類タイトル",
+              summaryJa: "分類要約",
+              confidence: 0.8,
+            }),
+          },
+        }],
+      }),
+    })));
+
+    const timestamp = new Date("2026-03-10T00:00:00.000Z");
+    const persistPrisma = {
+      pipelineItem: {
+        findMany: async () => [{
+          id: "carry-forward-item",
+          platform: "twitter",
+          title: "Carry forward title",
+          body: "Carry forward body",
+          url: "https://example.test/carry-forward",
+          canonicalUrl: null,
+          sourceRef: "@carryforward",
+          publishedAt: timestamp,
+          updatedAt: timestamp,
+          raw: {},
+          runs: [],
+          classifications: [{
+            isDup: true,
+            isHeadlineCandidate: true,
+            isPublished: true,
+          }],
+        }],
+      },
+      pipelineRun: {
+        create: async () => ({ id: 7 }),
+        update: async () => undefined,
+      },
+      pipelineClassification: {
+        create: async (args: Record<string, any>) => {
+          classificationWrites.push(args.data);
+          return args.data;
+        },
+      },
+      $transaction: async (operations: unknown[]) => operations,
+    } as any;
+
+    await classifyPipelineItemsByLlm(persistPrisma, {
+      apiKey: "stub-or-key",
+      dryRun: false,
+      fallbackToRules: false,
+      logger: quietLogger,
+      model: "vitest-classify-model",
+      promptVersion: "vitest-prompt-version",
+    });
+
+    expect(classificationWrites).toHaveLength(1);
+    expect(classificationWrites[0]).toMatchObject({
+      pipelineItemId: "carry-forward-item",
+      isDup: true,
+      isHeadlineCandidate: true,
+      isPublished: true,
+    });
   });
 
   it("clamps future publishedAt values and keeps the clamp idempotent across normalize passes", async () => {
