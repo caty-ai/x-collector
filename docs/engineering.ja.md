@@ -31,6 +31,7 @@ X Collector は、自分で選んだ情報源からAI・テクノロジーの最
 | ランタイム | Node.js 18.17.0以上。このチェックアウトはNode.js 26.5.0でビルド | ✅ 確認済み |
 | データベース | PostgreSQL。最低サーバーバージョンの指定はなし | ✅ Prisma providerとマイグレーションを確認 |
 | ホスティング | Railway | ✅ 本番稼働を確認済み |
+| OS（開発・セルフホスト） | Linux（`ubuntu-latest`）と macOS（`macos-latest`・Apple Silicon） | ✅ フルテストスイート（typecheck・Prisma generate・テスト）が両OSのCIで実走 |
 | MCPクライアント | Claude CLI、Claude.ai、Claude Desktop | ⚠️ ドキュメント記載あり。この環境では未接続 |
 
 ---
