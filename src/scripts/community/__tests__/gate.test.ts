@@ -38,6 +38,8 @@ const BASE_SHA = "a".repeat(40);
 const HEAD_SHA = "b".repeat(40);
 const FILE_SHA = "c".repeat(40);
 const COMMIT_SHA = "d".repeat(40);
+const COMMITS_PER_PAGE = 100;
+const MAX_COMMIT_LIST_PAGES = 30;
 const COMMIT_FILES_PER_PAGE = 100;
 const MAX_COMMIT_FILE_PAGES = 30;
 
@@ -229,16 +231,16 @@ function passCaseRoutes(): Route[] {
   ];
 }
 
-function commitListRoute(): Route {
+function commitListRoute(body: unknown = [{ sha: COMMIT_SHA }], page = 1): Route {
   return {
     path: "/repos/caty-ai/x-collector/commits",
     query: {
       path: "data/community-sources",
       sha: BASE_SHA,
       per_page: "100",
-      page: "1",
+      page: String(page),
     },
-    body: [{ sha: COMMIT_SHA }],
+    body,
   };
 }
 
@@ -477,6 +479,44 @@ describe("community gate validate mode", () => {
       commitDetailRoute({ files: oversizedPage }, 1),
       { path: `/repos/caty-ai/x-collector/commits/${COMMIT_SHA}`, body: { files: oversizedPage } },
     ]));
+
+    expect(result.status).toBe(0);
+    expect(result.contract.verdict).toBe("fail");
+    expect(result.contract.failedCheckIds).toEqual(["C10"]);
+  });
+
+  it("fails C10 when full commits-list pages reach the pagination bound", () => {
+    const fullPage = Array.from({ length: COMMITS_PER_PAGE }, () => ({ sha: COMMIT_SHA }));
+    const listRoutes = Array.from(
+      { length: MAX_COMMIT_LIST_PAGES },
+      (_, index) => commitListRoute(fullPage, index + 1),
+    );
+    listRoutes.push(commitListRoute([], MAX_COMMIT_LIST_PAGES + 1));
+    const result = runGateCase([
+      ...passCaseRoutes().filter((route) => route.path !== "/repos/caty-ai/x-collector/commits"),
+      ...listRoutes,
+      { path: `/repos/caty-ai/x-collector/commits/${COMMIT_SHA}`, body: { files: [] } },
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.contract.verdict).toBe("fail");
+    expect(result.contract.failedCheckIds).toEqual(["C10"]);
+  });
+
+  it.each([
+    { name: "a non-array body", body: { sha: COMMIT_SHA } },
+    { name: "an entry without a valid SHA", body: [{}] },
+    {
+      name: "more entries than the requested page size",
+      body: Array.from({ length: COMMITS_PER_PAGE + 1 }, () => ({ sha: COMMIT_SHA })),
+    },
+  ])("fails C10 when a commits-list page has $name", ({ body }) => {
+    const result = runGateCase([
+      ...passCaseRoutes().filter((route) => route.path !== "/repos/caty-ai/x-collector/commits"),
+      commitListRoute(body),
+      commitListRoute([], 2),
+      { path: `/repos/caty-ai/x-collector/commits/${COMMIT_SHA}`, body: { files: [] } },
+    ]);
 
     expect(result.status).toBe(0);
     expect(result.contract.verdict).toBe("fail");
