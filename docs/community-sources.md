@@ -80,7 +80,9 @@ blob therefore blocks every new submission until it can be inspected again. A tr
 failure is indistinguishable from a permanent historical-data failure; rerun after a transient error,
 but do not bypass C10 or treat the missing inspection as zero submissions.
 The `pulls/{n}` snapshot cross-check can likewise turn a transient GitHub API error or a concurrent
-head push into an E2 red run. Rerun the check; a fresh run re-reads the pinned SHAs without weakening the gate.
+head push into an E2 red run. After a transient error, rerun the check. After a head push, do not
+re-run the stale run (it replays the old pinned payload and stays red); the newer `synchronize` run
+supersedes it. Neither case weakens the gate.
 
 ### Empty pinned compares
 

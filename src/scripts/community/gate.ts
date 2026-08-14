@@ -16,6 +16,7 @@ const COMPARE_FILE_STATUSES = new Set(["added", "removed", "modified", "renamed"
 const SAFE_DEDUP_RE = /^[a-z0-9_]{1,15}$/;
 const MAX_COMMUNITY_SUBMISSIONS_PER_30_DAYS = 3;
 const MAX_COMMIT_LIST_PAGES = 30;
+const COMMITS_PER_PAGE = 100;
 const COMMIT_FILES_PER_PAGE = 100;
 const MAX_COMMIT_FILE_PAGES = 30;
 const COMMENT_MARKER = "<!-- community-sources-gate -->";
@@ -292,13 +293,13 @@ async function recentSubmissionCount(login: string, baseSha: string): Promise<nu
       path: "data/community-sources",
       since,
       sha: baseSha,
-      per_page: "100",
+      per_page: String(COMMITS_PER_PAGE),
       page: String(page),
     });
     const commits = await github<unknown>(`/repos/${UPSTREAM}/commits?${query.toString()}`);
     if (
       !Array.isArray(commits)
-      || commits.length > 100
+      || commits.length > COMMITS_PER_PAGE
       || commits.some((commit) => (
         typeof commit !== "object"
         || commit === null
@@ -327,7 +328,7 @@ async function recentSubmissionCount(login: string, baseSha: string): Promise<nu
       }
     }
     // A validated short page (including []) proves completeness.
-    if (commits.length < 100) return count;
+    if (commits.length < COMMITS_PER_PAGE) return count;
   }
   throw new Error("commits list exceeded the pagination bound");
 }
