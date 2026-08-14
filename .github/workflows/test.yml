@@ -30,3 +30,20 @@ jobs:
       - run: npx prisma generate
       - run: npx tsc --noEmit -p tsconfig.json
       - run: npm test
+
+  # Same suite on macOS (handbook#54): every dev machine is macOS while
+  # ubuntu-only CI structurally misses BSD/GNU behavior differences.
+  # Separate job name keeps the existing required check `test` intact.
+  test-macos:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsc --noEmit -p tsconfig.json
+      - run: npm test
