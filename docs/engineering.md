@@ -31,6 +31,7 @@ X Collector is a self-hosted Next.js + PostgreSQL service that collects AI and t
 | Runtime | Node.js 18.17.0 or newer; this checkout was built with Node.js 26.5.0 | ✅ Verified |
 | Database | PostgreSQL; no minimum server version is documented | ✅ Prisma provider and migrations verified |
 | Hosting | Railway | ✅ Verified in production |
+| Operating systems (develop & self-host) | Linux (`ubuntu-latest`) and macOS (`macos-latest`, Apple Silicon) | ✅ Full test suite (typecheck, Prisma generate, tests) runs on both in CI |
 | MCP clients | Claude CLI, Claude.ai, and Claude Desktop | ⚠️ Documented; not exercised here |
 
 ---
