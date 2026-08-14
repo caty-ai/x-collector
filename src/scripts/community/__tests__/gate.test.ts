@@ -27,14 +27,19 @@ type GateRunResult = {
   stdout: string;
 };
 
-const REPO_ROOT = process.cwd();
+const REPO_ROOT = path.resolve(__dirname, "../../../..");
 const FIXTURE_PATH = path.join(REPO_ROOT, "src/scripts/community/__tests__/fixtures/compare-pr10.json");
 const RUNNER_PATH = path.join(REPO_ROOT, "src/scripts/community/__tests__/helpers/gate-runner.cjs");
-const GATE_PATH = path.join(REPO_ROOT, "src/scripts/community/gate.ts");
+const DEFAULT_GATE_PATH = path.join(REPO_ROOT, "src/scripts/community/gate.ts");
+const GATE_PATH = process.env.COMMUNITY_GATE_TEST_SCRIPT_PATH
+  ? path.resolve(process.env.COMMUNITY_GATE_TEST_SCRIPT_PATH)
+  : DEFAULT_GATE_PATH;
 const BASE_SHA = "a".repeat(40);
 const HEAD_SHA = "b".repeat(40);
 const FILE_SHA = "c".repeat(40);
 const COMMIT_SHA = "d".repeat(40);
+const COMMIT_FILES_PER_PAGE = 100;
+const MAX_COMMIT_FILE_PAGES = 30;
 
 function createEvent(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
@@ -137,6 +142,16 @@ function compareRoute(body: unknown): Route {
   };
 }
 
+function pullRoute(changedFiles: number, headSha = HEAD_SHA): Route {
+  return {
+    path: "/repos/caty-ai/x-collector/pulls/10",
+    body: {
+      changed_files: changedFiles,
+      head: { sha: headSha },
+    },
+  };
+}
+
 function passCaseRoutes(): Route[] {
   const source = {
     schema_version: 1,
@@ -164,6 +179,7 @@ function passCaseRoutes(): Route[] {
         },
       ],
     }),
+    pullRoute(1),
     {
       path: `/repos/caty-ai/x-collector/git/trees/${HEAD_SHA}`,
       query: { recursive: "1" },
@@ -213,9 +229,80 @@ function passCaseRoutes(): Route[] {
   ];
 }
 
+function commitListRoute(): Route {
+  return {
+    path: "/repos/caty-ai/x-collector/commits",
+    query: {
+      path: "data/community-sources",
+      sha: BASE_SHA,
+      per_page: "100",
+      page: "1",
+    },
+    body: [{ sha: COMMIT_SHA }],
+  };
+}
+
+function commitDetailRoute(body: unknown, page: number): Route {
+  return {
+    path: `/repos/caty-ai/x-collector/commits/${COMMIT_SHA}`,
+    query: {
+      per_page: String(COMMIT_FILES_PER_PAGE),
+      page: String(page),
+    },
+    body,
+  };
+}
+
+function withCommitHistory(detailRoutes: Route[], extraRoutes: Route[] = []): Route[] {
+  return [
+    ...passCaseRoutes().filter((route) => route.path !== "/repos/caty-ai/x-collector/commits"),
+    commitListRoute(),
+    ...detailRoutes,
+    ...extraRoutes,
+  ];
+}
+
+function historicalCommunitySource(index: number): {
+  contentRoute: Route;
+  file: { filename: string; sha: string; status: string };
+} {
+  const identifier = `Hist${index}`;
+  const filename = `data/community-sources/x--${identifier.toLowerCase()}.json`;
+  const source = {
+    schema_version: 1,
+    platform: "x",
+    identifier,
+    topic: `Historical source ${index}`,
+    language: "en",
+    submitted_by: "CommunityUser",
+    first_seen: "2026-08-01",
+  };
+  const serialized = JSON.stringify(source, null, 2);
+  return {
+    file: {
+      filename,
+      sha: (1000 + index).toString(16).padStart(40, "0"),
+      status: "added",
+    },
+    contentRoute: {
+      path: `/repos/caty-ai/x-collector/contents/${filename}`,
+      query: { ref: COMMIT_SHA },
+      body: {
+        type: "file",
+        sha: (1000 + index).toString(16).padStart(40, "0"),
+        size: Buffer.byteLength(serialized),
+        encoding: "base64",
+        content: Buffer.from(serialized).toString("base64"),
+      },
+    },
+  };
+}
+
 describe("community gate validate mode", () => {
   it("returns neutral for the real PR #10 compare fixture when community sources are untouched", () => {
-    const result = runGateCase([compareRoute(JSON.parse(fs.readFileSync(FIXTURE_PATH, "utf8")))]);
+    // Provenance: real PR #10 compare 98800d1...a20e5b2 via GitHub API, trimmed to fields gate.ts reads.
+    const fixture = JSON.parse(fs.readFileSync(FIXTURE_PATH, "utf8"));
+    const result = runGateCase([compareRoute(fixture), pullRoute(fixture.files.length)]);
 
     expect(result.status).toBe(0);
     expect(result.contract.verdict).toBe("neutral_untouched");
@@ -231,6 +318,7 @@ describe("community gate validate mode", () => {
         total_commits: 1,
         files: Array.from({ length: 299 }, (_, index) => compareFile(index)),
       }),
+      pullRoute(299),
     ]);
     const atCap = runGateCase([
       compareRoute({
@@ -310,6 +398,7 @@ describe("community gate validate mode", () => {
           sha: FILE_SHA,
         }],
       }),
+      pullRoute(1),
     ]);
 
     expect(result.status).toBe(0);
@@ -317,7 +406,111 @@ describe("community gate validate mode", () => {
     expect(result.contract.failedCheckIds.sort()).toEqual(["C1", "C2"]);
   });
 
-  it("passes a single added community source through the C-check contract path", () => {
+  it.each([
+    { name: "missing files", body: {} },
+    { name: "null files", body: { files: null } },
+    { name: "non-array files", body: { files: "not-an-array" } },
+    {
+      name: "malformed file entry",
+      body: { files: [{ filename: "docs/history.md", sha: FILE_SHA, status: "invented" }] },
+    },
+  ])("fails C10 when commit detail has $name", ({ body }) => {
+    const result = runGateCase(withCommitHistory([
+      commitDetailRoute(body, 1),
+      // The queryless fallback lets the same assertion run against the pre-fix script.
+      { path: `/repos/caty-ai/x-collector/commits/${COMMIT_SHA}`, body },
+    ]));
+
+    expect(result.status).toBe(0);
+    expect(result.contract.verdict).toBe("fail");
+    expect(result.contract.failedCheckIds).toEqual(["C10"]);
+  });
+
+  it("counts commit-detail files across pages before applying C10", () => {
+    const first = historicalCommunitySource(1);
+    const second = historicalCommunitySource(2);
+    const third = historicalCommunitySource(3);
+    const firstPage = Array.from(
+      { length: COMMIT_FILES_PER_PAGE },
+      (_, index) => compareFile(1000 + index),
+    );
+    firstPage[0] = first.file;
+    firstPage[1] = second.file;
+    const result = runGateCase(withCommitHistory([
+      commitDetailRoute({ files: firstPage }, 1),
+      commitDetailRoute({ files: [third.file] }, 2),
+      // Pre-fix gate.ts fetches without pagination and therefore sees only two submissions.
+      { path: `/repos/caty-ai/x-collector/commits/${COMMIT_SHA}`, body: { files: firstPage } },
+    ], [first.contentRoute, second.contentRoute, third.contentRoute]));
+
+    expect(result.status).toBe(0);
+    expect(result.contract.verdict).toBe("fail");
+    expect(result.contract.failedCheckIds).toEqual(["C10"]);
+  });
+
+  it("fails C10 when full commit-detail pages reach the pagination bound", () => {
+    const fullPage = Array.from(
+      { length: COMMIT_FILES_PER_PAGE },
+      (_, index) => compareFile(2000 + index),
+    );
+    const detailRoutes = Array.from(
+      { length: MAX_COMMIT_FILE_PAGES },
+      (_, index) => commitDetailRoute({ files: fullPage }, index + 1),
+    );
+    detailRoutes.push({
+      path: `/repos/caty-ai/x-collector/commits/${COMMIT_SHA}`,
+      body: { files: fullPage },
+    });
+    const result = runGateCase(withCommitHistory(detailRoutes));
+
+    expect(result.status).toBe(0);
+    expect(result.contract.verdict).toBe("fail");
+    expect(result.contract.failedCheckIds).toEqual(["C10"]);
+  });
+
+  it("fails C10 when a commit-detail page exceeds the fixed page size", () => {
+    const oversizedPage = Array.from(
+      { length: COMMIT_FILES_PER_PAGE + 1 },
+      (_, index) => compareFile(3000 + index),
+    );
+    const result = runGateCase(withCommitHistory([
+      commitDetailRoute({ files: oversizedPage }, 1),
+      { path: `/repos/caty-ai/x-collector/commits/${COMMIT_SHA}`, body: { files: oversizedPage } },
+    ]));
+
+    expect(result.status).toBe(0);
+    expect(result.contract.verdict).toBe("fail");
+    expect(result.contract.failedCheckIds).toEqual(["C10"]);
+  });
+
+  it.each([
+    { name: "the pull head SHA moved", files: [compareFile(1)], route: pullRoute(1, "e".repeat(40)) },
+    { name: "the pull reports more changed files", files: [compareFile(1)], route: pullRoute(2) },
+    { name: "the pull reports fewer changed files", files: [compareFile(1), compareFile(2)], route: pullRoute(1) },
+  ])("returns E2 when the pull disagrees with the pinned compare: $name", ({ files, route }) => {
+    const result = runGateCase([
+      compareRoute({ files }),
+      route,
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.contract.verdict).toBe("error");
+    expect(result.contract.failedCheckIds).toEqual(["E2"]);
+  });
+
+  it("accepts a validated, provably complete empty commit-detail file list", () => {
+    const emptyDetail = { files: [] };
+    const result = runGateCase(withCommitHistory([
+      commitDetailRoute(emptyDetail, 1),
+      { path: `/repos/caty-ai/x-collector/commits/${COMMIT_SHA}`, body: emptyDetail },
+    ]));
+
+    expect(result.status).toBe(0);
+    expect(result.contract.verdict).toBe("pass");
+    expect(result.contract.failedCheckIds).toEqual([]);
+  });
+
+  it("passes a single added community source when the pull cross-check matches", () => {
     const result = runGateCase(passCaseRoutes());
 
     expect(result.status).toBe(0);
