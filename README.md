@@ -4,7 +4,7 @@
 
 **🇺🇸 English** ｜ [🇯🇵 日本語](README.ja.md) ｜ [🇨🇳 简体中文](README.zh.md) ｜ [🇹🇭 ไทย](README.th.md)
 
-![X Collector hero image: streams of collected posts from eight platforms flow through a sorting board and are bound into one printed newspaper — "One information base, read by people and agents alike."](assets/hero.jpg)
+![X Collector hero image: a woman reads a printed newspaper woven from streams of collected posts — "One information base, read by people and agents alike."](assets/hero.jpg)
 
 <h4>Free, open-source software you run on your own computer or server —<br>it turns scattered AI and tech updates into one daily newspaper and one searchable feed.</h4>
 
