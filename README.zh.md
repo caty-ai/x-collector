@@ -4,7 +4,7 @@
 
 [🇺🇸 English](README.md) ｜ [🇯🇵 日本語](README.ja.md) ｜ **🇨🇳 简体中文** ｜ [🇹🇭 ไทย](README.th.md)
 
-![X Collector 主视觉：来自 8 个平台的帖子流经分拣板，汇订成一份报纸 —— "One information base, read by people and agents alike."](assets/hero.jpg)
+![X Collector 主视觉：收集的帖子流汇织成一份报纸，一位女士正在阅读 —— "One information base, read by people and agents alike."](assets/hero.jpg)
 
 <h4>一款免费开源的软件，运行在你自己的电脑或服务器上——<br>把散落各处的 AI 与科技资讯汇集成每天一份报纸和一个可搜索的信息流。</h4>
 
