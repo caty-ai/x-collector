@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { composeNewsletterEdition } from "../compose-edition";
+import { composeNewsletterEditionScript } from "../compose-edition-script";
 import { publishPipelineItems } from "../publish";
 import {
   classification,
@@ -10,7 +12,81 @@ import {
   quietLogger,
 } from "./helpers/fixtures";
 
+function composeEditionStub() {
+  const editionDate = new Date("2026-03-11T00:00:00.000Z");
+  const editionUpdates: Array<Record<string, any>> = [];
+
+  const prisma = {
+    newsletterEdition: {
+      findUnique: async () => ({
+        id: "edition-1",
+        editionDate,
+        slug: "ai-daily-news-20260311",
+        title: "2026年03月11日 AI Daily News",
+        status: "draft",
+      }),
+      update: async (args: Record<string, any>) => {
+        editionUpdates.push(args);
+        return args;
+      },
+    },
+    newsletterBinding: {
+      findMany: async () => [{
+        id: 1,
+        editionId: "edition-1",
+        pipelineItemId: "item-1",
+        section: "2_update",
+        subsection: null,
+        position: 1,
+        blurb: "Community summary",
+        pipelineItem: {
+          id: "item-1",
+          title: "Community title",
+          body: "Community body",
+          url: "https://example.test/item-1",
+          canonicalUrl: null,
+          platform: "twitter",
+          sourceRef: "@community",
+          publishedAt: editionDate,
+        },
+        classification: {
+          primaryTag: "UPDATE",
+          subTag: null,
+          actionTag: "INFO",
+          score: 0.9,
+          isHeadlineCandidate: false,
+          titleJa: "コミュニティタイトル",
+          summaryJa: "コミュニティ要約",
+        },
+      }],
+      aggregate: async () => ({ _max: { position: 1 } }),
+    },
+    pipelineCrosslinkLlmDecision: {
+      findMany: async () => [],
+    },
+    voiceSignal: {
+      findMany: async () => [],
+    },
+    source: {
+      findMany: async () => [],
+    },
+    pipelineRun: {
+      findFirst: async () => null,
+      create: async () => ({ id: 1 }),
+      update: async () => undefined,
+    },
+  };
+
+  return { editionUpdates, prisma: prisma as any };
+}
+
 describe("publish invariants", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
   it("rescues late ingests and delayed classifications with bounded queries", async () => {
     const ingestRescue = publishItem("ingest-rescue", {
       publishedAt: new Date("2026-03-09T20:00:00.000Z"),
@@ -118,20 +194,86 @@ describe("publish invariants", () => {
   });
 
   it("keeps latest edition filtering and both compose paths publish-atomic", async () => {
-    const root = process.cwd();
-    const [latestRoute, composeLlm, composeScript] = await Promise.all([
-      readFile(path.join(root, "src/app/api/newsletter-editions/latest/route.ts"), "utf8"),
-      readFile(path.join(root, "src/lib/pipeline/compose-edition.ts"), "utf8"),
-      readFile(path.join(root, "src/lib/pipeline/compose-edition-script.ts"), "utf8"),
-    ]);
+    const findFirstCalls: Array<Record<string, any>> = [];
+    const prismaForRoute = {
+      newsletterEdition: {
+        findFirst: vi.fn(async (args: Record<string, any>) => {
+          findFirstCalls.push(args);
+          return {
+            id: "published-edition",
+            slug: "ai-daily-news-20260311",
+            title: "2026年03月11日 AI Daily News",
+            status: "published",
+            contentMd: "# Published edition",
+            editionDate: new Date("2026-03-11T00:00:00.000Z"),
+            createdAt: new Date("2026-03-11T00:00:00.000Z"),
+            generatedAt: new Date("2026-03-11T00:30:00.000Z"),
+            publishedAt: new Date("2026-03-11T01:00:00.000Z"),
+            updatedAt: new Date("2026-03-11T01:00:00.000Z"),
+            _count: { bindings: 1, voiceSignals: 0 },
+          };
+        }),
+      },
+    };
 
-    expect(latestRoute).toMatch(/status:\s*"published"[\s\S]{0,160}contentMd:\s*\{\s*not:\s*null\s*\}/);
-    expect(composeLlm).toMatch(
-      /data:\s*\{[\s\S]{0,500}status:\s*"published",[\s\S]{0,100}publishedAt:\s*new Date\(\)/,
-    );
-    expect(composeScript).toMatch(
-      /data:\s*\{[\s\S]{0,500}status:\s*"published",[\s\S]{0,100}publishedAt:\s*new Date\(\)/,
-    );
+    vi.doMock("@prisma/client", () => ({
+      PrismaClient: vi.fn(() => prismaForRoute),
+    }));
+
+    const { GET } = await import("../../../app/api/newsletter-editions/latest/route");
+    const latestResponse = await GET({
+      headers: new Headers(),
+      nextUrl: new URL("https://example.test/api/newsletter-editions/latest"),
+    } as any);
+    const latestPayload = await latestResponse.json();
+
+    expect(findFirstCalls[0].where).toEqual({
+      status: "published",
+      contentMd: { not: null },
+    });
+    expect(latestPayload.edition.status).toBe("published");
+    expect(latestPayload.edition.slug).toBe("ai-daily-news-20260311");
+
+    const composeLlm = composeEditionStub();
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: "# 2026-03-11\n\n## アップデート情報\n\n- Community title",
+          },
+        }],
+      }),
+    })));
+
+    await composeNewsletterEdition(composeLlm.prisma, {
+      dryRun: false,
+      editionId: "edition-1",
+      logger: quietLogger,
+      model: "vitest-compose-model",
+    });
+
+    expect(composeLlm.editionUpdates).toHaveLength(1);
+    expect(composeLlm.editionUpdates[0].data).toMatchObject({
+      status: "published",
+      model: "vitest-compose-model",
+    });
+    expect(composeLlm.editionUpdates[0].data.publishedAt).toBeInstanceOf(Date);
+
+    const composeScript = composeEditionStub();
+    await composeNewsletterEditionScript(composeScript.prisma, {
+      dryRun: false,
+      editionId: "edition-1",
+      logger: quietLogger,
+    });
+
+    expect(composeScript.editionUpdates).toHaveLength(1);
+    expect(composeScript.editionUpdates[0].data).toMatchObject({
+      status: "published",
+      model: "step5_compose:script:v1",
+    });
+    expect(composeScript.editionUpdates[0].data.publishedAt).toBeInstanceOf(Date);
   });
 
   it("surfaces clamp state and keeps the main query sliced before union", async () => {
@@ -153,6 +295,7 @@ describe("publish invariants", () => {
       path.join(process.cwd(), "src/collector/run-prod-step5.ts"),
       "utf8",
     );
+    // kept deliberately: this guards a non-exported CLI wiring to sendOpsAlert when publish clamping occurs.
     expect(prodStep5).toMatch(
       /if \(!options\.dryRun && step5\.counter\.clamped\) \{[\s\S]{0,200}sendOpsAlert\(/,
     );

@@ -1,0 +1,68 @@
+{
+  "status": "ahead",
+  "ahead_by": 1,
+  "behind_by": 0,
+  "total_commits": 1,
+  "files": [
+    {
+      "sha": "377995eec45784f6bc29ac0e54a6e728fbd26e87",
+      "filename": ".github/workflows/test.yml",
+      "status": "added"
+    },
+    {
+      "sha": "b3d1bfd68735c320cf24bc6a452ce423c3198504",
+      "filename": "README.md",
+      "status": "modified"
+    },
+    {
+      "sha": "1c6606157667a3efcca19e9cfa197c6dd5b75725",
+      "filename": "package-lock.json",
+      "status": "modified"
+    },
+    {
+      "sha": "17da953f3268367606b0aa5ccb95cf80ae15cc12",
+      "filename": "package.json",
+      "status": "modified"
+    },
+    {
+      "sha": "eb5b19930a3bed77096d7b866f2b65a5aeb419f1",
+      "filename": "src/lib/__tests__/text-sanitize.test.ts",
+      "status": "added"
+    },
+    {
+      "sha": "2b51f01ba6a63488eb6d5f644fbeb7e0c092952e",
+      "filename": "src/lib/pipeline/__tests__/crosslink-and-repair.test.ts",
+      "status": "added"
+    },
+    {
+      "sha": "40663ec6ea48e7b89d8febc45be3827a22eea49b",
+      "filename": "src/lib/pipeline/__tests__/edition.test.ts",
+      "status": "added"
+    },
+    {
+      "sha": "062cc29bdc27f3aae97c279ff001aad64d357452",
+      "filename": "src/lib/pipeline/__tests__/helpers/fixtures.ts",
+      "status": "added"
+    },
+    {
+      "sha": "bc390c57d6409c48ad25037809bc31e30dd9db10",
+      "filename": "src/lib/pipeline/__tests__/normalize-and-classify.test.ts",
+      "status": "added"
+    },
+    {
+      "sha": "006d876fcece1c7a57c35f7d428275d3672ec975",
+      "filename": "src/lib/pipeline/__tests__/publish.test.ts",
+      "status": "added"
+    },
+    {
+      "sha": "056f942f482cc77b8df9b4baf651cb76535eb1f5",
+      "filename": "src/lib/pipeline/__tests__/voicesignal.test.ts",
+      "status": "added"
+    },
+    {
+      "sha": "4bb49aa15dcc05c1f060ad1c4d6ebff270033845",
+      "filename": "vitest.config.ts",
+      "status": "added"
+    }
+  ]
+}

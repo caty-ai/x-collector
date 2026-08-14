@@ -1,8 +1,7 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { publishPipelineItems } from "../publish";
 import { aggregateVoiceSignals } from "../voicesignal";
-import { classification, quietLogger } from "./helpers/fixtures";
+import { classification, publishItem, quietLogger } from "./helpers/fixtures";
 
 describe("voice signal invariants", () => {
   it("resolves voice items against each item's edition key instead of the caller date", async () => {
@@ -67,17 +66,85 @@ describe("voice signal invariants", () => {
     });
     expect(missingEditionResult.previews[0]?.editionId).toBeNull();
 
-    const publishSource = await readFile(
-      path.join(process.cwd(), "src/lib/pipeline/publish.ts"),
-      "utf8",
-    );
-    const orphanBlock = publishSource.match(
-      /const orphanBackfill = await prisma\.voiceSignal\.updateMany\(\{([\s\S]*?)\n\s*\}\);/,
-    )?.[1];
+    const orphanBackfillCalls: Array<Record<string, any>> = [];
+    let publishQueryIndex = 0;
+    const publishPrisma = {
+      pipelineItem: {
+        findMany: async () => (
+          publishQueryIndex++ === 0
+            ? [publishItem("orphan-backfill-item")]
+            : []
+        ),
+      },
+      source: {
+        findMany: async () => [],
+      },
+      newsletterEdition: {
+        findUnique: async () => ({
+          id: "publish-edition",
+          slug: "ai-daily-news-20260311",
+          title: "2026年03月11日 AI Daily News",
+        }),
+      },
+      newsletterBinding: {
+        findMany: async () => [],
+        aggregate: async () => ({ _max: { position: null } }),
+      },
+      voiceSignal: {
+        updateMany: async (args: Record<string, any>) => {
+          orphanBackfillCalls.push(args);
+          return { count: 2 };
+        },
+      },
+      pipelineRun: {
+        create: async () => ({ id: 1 }),
+        update: async () => undefined,
+      },
+      $transaction: async (callback: (tx: Record<string, any>) => Promise<unknown>) =>
+        callback({
+          newsletterBinding: {
+            upsert: async () => undefined,
+          },
+          pipelineClassification: {
+            update: async () => undefined,
+          },
+          pipelineRun: {
+            update: async () => undefined,
+          },
+        }),
+    } as any;
 
-    expect(orphanBlock).toBeTruthy();
-    expect(orphanBlock).toMatch(/pipelineItem:\s*\{[\s\S]*?is:\s*buildWindowWhere\(window\)/);
-    expect(orphanBlock).not.toMatch(/signaledAt/);
+    const publishResult = await publishPipelineItems(publishPrisma, {
+      dryRun: false,
+      editionDate: new Date("2026-03-11T00:00:00.000Z"),
+      logger: quietLogger,
+    });
+
+    expect(publishResult.counter.orphansBackfilled).toBe(2);
+    expect(orphanBackfillCalls).toHaveLength(1);
+    expect(orphanBackfillCalls[0].where).toEqual({
+      editionId: null,
+      pipelineItem: {
+        is: {
+          OR: [
+            {
+              publishedAt: {
+                gte: new Date("2026-03-09T21:00:00.000Z"),
+                lt: new Date("2026-03-10T21:00:00.000Z"),
+              },
+            },
+            {
+              publishedAt: null,
+              ingestedAt: {
+                gte: new Date("2026-03-09T21:00:00.000Z"),
+                lt: new Date("2026-03-10T21:00:00.000Z"),
+              },
+            },
+          ],
+        },
+      },
+    });
+    expect(orphanBackfillCalls[0].where).not.toHaveProperty("signaledAt");
   });
 
   it("keeps published editions frozen for late voice signals", async () => {
