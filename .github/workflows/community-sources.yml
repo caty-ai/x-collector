@@ -61,7 +61,7 @@ jobs:
       - env:
           COMMUNITY_GATE_MODE: act
           GITHUB_TOKEN: ${{ github.token }}
-          AUTO_MERGE: "true"
+          AUTO_MERGE: "false"
           CONTRACT_VERDICT: ${{ needs.validate.outputs.verdict }}
           CONTRACT_PR_NUMBER: ${{ needs.validate.outputs.pr_number }}
           CONTRACT_HEAD_SHA: ${{ needs.validate.outputs.head_sha }}
