@@ -15,6 +15,8 @@ const SHA_RE = /^[0-9a-f]{40}$/;
 const COMPARE_FILE_STATUSES = new Set(["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"]);
 const SAFE_DEDUP_RE = /^[a-z0-9_]{1,15}$/;
 const MAX_COMMUNITY_SUBMISSIONS_PER_30_DAYS = 3;
+const MAX_COMMIT_LIST_PAGES = 30;
+const COMMITS_PER_PAGE = 100;
 const COMMIT_FILES_PER_PAGE = 100;
 const MAX_COMMIT_FILE_PAGES = 30;
 const COMMENT_MARKER = "<!-- community-sources-gate -->";
@@ -286,17 +288,28 @@ async function recentSubmissionCount(login: string, baseSha: string): Promise<nu
   const foldedLogin = login.toLowerCase();
   let count = 0;
 
-  for (let page = 1; ; page++) {
+  for (let page = 1; page <= MAX_COMMIT_LIST_PAGES; page++) {
     const query = new URLSearchParams({
       path: "data/community-sources",
       since,
       sha: baseSha,
-      per_page: "100",
+      per_page: String(COMMITS_PER_PAGE),
       page: String(page),
     });
-    const commits = await github<Array<{ sha: string }>>(`/repos/${UPSTREAM}/commits?${query.toString()}`);
-    for (const commit of commits) {
-      if (!SHA_RE.test(commit.sha)) throw new Error("commits API returned an invalid SHA");
+    const commits = await github<unknown>(`/repos/${UPSTREAM}/commits?${query.toString()}`);
+    if (
+      !Array.isArray(commits)
+      || commits.length > COMMITS_PER_PAGE
+      || commits.some((commit) => (
+        typeof commit !== "object"
+        || commit === null
+        || typeof (commit as { sha?: unknown }).sha !== "string"
+        || !SHA_RE.test((commit as { sha: string }).sha)
+      ))
+    ) {
+      throw new Error("commits list page failed validation");
+    }
+    for (const commit of commits as Array<{ sha: string }>) {
       for (const file of await commitFiles(commit.sha)) {
         if (file.status !== "added" || !COMMUNITY_PATH_RE.test(file.filename)) continue;
         try {
@@ -314,9 +327,10 @@ async function recentSubmissionCount(login: string, baseSha: string): Promise<nu
         }
       }
     }
-    if (commits.length < 100) break;
+    // A validated short page (including []) proves completeness.
+    if (commits.length < COMMITS_PER_PAGE) return count;
   }
-  return count;
+  throw new Error("commits list exceeded the pagination bound");
 }
 
 async function validateMode(): Promise<Contract> {
