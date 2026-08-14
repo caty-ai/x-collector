@@ -12,6 +12,7 @@ import {
 const UPSTREAM = "caty-ai/x-collector";
 const API_ROOT = "https://api.github.com";
 const SHA_RE = /^[0-9a-f]{40}$/;
+const COMPARE_FILE_STATUSES = new Set(["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"]);
 const SAFE_DEDUP_RE = /^[a-z0-9_]{1,15}$/;
 const MAX_COMMUNITY_SUBMISSIONS_PER_30_DAYS = 3;
 const COMMENT_MARKER = "<!-- community-sources-gate -->";
@@ -58,12 +59,12 @@ type PullRequestEvent = {
 
 type CompareFile = {
   filename: string;
+  previous_filename?: string;
   status: string;
   sha: string;
 };
 
 type CompareResponse = {
-  changed_files: number;
   files?: CompareFile[];
 };
 
@@ -164,19 +165,31 @@ function encodePath(filePath: string): string {
   return filePath.split("/").map(encodeURIComponent).join("/");
 }
 
-async function compareSnapshot(baseSha: string, headSha: string): Promise<{ response: CompareResponse; files: CompareFile[] }> {
+async function compareSnapshot(baseSha: string, headSha: string): Promise<{ files: CompareFile[] }> {
   const response = await github<CompareResponse>(`/repos/${UPSTREAM}/compare/${baseSha}...${headSha}`);
   const files = response.files;
   if (
     !Array.isArray(files)
-    || !Number.isSafeInteger(response.changed_files)
-    || response.changed_files < 1
+    || files.length < 1
     || files.length >= 300
-    || files.length !== response.changed_files
+    || files.some((file) => (
+      typeof file?.filename !== "string"
+      || file.filename.length === 0
+      || typeof file.status !== "string"
+      || file.status.length === 0
+      || !COMPARE_FILE_STATUSES.has(file.status)
+      || typeof file.sha !== "string"
+      || !SHA_RE.test(file.sha)
+      || (file.previous_filename !== undefined && (
+        typeof file.previous_filename !== "string"
+        || file.previous_filename.length === 0
+      ))
+      || (file.status === "renamed" && file.previous_filename === undefined)
+    ))
   ) {
     throw new Error("compare response failed the completeness assertion");
   }
-  return { response, files };
+  return { files };
 }
 
 async function readTree(headSha: string): Promise<TreeResponse> {
@@ -265,14 +278,17 @@ async function validateMode(): Promise<Contract> {
   const { prNumber, headSha } = basicEventValues(event);
   if (!preconditionsPass(event)) return emptyContract("error", prNumber, headSha, [GateErrorId.E1]);
 
-  let snapshot: { response: CompareResponse; files: CompareFile[] };
+  let snapshot: { files: CompareFile[] };
   try {
     snapshot = await compareSnapshot(event.pull_request.base.sha, event.pull_request.head.sha);
   } catch {
     return emptyContract("error", prNumber, headSha, [GateErrorId.E2]);
   }
 
-  const touchesCommunity = snapshot.files.some((file) => file.filename.startsWith("data/community-sources/"));
+  const touchesCommunity = snapshot.files.some((file) => (
+    file.filename.startsWith("data/community-sources/")
+    || file.previous_filename?.startsWith("data/community-sources/")
+  ));
   if (!touchesCommunity) return emptyContract("neutral_untouched", prNumber, headSha);
 
   const trusted = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
@@ -286,7 +302,7 @@ async function validateMode(): Promise<Contract> {
   const failed = new Set<CheckId>();
   const onlyFile = snapshot.files.length === 1 ? snapshot.files[0] : undefined;
   if (!snapshot.files.every((file) => COMMUNITY_PATH_RE.test(file.filename))) failed.add(CommunityCheckId.C1);
-  if (snapshot.response.changed_files !== 1 || !onlyFile || onlyFile.status !== "added") failed.add(CommunityCheckId.C2);
+  if (snapshot.files.length !== 1 || !onlyFile || onlyFile.status !== "added") failed.add(CommunityCheckId.C2);
 
   let content: ContentsFile | undefined;
   if (!failed.has(CommunityCheckId.C1) && !failed.has(CommunityCheckId.C2) && onlyFile) {
