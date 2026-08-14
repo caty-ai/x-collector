@@ -80,6 +80,12 @@ blob therefore blocks every new submission until it can be inspected again. A tr
 failure is indistinguishable from a permanent historical-data failure; rerun after a transient error,
 but do not bypass C10 or treat the missing inspection as zero submissions.
 
+### Empty pinned compares
+
+GitHub returns `files: []` when the pinned compare is `identical` or `behind`. The gate treats that
+response as E2 and leaves the required check red by design. This fail-closed behavior has been verified
+against the live API; do not turn an empty compare into a neutral result.
+
 ## Subscribe manually
 
 Review a catalog entry as a suggestion, then open `/settings` in your own X Collector deployment and add that one handle. Confirm its topic and ownership yourself. Repeat individually for any other source you want. There is deliberately no bulk community-list import command.

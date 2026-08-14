@@ -15,6 +15,8 @@ const SHA_RE = /^[0-9a-f]{40}$/;
 const COMPARE_FILE_STATUSES = new Set(["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"]);
 const SAFE_DEDUP_RE = /^[a-z0-9_]{1,15}$/;
 const MAX_COMMUNITY_SUBMISSIONS_PER_30_DAYS = 3;
+const COMMIT_FILES_PER_PAGE = 100;
+const MAX_COMMIT_FILE_PAGES = 30;
 const COMMENT_MARKER = "<!-- community-sources-gate -->";
 const CHECKS_URL = "https://github.com/caty-ai/x-collector/blob/main/docs/community-sources.md#checks";
 
@@ -165,6 +167,24 @@ function encodePath(filePath: string): string {
   return filePath.split("/").map(encodeURIComponent).join("/");
 }
 
+function isValidCompareFile(value: unknown): value is CompareFile {
+  if (typeof value !== "object" || value === null) return false;
+  const file = value as Partial<CompareFile>;
+  return (
+    typeof file.filename === "string"
+    && file.filename.length > 0
+    && typeof file.status === "string"
+    && COMPARE_FILE_STATUSES.has(file.status)
+    && typeof file.sha === "string"
+    && SHA_RE.test(file.sha)
+    && (file.previous_filename === undefined || (
+      typeof file.previous_filename === "string"
+      && file.previous_filename.length > 0
+    ))
+    && (file.status !== "renamed" || file.previous_filename !== undefined)
+  );
+}
+
 async function compareSnapshot(baseSha: string, headSha: string): Promise<{ files: CompareFile[] }> {
   const response = await github<CompareResponse>(`/repos/${UPSTREAM}/compare/${baseSha}...${headSha}`);
   const files = response.files;
@@ -172,24 +192,30 @@ async function compareSnapshot(baseSha: string, headSha: string): Promise<{ file
     !Array.isArray(files)
     || files.length < 1
     || files.length >= 300
-    || files.some((file) => (
-      typeof file?.filename !== "string"
-      || file.filename.length === 0
-      || typeof file.status !== "string"
-      || file.status.length === 0
-      || !COMPARE_FILE_STATUSES.has(file.status)
-      || typeof file.sha !== "string"
-      || !SHA_RE.test(file.sha)
-      || (file.previous_filename !== undefined && (
-        typeof file.previous_filename !== "string"
-        || file.previous_filename.length === 0
-      ))
-      || (file.status === "renamed" && file.previous_filename === undefined)
-    ))
+    || files.some((file) => !isValidCompareFile(file))
   ) {
     throw new Error("compare response failed the completeness assertion");
   }
   return { files };
+}
+
+async function crossCheckPullSnapshot(prNumber: number, headSha: string, changedFiles: number): Promise<void> {
+  const response = await github<unknown>(`/repos/${UPSTREAM}/pulls/${prNumber}`);
+  if (typeof response !== "object" || response === null) {
+    throw new Error("pull request response was invalid");
+  }
+  const pull = response as { changed_files?: unknown; head?: unknown };
+  const pullHead = pull.head;
+  if (
+    typeof pullHead !== "object"
+    || pullHead === null
+    || (pullHead as { sha?: unknown }).sha !== headSha
+    || !Number.isSafeInteger(pull.changed_files)
+    || (pull.changed_files as number) < 0
+    || pull.changed_files !== changedFiles
+  ) {
+    throw new Error("pull request snapshot disagreed with the pinned compare");
+  }
 }
 
 async function readTree(headSha: string): Promise<TreeResponse> {
@@ -229,6 +255,32 @@ async function accountIsOldEnough(login: string): Promise<boolean> {
   }
 }
 
+async function commitFiles(commitSha: string): Promise<CompareFile[]> {
+  const files: CompareFile[] = [];
+  for (let page = 1; page <= MAX_COMMIT_FILE_PAGES; page++) {
+    const query = new URLSearchParams({
+      per_page: String(COMMIT_FILES_PER_PAGE),
+      page: String(page),
+    });
+    const detail = await github<unknown>(`/repos/${UPSTREAM}/commits/${commitSha}?${query.toString()}`);
+    if (typeof detail !== "object" || detail === null) {
+      throw new Error("commit detail response was invalid");
+    }
+    const pageFiles = (detail as { files?: unknown }).files;
+    if (
+      !Array.isArray(pageFiles)
+      || pageFiles.length > COMMIT_FILES_PER_PAGE
+      || pageFiles.some((file) => !isValidCompareFile(file))
+    ) {
+      throw new Error("commit detail files failed validation");
+    }
+    files.push(...pageFiles);
+    // A present, validated short page (including []) proves completeness; absence is ambiguous and fails above.
+    if (pageFiles.length < COMMIT_FILES_PER_PAGE) return files;
+  }
+  throw new Error("commit detail files exceeded the pagination bound");
+}
+
 async function recentSubmissionCount(login: string, baseSha: string): Promise<number> {
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const foldedLogin = login.toLowerCase();
@@ -245,8 +297,7 @@ async function recentSubmissionCount(login: string, baseSha: string): Promise<nu
     const commits = await github<Array<{ sha: string }>>(`/repos/${UPSTREAM}/commits?${query.toString()}`);
     for (const commit of commits) {
       if (!SHA_RE.test(commit.sha)) throw new Error("commits API returned an invalid SHA");
-      const detail = await github<{ files?: CompareFile[] }>(`/repos/${UPSTREAM}/commits/${commit.sha}`);
-      for (const file of detail.files ?? []) {
+      for (const file of await commitFiles(commit.sha)) {
         if (file.status !== "added" || !COMMUNITY_PATH_RE.test(file.filename)) continue;
         try {
           const content = await readPinnedContent(file.filename, commit.sha);
@@ -281,6 +332,7 @@ async function validateMode(): Promise<Contract> {
   let snapshot: { files: CompareFile[] };
   try {
     snapshot = await compareSnapshot(event.pull_request.base.sha, event.pull_request.head.sha);
+    await crossCheckPullSnapshot(prNumber, headSha, snapshot.files.length);
   } catch {
     return emptyContract("error", prNumber, headSha, [GateErrorId.E2]);
   }
