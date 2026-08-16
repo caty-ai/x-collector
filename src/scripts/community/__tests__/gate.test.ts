@@ -601,6 +601,7 @@ describe("community gate validate mode", () => {
         total_commits: 1,
         files: Array.from({ length: 300 }, (_, index) => compareFile(index)),
       }),
+      pullRoute(300),
     ]);
 
     expect(belowCap.status).toBe(0);
@@ -836,57 +837,63 @@ describe("community gate validate mode", () => {
 });
 
 describe("community gate act mode", () => {
-  it("adds the rejected label and failure sticky comment for a fail verdict even when auto-merge is enabled", () => {
-    const result = runActCase([
-      {
-        method: "DELETE",
-        path: VALIDATED_LABEL_PATH,
-        status: 404,
-        body: { message: "Not Found" },
-      },
-      labelsCreateRoute(),
-      commentsListRoute(),
-      stickyCommentCreateRoute(),
-    ], {
-      verdict: "fail",
-      failedCheckIds: ["C9"],
-      ...NON_PASS_ACT_CONTRACT_FIELDS,
-    });
+  it.each(["true", "false"])(
+    "adds the rejected label and failure sticky comment for a fail verdict with AUTO_MERGE=%s",
+    (autoMerge) => {
+      const result = runActCase([
+        {
+          method: "DELETE",
+          path: VALIDATED_LABEL_PATH,
+          status: 404,
+          body: { message: "Not Found" },
+        },
+        labelsCreateRoute(),
+        commentsListRoute(),
+        stickyCommentCreateRoute(),
+      ], {
+        verdict: "fail",
+        failedCheckIds: ["C9"],
+        ...NON_PASS_ACT_CONTRACT_FIELDS,
+      }, { AUTO_MERGE: autoMerge });
 
-    expectAllRequestsMatched(result.requests);
-    expect(result.status).toBe(1);
-    expect(mergeRequests(result.requests)).toHaveLength(0);
-    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
-    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
-    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(1);
-    expect(stickyBodies(result.requests)).toEqual([failureComment(["C9"])]);
-  });
+      expectAllRequestsMatched(result.requests);
+      expect(result.status).toBe(1);
+      expect(mergeRequests(result.requests)).toHaveLength(0);
+      expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+      expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+      expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(1);
+      expect(stickyBodies(result.requests)).toEqual([failureComment(["C9"])]);
+    },
+  );
 
-  it("adds the rejected label and error sticky comment for E2 even when auto-merge is enabled", () => {
-    const result = runActCase([
-      {
-        method: "DELETE",
-        path: VALIDATED_LABEL_PATH,
-        status: 404,
-        body: { message: "Not Found" },
-      },
-      labelsCreateRoute(),
-      commentsListRoute(),
-      stickyCommentCreateRoute(),
-    ], {
-      verdict: "error",
-      failedCheckIds: ["E2"],
-      ...NON_PASS_ACT_CONTRACT_FIELDS,
-    });
+  it.each(["true", "false"])(
+    "adds the rejected label and error sticky comment for E2 with AUTO_MERGE=%s",
+    (autoMerge) => {
+      const result = runActCase([
+        {
+          method: "DELETE",
+          path: VALIDATED_LABEL_PATH,
+          status: 404,
+          body: { message: "Not Found" },
+        },
+        labelsCreateRoute(),
+        commentsListRoute(),
+        stickyCommentCreateRoute(),
+      ], {
+        verdict: "error",
+        failedCheckIds: ["E2"],
+        ...NON_PASS_ACT_CONTRACT_FIELDS,
+      }, { AUTO_MERGE: autoMerge });
 
-    expectAllRequestsMatched(result.requests);
-    expect(result.status).toBe(1);
-    expect(mergeRequests(result.requests)).toHaveLength(0);
-    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
-    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
-    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(1);
-    expect(stickyBodies(result.requests)).toEqual([failureComment(["E2"])]);
-  });
+      expectAllRequestsMatched(result.requests);
+      expect(result.status).toBe(1);
+      expect(mergeRequests(result.requests)).toHaveLength(0);
+      expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+      expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+      expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(1);
+      expect(stickyBodies(result.requests)).toEqual([failureComment(["E2"])]);
+    },
+  );
 
   it("falls back to E3 in the error sticky comment when the contract carries no failed check ids", () => {
     const result = runActCase([
@@ -912,6 +919,19 @@ describe("community gate act mode", () => {
     expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
     expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(1);
     expect(stickyBodies(result.requests)).toEqual([failureComment([])]);
+  });
+
+  it("returns exit 1 without any journal requests when a non-pass contract has prNumber 0", () => {
+    const result = runActCase([], {
+      verdict: "fail",
+      prNumber: 0,
+      failedCheckIds: ["C9"],
+      ...NON_PASS_ACT_CONTRACT_FIELDS,
+    });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(result.requests).toEqual([]);
   });
 
   it("returns neutral without labels or sticky comments when community sources are untouched", () => {
