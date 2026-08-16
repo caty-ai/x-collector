@@ -27,6 +27,22 @@ type GateRunResult = {
   stdout: string;
 };
 
+type RequestLogEntry = {
+  body: unknown;
+  matched: boolean;
+  method: string;
+  pathname: string;
+  query: Record<string, string>;
+  search: string;
+};
+
+type ActRunResult = {
+  requests: RequestLogEntry[];
+  status: number | null;
+  stderr: string;
+  stdout: string;
+};
+
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
 const FIXTURE_PATH = path.join(REPO_ROOT, "src/scripts/community/__tests__/fixtures/compare-pr10.json");
 const RUNNER_PATH = path.join(REPO_ROOT, "src/scripts/community/__tests__/helpers/gate-runner.cjs");
@@ -38,10 +54,39 @@ const BASE_SHA = "a".repeat(40);
 const HEAD_SHA = "b".repeat(40);
 const FILE_SHA = "c".repeat(40);
 const COMMIT_SHA = "d".repeat(40);
+const MAIN_SHA = "e".repeat(40);
 const COMMITS_PER_PAGE = 100;
 const MAX_COMMIT_LIST_PAGES = 30;
 const COMMIT_FILES_PER_PAGE = 100;
 const MAX_COMMIT_FILE_PAGES = 30;
+const COMMENT_MARKER = "<!-- community-sources-gate -->";
+const COMMUNITY_FILE_PATH = "data/community-sources/x--openaitest.json";
+const LABELS_PATH = "/repos/caty-ai/x-collector/issues/10/labels";
+const MERGE_PATH = "/repos/caty-ai/x-collector/pulls/10/merge";
+const COMMENTS_PATH = "/repos/caty-ai/x-collector/issues/10/comments";
+const VALIDATED_LABEL_PATH = `${LABELS_PATH}/community-source%3Avalidated`;
+const REJECTED_LABEL_PATH = `${LABELS_PATH}/community-source%3Arejected`;
+const CHECK_CATALOG_URL = "https://github.com/caty-ai/x-collector/blob/main/docs/community-sources.md#checks";
+const HEAD_CHANGED_COMMENT = `${COMMENT_MARKER}\nThe pull request head SHA changed after validation. The gate stopped before merging; rerun validation on the current head.`;
+const SOURCE_EXISTS_ON_MAIN_COMMENT = `${COMMENT_MARKER}\nThe source dedup key now exists on the latest \`main\`. The gate stopped before merging to avoid duplicating a community entry.`;
+const SOURCE_RECHECK_FAILED_COMMENT = `${COMMENT_MARKER}\nThe gate could not re-check the latest \`main\` state before merging. A maintainer must inspect the workflow run; the gate will not retry blindly.`;
+const MERGE_REJECTED_COMMENT = `${COMMENT_MARKER}\nThe merge API rejected the validated merge attempt. A maintainer must inspect the workflow run; the gate will not retry blindly.`;
+const MAINTAINER_COMMENT = `${COMMENT_MARKER}\nThis same-repository maintainer pull request touches the community list. The contribution gate is informational and will not merge it.`;
+const PASS_WITH_AUTO_MERGE_OFF_COMMENT = `${COMMENT_MARKER}\nCommunity source validation passed for this exact head SHA. Automatic merge is disabled; a maintainer may merge after the required check completes.`;
+const NON_PASS_ACT_CONTRACT_FIELDS = {
+  identifier: "",
+  submittedBy: "",
+  dedupKey: "",
+} as const;
+const PASSING_ACT_CONTRACT: GateRunResult["contract"] = {
+  verdict: "pass",
+  prNumber: 10,
+  headSha: HEAD_SHA,
+  failedCheckIds: [],
+  identifier: "OpenAITest",
+  submittedBy: "CommunityUser",
+  dedupKey: "openaitest",
+};
 
 function createEvent(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
@@ -98,6 +143,13 @@ function parseContract(outputPath: string): GateRunResult["contract"] {
   };
 }
 
+function parseRequestLog(logPath: string): RequestLogEntry[] {
+  if (!fs.existsSync(logPath)) return [];
+  const content = fs.readFileSync(logPath, "utf8").trim();
+  if (content === "") return [];
+  return content.split("\n").filter(Boolean).map((line) => JSON.parse(line) as RequestLogEntry);
+}
+
 function runGateCase(routes: Route[], eventOverrides: Partial<Record<string, unknown>> = {}): GateRunResult {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "gate-case-"));
   const casePath = path.join(tempRoot, "case.json");
@@ -131,6 +183,61 @@ function runGateCase(routes: Route[], eventOverrides: Partial<Record<string, unk
       stdout: result.stdout,
       stderr: result.stderr,
       contract: parseContract(outputPath),
+    };
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function runActCase(
+  routes: Route[],
+  contractOverrides: Partial<GateRunResult["contract"]> = {},
+  envOverrides: Record<string, string | null> = {},
+): ActRunResult {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "gate-act-case-"));
+  const casePath = path.join(tempRoot, "case.json");
+  const requestLogPath = path.join(tempRoot, "requests.ndjson");
+  const contract = { ...PASSING_ACT_CONTRACT, ...contractOverrides };
+
+  try {
+    fs.writeFileSync(casePath, JSON.stringify({ routes }, null, 2));
+    const env: NodeJS.ProcessEnv = {
+      AUTO_MERGE: "true",
+      COMMUNITY_GATE_MODE: "act",
+      CONTRACT_DEDUP_KEY: contract.dedupKey,
+      CONTRACT_FAILED_CHECK_IDS: contract.failedCheckIds.join(","),
+      CONTRACT_HEAD_SHA: contract.headSha,
+      CONTRACT_IDENTIFIER: contract.identifier,
+      CONTRACT_PR_NUMBER: String(contract.prNumber),
+      CONTRACT_SUBMITTED_BY: contract.submittedBy,
+      CONTRACT_VERDICT: contract.verdict,
+      GATE_REQUEST_LOG: requestLogPath,
+      GITHUB_TOKEN: "test-token",
+      HOME: process.env.HOME || os.homedir(),
+      NODE_ENV: "test",
+      PATH: process.env.PATH || "",
+      TMPDIR: process.env.TMPDIR || os.tmpdir(),
+      TZ: "UTC",
+    };
+    for (const [key, value] of Object.entries(envOverrides)) {
+      if (value === null) {
+        delete env[key];
+      } else {
+        env[key] = value;
+      }
+    }
+
+    const result = spawnSync(process.execPath, [RUNNER_PATH, casePath, GATE_PATH], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      env,
+    });
+
+    return {
+      status: result.status,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      requests: parseRequestLog(requestLogPath),
     };
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -229,6 +336,170 @@ function passCaseRoutes(): Route[] {
       body: [],
     },
   ];
+}
+
+function labelCleanupRoutes(): Route[] {
+  return [
+    {
+      method: "DELETE",
+      path: VALIDATED_LABEL_PATH,
+      status: 404,
+      body: { message: "Not Found" },
+    },
+    {
+      method: "DELETE",
+      path: REJECTED_LABEL_PATH,
+      status: 404,
+      body: { message: "Not Found" },
+    },
+  ];
+}
+
+function commentsListRoute(body: Array<{ body?: string; id: number }> = []): Route {
+  return {
+    path: COMMENTS_PATH,
+    query: { per_page: "100" },
+    body,
+  };
+}
+
+function stickyCommentCreateRoute(): Route {
+  return {
+    method: "POST",
+    path: COMMENTS_PATH,
+    body: { id: 101 },
+  };
+}
+
+function stickyCommentUpdateRoute(commentId: number): Route {
+  return {
+    method: "PATCH",
+    path: `/repos/caty-ai/x-collector/issues/comments/${commentId}`,
+    body: {},
+  };
+}
+
+function labelsCreateRoute(): Route {
+  return {
+    method: "POST",
+    path: LABELS_PATH,
+    body: {},
+  };
+}
+
+function actPullRoute(headSha = HEAD_SHA, status = 200): Route {
+  return {
+    path: "/repos/caty-ai/x-collector/pulls/10",
+    status,
+    body: status >= 200 && status < 300 ? { head: { sha: headSha } } : { message: "pull failed" },
+  };
+}
+
+function mainRefRoute(sha = MAIN_SHA): Route {
+  return {
+    path: "/repos/caty-ai/x-collector/git/ref/heads/main",
+    body: { object: { sha } },
+  };
+}
+
+function mainTreeRoute(
+  tree: Array<{ mode: string; path: string; sha: string; type: string }> = [],
+  truncated = false,
+): Route {
+  return {
+    path: `/repos/caty-ai/x-collector/git/trees/${MAIN_SHA}`,
+    query: { recursive: "1" },
+    body: { truncated, tree },
+  };
+}
+
+function mergeRoute(status = 200): Route {
+  return {
+    method: "PUT",
+    path: MERGE_PATH,
+    status,
+    body: status >= 200 && status < 300 ? { merged: true } : { message: "merge rejected" },
+  };
+}
+
+function mergeRequests(requests: RequestLogEntry[]): RequestLogEntry[] {
+  return requests.filter((request) => request.method === "PUT" && request.pathname === MERGE_PATH);
+}
+
+function stickyCommentCreates(requests: RequestLogEntry[]): RequestLogEntry[] {
+  return requests.filter((request) => request.method === "POST" && request.pathname === COMMENTS_PATH);
+}
+
+function stickyCommentUpdates(requests: RequestLogEntry[]): RequestLogEntry[] {
+  return requests.filter((request) => (
+    request.method === "PATCH" && request.pathname.startsWith("/repos/caty-ai/x-collector/issues/comments/")
+  ));
+}
+
+function stickyCommentWrites(requests: RequestLogEntry[]): RequestLogEntry[] {
+  return requests.filter((request) => (
+    (request.method === "POST" && request.pathname === COMMENTS_PATH)
+    || (request.method === "PATCH" && request.pathname.startsWith("/repos/caty-ai/x-collector/issues/comments/"))
+  ));
+}
+
+function labelAdditions(requests: RequestLogEntry[], label: string): RequestLogEntry[] {
+  return requests.filter((request) => (
+    request.method === "POST"
+    && request.pathname === LABELS_PATH
+    && typeof request.body === "object"
+    && request.body !== null
+    && Array.isArray((request.body as { labels?: unknown }).labels)
+    && (request.body as { labels: unknown[] }).labels.length === 1
+    && (request.body as { labels: unknown[] }).labels[0] === label
+  ));
+}
+
+function labelDeletions(requests: RequestLogEntry[], labelPath: string): RequestLogEntry[] {
+  return requests.filter((request) => request.method === "DELETE" && request.pathname === labelPath);
+}
+
+function stickyBodies(requests: RequestLogEntry[]): string[] {
+  return stickyCommentWrites(requests).map((request) => {
+    if (
+      typeof request.body === "object"
+      && request.body !== null
+      && typeof (request.body as { body?: unknown }).body === "string"
+    ) {
+      return (request.body as { body: string }).body;
+    }
+    throw new Error("sticky comment request body was not recorded as JSON");
+  });
+}
+
+function failureComment(failedCheckIds: string[]): string {
+  const ids = failedCheckIds.length > 0 ? failedCheckIds : ["E3"];
+  return `${COMMENT_MARKER}\nCommunity source validation did not pass.\n\n${ids.map((id) => `- \`${id}\``).join("\n")}\n\nSee the [check catalog](${CHECK_CATALOG_URL}).`;
+}
+
+function expectAllRequestsMatched(requests: RequestLogEntry[]): void {
+  const unmatched = requests
+    .filter((request) => !request.matched)
+    .map((request) => `${request.method} ${request.pathname}${request.search}`);
+  if (unmatched.length > 0) {
+    throw new Error(`unmatched requests:\n${unmatched.join("\n")}`);
+  }
+}
+
+function labelAdditionIndex(requests: RequestLogEntry[], label: string): number {
+  return requests.findIndex((request) => (
+    request.method === "POST"
+    && request.pathname === LABELS_PATH
+    && typeof request.body === "object"
+    && request.body !== null
+    && Array.isArray((request.body as { labels?: unknown }).labels)
+    && (request.body as { labels: unknown[] }).labels.length === 1
+    && (request.body as { labels: unknown[] }).labels[0] === label
+  ));
+}
+
+function labelDeletionIndex(requests: RequestLogEntry[], labelPath: string): number {
+  return requests.findIndex((request) => request.method === "DELETE" && request.pathname === labelPath);
 }
 
 function commitListRoute(body: unknown = [{ sha: COMMIT_SHA }], page = 1): Route {
@@ -561,5 +832,334 @@ describe("community gate validate mode", () => {
     expect(result.contract.dedupKey).toBe("openaitest");
     expect(result.contract.prNumber).toBe(10);
     expect(result.contract.headSha).toBe(HEAD_SHA);
+  });
+});
+
+describe("community gate act mode", () => {
+  it("adds the rejected label and failure sticky comment for a fail verdict even when auto-merge is enabled", () => {
+    const result = runActCase([
+      {
+        method: "DELETE",
+        path: VALIDATED_LABEL_PATH,
+        status: 404,
+        body: { message: "Not Found" },
+      },
+      labelsCreateRoute(),
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ], {
+      verdict: "fail",
+      failedCheckIds: ["C9"],
+      ...NON_PASS_ACT_CONTRACT_FIELDS,
+    });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(1);
+    expect(stickyBodies(result.requests)).toEqual([failureComment(["C9"])]);
+  });
+
+  it("adds the rejected label and error sticky comment for E2 even when auto-merge is enabled", () => {
+    const result = runActCase([
+      {
+        method: "DELETE",
+        path: VALIDATED_LABEL_PATH,
+        status: 404,
+        body: { message: "Not Found" },
+      },
+      labelsCreateRoute(),
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ], {
+      verdict: "error",
+      failedCheckIds: ["E2"],
+      ...NON_PASS_ACT_CONTRACT_FIELDS,
+    });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(1);
+    expect(stickyBodies(result.requests)).toEqual([failureComment(["E2"])]);
+  });
+
+  it("falls back to E3 in the error sticky comment when the contract carries no failed check ids", () => {
+    const result = runActCase([
+      {
+        method: "DELETE",
+        path: VALIDATED_LABEL_PATH,
+        status: 404,
+        body: { message: "Not Found" },
+      },
+      labelsCreateRoute(),
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ], {
+      verdict: "error",
+      failedCheckIds: [],
+      ...NON_PASS_ACT_CONTRACT_FIELDS,
+    });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(1);
+    expect(stickyBodies(result.requests)).toEqual([failureComment([])]);
+  });
+
+  it("returns neutral without labels or sticky comments when community sources are untouched", () => {
+    const result = runActCase([
+      {
+        method: "DELETE",
+        path: VALIDATED_LABEL_PATH,
+        status: 404,
+        body: { message: "Not Found" },
+      },
+    ], {
+      verdict: "neutral_untouched",
+      failedCheckIds: [],
+      ...NON_PASS_ACT_CONTRACT_FIELDS,
+    });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(0);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(0);
+    expect(stickyCommentWrites(result.requests)).toHaveLength(0);
+  });
+
+  it("writes the maintainer sticky comment without adding outcome labels", () => {
+    const result = runActCase([
+      {
+        method: "DELETE",
+        path: VALIDATED_LABEL_PATH,
+        status: 404,
+        body: { message: "Not Found" },
+      },
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ], {
+      verdict: "neutral_maintainer",
+      failedCheckIds: [],
+      ...NON_PASS_ACT_CONTRACT_FIELDS,
+    });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(0);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(0);
+    expect(stickyBodies(result.requests)).toEqual([MAINTAINER_COMMENT]);
+  });
+
+  it("stops before merging when the pull head changed after validation", () => {
+    const result = runActCase([
+      ...labelCleanupRoutes(),
+      actPullRoute("f".repeat(40)),
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ]);
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(0);
+    expect(stickyBodies(result.requests)).toEqual([HEAD_CHANGED_COMMENT]);
+  });
+
+  it("stops before merging when the latest main tree already contains the dedup key", () => {
+    const result = runActCase([
+      ...labelCleanupRoutes(),
+      actPullRoute(),
+      mainRefRoute(),
+      mainTreeRoute([
+        {
+          path: COMMUNITY_FILE_PATH,
+          mode: "100644",
+          type: "blob",
+          sha: FILE_SHA,
+        },
+      ]),
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ]);
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(0);
+    expect(stickyBodies(result.requests)).toEqual([SOURCE_EXISTS_ON_MAIN_COMMENT]);
+  });
+
+  it("writes the merge-rejected sticky comment when the merge API rejects the validated merge attempt", () => {
+    const result = runActCase([
+      ...labelCleanupRoutes(),
+      actPullRoute(),
+      mainRefRoute(),
+      mainTreeRoute(),
+      mergeRoute(409),
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ]);
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(mergeRequests(result.requests)).toHaveLength(1);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(0);
+    expect(stickyBodies(result.requests)).toEqual([MERGE_REJECTED_COMMENT]);
+  });
+
+  it("maps a pull re-fetch API failure to the merge-rejected sticky comment", () => {
+    const result = runActCase([
+      ...labelCleanupRoutes(),
+      actPullRoute(HEAD_SHA, 500),
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ]);
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(0);
+    expect(stickyBodies(result.requests)).toEqual([MERGE_REJECTED_COMMENT]);
+  });
+
+  it("stops before merging when the latest main re-check fails", () => {
+    const result = runActCase([
+      ...labelCleanupRoutes(),
+      actPullRoute(),
+      mainRefRoute("not-a-sha"),
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ]);
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+    expect(labelAdditions(result.requests, "community-source:rejected")).toHaveLength(0);
+    expect(stickyBodies(result.requests)).toEqual([SOURCE_RECHECK_FAILED_COMMENT]);
+  });
+
+  it("merges exactly once with the pinned SHA and gate-controlled squash metadata when auto-merge is enabled", () => {
+    const result = runActCase([
+      ...labelCleanupRoutes(),
+      actPullRoute(),
+      mainRefRoute(),
+      mainTreeRoute(),
+      mergeRoute(),
+    ]);
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(0);
+    expect(stickyCommentWrites(result.requests)).toHaveLength(0);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelDeletions(result.requests, REJECTED_LABEL_PATH)).toHaveLength(1);
+    expect(mergeRequests(result.requests)).toHaveLength(1);
+    expect(mergeRequests(result.requests)[0]?.body).toEqual({
+      sha: HEAD_SHA,
+      merge_method: "squash",
+      commit_title: "community: add x source OpenAITest",
+      commit_message: "Submitted by CommunityUser. Validated by the community-sources gate. PR #10.",
+    });
+  });
+
+  it("adds the validated label and pass sticky comment instead of merging when auto-merge is disabled", () => {
+    const result = runActCase([
+      ...labelCleanupRoutes(),
+      labelsCreateRoute(),
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ], {}, { AUTO_MERGE: "false" });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(0);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(1);
+    expect(labelAdditionIndex(result.requests, "community-source:validated"))
+      .toBeGreaterThan(labelDeletionIndex(result.requests, VALIDATED_LABEL_PATH));
+    expect(stickyBodies(result.requests)).toEqual([PASS_WITH_AUTO_MERGE_OFF_COMMENT]);
+  });
+
+  it("updates the marked sticky comment instead of creating a new one when auto-merge is disabled", () => {
+    const existingCommentId = 88;
+    const result = runActCase([
+      ...labelCleanupRoutes(),
+      labelsCreateRoute(),
+      commentsListRoute([
+        { id: 77, body: "Existing unrelated maintainer note" },
+        { id: existingCommentId, body: `${COMMENT_MARKER}\nOld gate status` },
+      ]),
+      stickyCommentUpdateRoute(existingCommentId),
+    ], {}, { AUTO_MERGE: "false" });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(0);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(1);
+    expect(stickyCommentCreates(result.requests)).toHaveLength(0);
+    expect(stickyCommentUpdates(result.requests)).toHaveLength(1);
+    expect(stickyCommentUpdates(result.requests)[0]?.pathname)
+      .toBe(`/repos/caty-ai/x-collector/issues/comments/${existingCommentId}`);
+    expect(stickyCommentUpdates(result.requests)[0]?.body).toEqual({
+      body: PASS_WITH_AUTO_MERGE_OFF_COMMENT,
+    });
+  });
+
+  it.each(["", "True", "1", "yes"])(
+    "treats AUTO_MERGE=%s as disabled because only the exact string true enables merging",
+    (autoMergeValue) => {
+      const result = runActCase([
+        ...labelCleanupRoutes(),
+        labelsCreateRoute(),
+        commentsListRoute(),
+        stickyCommentCreateRoute(),
+      ], {}, { AUTO_MERGE: autoMergeValue });
+
+      expectAllRequestsMatched(result.requests);
+      expect(result.status).toBe(0);
+      expect(mergeRequests(result.requests)).toHaveLength(0);
+      expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+      expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(1);
+      expect(stickyBodies(result.requests)).toEqual([PASS_WITH_AUTO_MERGE_OFF_COMMENT]);
+    },
+  );
+
+  it("treats AUTO_MERGE being unset as disabled because only the exact string true enables merging", () => {
+    const result = runActCase([
+      ...labelCleanupRoutes(),
+      labelsCreateRoute(),
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ], {}, { AUTO_MERGE: null });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(0);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(labelDeletions(result.requests, VALIDATED_LABEL_PATH)).toHaveLength(1);
+    expect(labelAdditions(result.requests, "community-source:validated")).toHaveLength(1);
+    expect(stickyBodies(result.requests)).toEqual([PASS_WITH_AUTO_MERGE_OFF_COMMENT]);
   });
 });

@@ -19,6 +19,20 @@ function makeJsonResponse(status, body) {
   };
 }
 
+function parseJsonBody(body) {
+  if (typeof body !== "string") return null;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+function appendRequestLog(logPath, entry) {
+  if (!logPath) return;
+  fs.appendFileSync(logPath, `${JSON.stringify(entry)}\n`);
+}
+
 async function main() {
   const casePath = process.argv[2] || process.env.GATE_CASE_PATH;
   const gatePath = process.argv[3] || process.env.GATE_SCRIPT_PATH;
@@ -28,11 +42,20 @@ async function main() {
 
   const parsedCase = JSON.parse(fs.readFileSync(casePath, "utf8"));
   const routes = Array.isArray(parsedCase.routes) ? parsedCase.routes : [];
+  const requestLogPath = process.env.GATE_REQUEST_LOG;
 
   global.fetch = async (input, init = {}) => {
     const method = (init.method || "GET").toUpperCase();
     const requestUrl = new URL(typeof input === "string" ? input : input.url);
     const route = routes.find((candidate) => matchesRoute(candidate, requestUrl, method));
+    appendRequestLog(requestLogPath, {
+      method,
+      pathname: requestUrl.pathname,
+      search: requestUrl.search,
+      query: Object.fromEntries(requestUrl.searchParams.entries()),
+      body: parseJsonBody(init.body),
+      matched: Boolean(route),
+    });
 
     if (!route) {
       return makeJsonResponse(500, {
