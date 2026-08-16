@@ -143,4 +143,16 @@ If owner decision #1 becomes `"true"`:
 4. Verify the action re-asserts the PR head SHA, checks the dedup key against the latest `main` tree, and supplies explicit squash `commit_title` and `commit_message`.
 5. Exercise both a changed-head rejection and a duplicate-race rejection before enabling it as unattended policy.
 
+### Label behavior in act mode
+
+`actMode` removes `community-source:validated` on entry for both `AUTO_MERGE` settings.
+
+With `AUTO_MERGE: "false"`, a passing PR gets `community-source:validated` plus the pass sticky comment.
+
+A `fail` or `error` verdict gets `community-source:rejected` plus the failure sticky comment regardless of the `AUTO_MERGE` flag value.
+
+With `AUTO_MERGE: "true"`, a passing PR is merged and carries no `community-source:validated` label. The label is removed at entry and is never re-added on the merge path. A successful merge writes no sticky comment, so the absence of one on a merged PR is expected. An act-stage stop (`HeadChanged`, `SourceExistsOnMain`, `SourceRecheckFailed`, or `MergeRejected`) leaves no `community-source:rejected` label either. It produces only the sticky comment and a red required check. `community-source:rejected` stays reserved for `fail` and `error` verdicts decided during validate.
+
+With the flag on, the required check is always the maintainer signal to read, and an act-stage stop adds the sticky comment. Labels alone do not describe the outcome.
+
 The squash commit author identity remains contributor-controlled Git metadata because GitHub's merge API cannot override it. The title and message are gate-controlled and contain only validated fields.
