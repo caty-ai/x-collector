@@ -17,7 +17,7 @@
 | MCPサーバー：エンドポイント・認証・ツール | [mcp-server.md](mcp-server.md) | 英語 |
 | Family Feed API | [family-feed-api.md](family-feed-api.md) | 日本語 |
 | パイプライン処理・分類体系・データモデル | [v2-design.md](v2-design.md) | 日本語 |
-| デザインシステム（WIREDインスパイアの編集言語） | [DESIGN.md](../DESIGN.md) | 英語 |
+| デザインシステム（WIREDインスパイアの編集言語） | [DESIGN.md](DESIGN.md) | 英語 |
 | LLMプロンプト（実行時読込・移動禁止） | [prompts/](prompts/) | — |
 | 本番ジョブ・cron・データ保持・情報源ライフサイクル | [operations.md](operations.md) | 日本語 |
 | Step4 クロスリンクの手動実行 runbook | [step4-crosslink-llm-manual-runbook.md](step4-crosslink-llm-manual-runbook.md) | 日本語 |
