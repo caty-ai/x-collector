@@ -14,3 +14,6 @@ _handoffs/
 
 # Local community-source contribution declines
 .community-source-declines.json
+
+# Python bytecode (publication gate checker #40)
+__pycache__/
