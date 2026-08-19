@@ -4,6 +4,14 @@
 
 Thank you for your interest in contributing to this project. Please follow the workflow below.
 
+## Prerequisites
+
+- Node.js 20 or newer (npm included) — matches CI
+- GNU Make — `make test` / `make lint` are the unified entry points
+- git
+
+PostgreSQL and API credentials are only needed to run the app or collectors; `npm ci && make test` needs none of them.
+
 ## Development workflow (Issue-First)
 
 1. **Open an issue** — All work starts with a GitHub Issue. Include the following in its description.
@@ -48,7 +56,15 @@ Please use [Issues](../../issues) for bug reports and feature requests.
 
 このプロジェクトへのコントリビュートに興味を持っていただきありがとうございます。以下のフローに沿って進めてください。
 
-## 開発フロー（Issue-First）
+### 前提ツール
+
+- Node.js 20 以降（npm を含む）— CI と同じバージョンです
+- GNU Make — `make test` / `make lint` が統一エントリーポイントです
+- git
+
+PostgreSQL と API 認証情報はアプリまたはコレクターを実行する場合にのみ必要です。`npm ci && make test` にはどちらも必要ありません。
+
+### 開発フロー（Issue-First）
 
 1. **Issue を立てる** — 作業はすべて GitHub Issue 起点です。本文には以下を含めてください。
    - **Why**: なぜこの変更が必要か
@@ -61,7 +77,7 @@ Please use [Issues](../../issues) for bug reports and feature requests.
 5. **PR を出す** — 本文に Issue 番号（`Closes #NN`）と**触ったファイル一覧**を記載してください。
 6. **マージ** — レビュー通過後、`fetch → rebase → 再検証` してから 1 本ずつマージします。
 
-## コミットメッセージ
+### コミットメッセージ
 
 [Conventional Commits](https://www.conventionalcommits.org/) に準拠します。
 
@@ -74,16 +90,16 @@ docs: restructure README for public release
 - prefix: `feat` / `fix` / `docs` / `refactor` / `test` / `chore`
 - 対応 Issue がある場合は `(#NN)` を含める
 
-## コードスタイル
+### コードスタイル
 
 - TypeScript / Next.js 14 App Router / Prisma
 - 既存コードのスタイル（命名・コメント密度・エラーハンドリング）に合わせてください
 - 本番挙動に影響する変更は、本番 DB 実測ベースで効果を確認してから PR に記載してください
 
-## コミュニティソースへの貢献
+### コミュニティソースへの貢献
 
 公開 X ソースをコミュニティ一覧へ提案する場合は、スキーマ、ヘルパー、手動 PR 手順、永続性の注意事項を [Community sources guide](docs/community-sources.md) で確認してください。一覧への掲載だけでは購読されません。
 
-## 質問・提案
+### 質問・提案
 
 バグ報告・機能提案は [Issues](../../issues) へお願いします。
