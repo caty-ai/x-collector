@@ -1,20 +1,15 @@
-name: Test
+name: Test (push to main)
 
 on:
   push:
     branches: [main]
-  pull_request:
 
 permissions:
   contents: read
 
 concurrency:
-  # PR runs share one group per PR so a newer push supersedes the older run.
-  # Push runs (main) get a unique group per run: nothing on main is ever
-  # cancelled OR replaced while pending (a shared group would let a third
-  # push cancel a queued-but-not-started run for an intermediate commit).
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Each main push gets a unique group, so nothing on main is cancelled or replaced.
+  group: ${{ github.workflow }}-${{ github.run_id }}
 
 jobs:
   test:
