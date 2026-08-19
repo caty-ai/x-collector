@@ -9,6 +9,9 @@ deps:
 
 test: deps
 	npm test
+	# Publication gate (#40): selftest + live gate — same path locally and in the family test-lint CI (make test).
+	python3 -B tools/check_publication_gate.py --selftest
+	python3 -B tools/check_publication_gate.py --root . --account-slug shojikumaru
 
 lint: deps
 	npx tsc --noEmit
