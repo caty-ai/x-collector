@@ -131,7 +131,8 @@
       ]
     },
     {
-      "sectionKey": "11_market_voice",
+      "sectionKey":
+        "11_market_voice",
       "sectionTitle": "市場の声・実ユーザー評価",
       "items": []
     }
