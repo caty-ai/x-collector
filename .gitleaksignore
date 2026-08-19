@@ -1,7 +1,0 @@
-# False positive: gitleaks generic-api-key misreads a JSON example in the
-# Step 5 prompt design template — "sectionKey": "11_market_voice" is a
-# newspaper section name, not a credential.
-# Fingerprints are commit-less (path:rule:line) so they survive history
-# re-roots and match both `gitleaks git` and `gitleaks dir` scans.
-docs/prompts/step5-publish-template.md:generic-api-key:132
-docs/prompts/step5-publish-template.md:generic-api-key:134
