@@ -187,7 +187,7 @@ X Collector 的设计原则是：绝不让自动化悄悄接管一切。
 
 [![Test](https://github.com/caty-ai/x-collector/actions/workflows/test.yml/badge.svg)](https://github.com/caty-ai/x-collector/actions/workflows/test.yml)
 
-- **CI**：上方徽章显示实时状态 — 每次 push 和 pull request 都会运行 Vitest 和 TypeScript 检查
+- **CI**：上方徽章显示实时状态 — 每个 pull request 以及每次 push 到 main 时都会运行 Vitest 和 TypeScript 检查
 - **已验证环境**：Ubuntu 和 macOS 上的 Node.js 20（GitHub Actions）
 - **成熟度**：核心流水线已在日常生产环境中使用，并得到积极维护
 - **已知限制**：与外部平台通信的采集器需要你自己的 API 凭据，CI 不会运行这些采集器

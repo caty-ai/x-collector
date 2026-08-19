@@ -187,7 +187,7 @@ X Collector は「自動化が勝手に暴走しない」ことを設計の柱�
 
 [![Test](https://github.com/caty-ai/x-collector/actions/workflows/test.yml/badge.svg)](https://github.com/caty-ai/x-collector/actions/workflows/test.yml)
 
-- **CI**: 上のバッジはリアルタイムの状態を示します — push と pull request のたびに Vitest と TypeScript のチェックを実行します
+- **CI**: 上のバッジはリアルタイムの状態を示します — pull request のたびに、そして main への push のたびに Vitest と TypeScript のチェックを実行します
 - **検証済み環境**: Ubuntu と macOS 上の Node.js 20（GitHub Actions）
 - **成熟度**: コアパイプラインは日々の本番運用で使用されており、積極的にメンテナンスされています
 - **既知の制約**: 外部プラットフォームと通信するコレクターにはご自身の API 認証情報が必要で、CI では実行されません

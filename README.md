@@ -187,7 +187,7 @@ X Collector is designed so that automation never quietly takes over.
 
 [![Test](https://github.com/caty-ai/x-collector/actions/workflows/test.yml/badge.svg)](https://github.com/caty-ai/x-collector/actions/workflows/test.yml)
 
-- **CI**: the badge above is live — vitest + TypeScript checks on every push and pull request
+- **CI**: the badge above is live — vitest + TypeScript checks on every pull request and every push to main
 - **Verified environments**: Node.js 20 on Ubuntu and macOS (GitHub Actions)
 - **Maturity**: core pipeline in daily production use; actively maintained
 - **Known constraints**: collectors that talk to external platforms need your own API credentials and are not exercised by CI
