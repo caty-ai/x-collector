@@ -17,7 +17,7 @@ This page is the entrance to the exact specifications. Each area below has a ded
 | MCP server: endpoint, auth, tools | [mcp-server.md](mcp-server.md) | English |
 | Family Feed API | [family-feed-api.md](family-feed-api.md) | Japanese |
 | Pipeline stages, taxonomy, data model | [v2-design.md](v2-design.md) | Japanese |
-| Design system (WIRED-inspired editorial language) | [DESIGN.md](../DESIGN.md) | English |
+| Design system (WIRED-inspired editorial language) | [DESIGN.md](DESIGN.md) | English |
 | LLM prompts (runtime-loaded — do not move) | [prompts/](prompts/) | — |
 | Production jobs, cron, retention, source lifecycle | [operations.md](operations.md) | Japanese |
 | Step4 cross-linking: manual-run runbook | [step4-crosslink-llm-manual-runbook.md](step4-crosslink-llm-manual-runbook.md) | Japanese |
