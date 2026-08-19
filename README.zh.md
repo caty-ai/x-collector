@@ -183,6 +183,17 @@ X Collector 的设计原则是：绝不让自动化悄悄接管一切。
 - **智能体的访问是只读的** — MCP 服务器只能搜索和阅读，不能改动任何东西
 - **你的数据始终属于你** — 它运行在你自己的服务器和数据库上，采用 MIT 许可证
 
+## 项目状态
+
+[![Test](https://github.com/caty-ai/x-collector/actions/workflows/test.yml/badge.svg)](https://github.com/caty-ai/x-collector/actions/workflows/test.yml)
+
+- **CI**：上方徽章显示实时状态 — 每次 push 和 pull request 都会运行 Vitest 和 TypeScript 检查
+- **已验证环境**：Ubuntu 和 macOS 上的 Node.js 20（GitHub Actions）
+- **成熟度**：核心流水线已在日常生产环境中使用，并得到积极维护
+- **已知限制**：与外部平台通信的采集器需要你自己的 API 凭据，CI 不会运行这些采集器
+
+自行运行检查：`make test` / `make lint`（封装了 `npm test` 和 TypeScript 检查 — 参见 [CONTRIBUTING](CONTRIBUTING.md)）。
+
 ---
 
 <a id="more"></a>
