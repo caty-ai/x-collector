@@ -1,0 +1,23 @@
+name: Risk Review Gate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+permissions: {contents: read}
+concurrency: {group: 'risk-review-${{ github.event.pull_request.number }}', cancel-in-progress: true}
+jobs:
+  risk-review-gate:
+    uses: caty-ai/family-dev-handbook/.github/workflows/reusable-review-labels.yml@ci-v1
+    permissions: {contents: read, issues: read, pull-requests: write}
+    with:
+      risk_paths_billing: |
+        src/collector/openrouter.ts
+        src/lib/pipeline/embedding-client.ts
+      risk_paths_outbound: |
+        src/collector/pipeline-publish.ts
+        src/collector/run-prod-step5.ts
+        src/lib/pipeline/publish.ts
+        src/lib/ops-alert.ts
+      risk_paths_gates: |
+        Makefile
+        src/scripts/community/**
+      risk_paths_auth: 'src/middleware.ts'
