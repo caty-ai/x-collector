@@ -8,7 +8,7 @@ X Collector is a self-hosted Next.js + PostgreSQL service that collects AI and t
 
 ## Features
 
-- **Collect from seven platform families — eight source types in total.** X (Twitter), Instagram, Facebook, Reddit, Qiita, GitHub, and Alerts feeds covering RSS and YouTube.
+- **Collect from 7 platform families — 8 source types in total.** X (Twitter), Instagram, Facebook, Reddit, Qiita, GitHub, and Alerts feeds covering RSS and YouTube.
 - **Turn noise into an organized feed.** The pipeline normalizes each item, classifies it with an 11-category primary taxonomy and 15 optional subcategories, links duplicates and follow-ups, and aggregates market voices.
 - **Publish a daily newspaper.** A scheduled publishing job lays selected items out as a 13-section Markdown edition.
 - **Give people and agents the same information.** Readers get the newspaper and web interface; integrations get authenticated Feed APIs and a read-only Streamable HTTP MCP server.
@@ -28,7 +28,7 @@ X Collector is a self-hosted Next.js + PostgreSQL service that collects AI and t
 
 | Area | Environment | Status |
 |---|---|---|
-| Runtime | Node.js 18.17.0 or newer; this checkout was built with Node.js 26.5.0 | ✅ Verified |
+| Runtime | Node.js 20 or newer; this checkout was built with Node.js 26.5.0 | ✅ Verified |
 | Database | PostgreSQL; no minimum server version is documented | ✅ Prisma provider and migrations verified |
 | Hosting | Railway | ✅ Verified in production |
 | Operating systems (develop & self-host) | Linux (`ubuntu-latest`) and macOS (`macos-latest`, Apple Silicon) | ✅ Full test suite (typecheck, Prisma generate, tests) runs on both in CI |
@@ -60,7 +60,7 @@ The full pipeline is documented in [the V2 design](v2-design.md) (Japanese). Dep
 
 ### Prerequisites
 
-- Node.js 18.17.0 or newer
+- Node.js 20 or newer
 - A PostgreSQL database
 - Google OAuth credentials for signing in to the management interface
 - ScrapeCreators and OpenRouter API keys when you are ready to collect and classify data
@@ -143,7 +143,7 @@ npm run collect
 
 ## Development status and roadmap
 
-- [x] **Collection:** seven platform families, unified PostgreSQL storage, and Feed API
+- [x] **Collection:** 7 platform families, unified PostgreSQL storage, and Feed API
 - [x] **Refinement:** normalization, LLM classification, cross-linking, voice aggregation, and the current taxonomy
 - [x] **Publishing:** 13-section Markdown editions with source links
 - [x] **Agent access:** searchable feed and read-only MCP tools (`search_feed` and `get_daily_news`)

@@ -84,7 +84,7 @@ flowchart LR
 
 只需三样。完整的兼容环境表见[工程师文档](docs/engineering.md#supported-environments)（英文）。
 
-- **一个运行的地方** — 你自己的电脑或服务器，装有 Node.js 18.17 或更新版本
+- **一个运行的地方** — 你自己的电脑或服务器，装有 Node.js 20 或更新版本
 - **一个 PostgreSQL 数据库** — 用来存放收集到的内容
 - **API 密钥，只需准备你要用的功能对应的那几个** — 见下表
 
@@ -157,7 +157,7 @@ npm run dev
 
 **提示 `command not found: npm`**
 
-说明还没有安装 Node.js。请从 [nodejs.org](https://nodejs.org/) 下载 18.17 或更新版本，然后重新打开终端再试一次。
+说明还没有安装 Node.js。请从 [nodejs.org](https://nodejs.org/) 下载 20 或更新版本，然后重新打开终端再试一次。
 
 **连接不上数据库**
 

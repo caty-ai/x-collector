@@ -84,7 +84,7 @@ flowchart LR
 
 必要なのは3つです。詳しい対応環境表は[エンジニア向けドキュメント](docs/engineering.ja.md#supported-environments)にあります。
 
-- **動かす場所** — 自分のパソコンかサーバー。Node.js 18.17以上が動けばOK
+- **動かす場所** — 自分のパソコンかサーバー。Node.js 20以上が動けばOK
 - **PostgreSQLデータベース** — 集めた記事の保存先です
 - **APIキーは「使う機能の分だけ」** — 下の表のとおりです
 
@@ -157,7 +157,7 @@ npm run dev
 
 **`command not found: npm` と出る**
 
-Node.jsがまだ入っていません。[nodejs.org](https://nodejs.org/)からバージョン18.17以上を入れて、ターミナルを開き直してから再実行してください。
+Node.jsがまだ入っていません。[nodejs.org](https://nodejs.org/)からバージョン20以上を入れて、ターミナルを開き直してから再実行してください。
 
 **データベースに接続できない**
 
