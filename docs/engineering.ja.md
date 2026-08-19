@@ -28,7 +28,7 @@ X Collector は、自分で選んだ情報源からAI・テクノロジーの最
 
 | 分類 | 環境 | 状況 |
 |---|---|---|
-| ランタイム | Node.js 18.17.0以上。このチェックアウトはNode.js 26.5.0でビルド | ✅ 確認済み |
+| ランタイム | Node.js 20以上。このチェックアウトはNode.js 26.5.0でビルド | ✅ 確認済み |
 | データベース | PostgreSQL。最低サーバーバージョンの指定はなし | ✅ Prisma providerとマイグレーションを確認 |
 | ホスティング | Railway | ✅ 本番稼働を確認済み |
 | OS（開発・セルフホスト） | Linux（`ubuntu-latest`）と macOS（`macos-latest`・Apple Silicon） | ✅ フルテストスイート（typecheck・Prisma generate・テスト）が両OSのCIで実走 |
@@ -60,7 +60,7 @@ X Collector は、自分で選んだ情報源からAI・テクノロジーの最
 
 ### 前提条件
 
-- Node.js 18.17.0以上
+- Node.js 20以上
 - PostgreSQLデータベース
 - 管理画面へのログインに使うGoogle OAuthの認証情報
 - 収集・分類を始める際はScrapeCreatorsとOpenRouterのAPIキー

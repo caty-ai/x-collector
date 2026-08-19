@@ -84,7 +84,7 @@ flowchart LR
 
 Three things. The full compatibility table is in the [engineering guide](docs/engineering.md#supported-environments).
 
-- **A place to run it** — your own computer or a server, with Node.js 18.17 or newer
+- **A place to run it** — your own computer or a server, with Node.js 20 or newer
 - **A PostgreSQL database** — where the collected items are stored
 - **API keys, only for the features you use** — see the table below
 
@@ -157,7 +157,7 @@ Open `http://localhost:3000`, sign in, and register your sources under `/setting
 
 **`command not found: npm`**
 
-Node.js is not installed yet. Download it from [nodejs.org](https://nodejs.org/) (version 18.17 or newer), then reopen your terminal and try again.
+Node.js is not installed yet. Download it from [nodejs.org](https://nodejs.org/) (version 20 or newer), then reopen your terminal and try again.
 
 **The database connection fails**
 
