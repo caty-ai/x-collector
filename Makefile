@@ -6,6 +6,7 @@
 
 deps:
 	@[ -d node_modules ] || npm ci
+	npx prisma generate
 
 test: deps
 	npm test

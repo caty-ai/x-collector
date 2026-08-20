@@ -188,7 +188,7 @@ X Collector ถูกออกแบบมาไม่ให้ระบบอ�
 [![Test](https://github.com/caty-ai/x-collector/actions/workflows/test.yml/badge.svg)](https://github.com/caty-ai/x-collector/actions/workflows/test.yml)
 
 - **CI**: ป้ายด้านบนแสดงสถานะล่าสุด — รัน Vitest และตรวจสอบ TypeScript ในทุก pull request และทุกครั้งที่ push ไปยัง main
-- **สภาพแวดล้อมที่ผ่านการตรวจสอบ**: Node.js 20 บน Ubuntu และ macOS (GitHub Actions)
+- **สภาพแวดล้อมที่ผ่านการตรวจสอบ**: CI สำหรับ push ไปที่ main ตรึง Node.js 20 บน Ubuntu และ macOS ส่วนเกตของ pull request ใช้ Node.js ค่าเริ่มต้นของ runner (ปัจจุบันคือ 22+)
 - **ระดับความพร้อม**: ไปป์ไลน์หลักใช้งานจริงในระบบโปรดักชันทุกวันและได้รับการดูแลอย่างต่อเนื่อง
 - **ข้อจำกัดที่ทราบ**: คอลเลกเตอร์ที่เชื่อมต่อแพลตฟอร์มภายนอกต้องใช้ข้อมูลรับรอง API ของคุณเอง และจะไม่ถูกรันใน CI
 
