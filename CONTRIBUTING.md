@@ -6,7 +6,7 @@ Thank you for your interest in contributing to this project. Please follow the w
 
 ## Prerequisites
 
-- Node.js 20 or newer (npm included) — matches CI
+- Node.js 20 or newer (npm included) — push-to-main CI pins Node 20 while the pull-request gate uses the runner default Node.js
 - GNU Make — `make test` / `make lint` are the unified entry points
 - git
 
@@ -58,7 +58,7 @@ Please use [Issues](../../issues) for bug reports and feature requests.
 
 ### 前提ツール
 
-- Node.js 20 以降（npm を含む）— CI と同じバージョンです
+- Node.js 20 以降（npm を含む）— main への push 用 CI は Node 20 を固定し、pull request のゲートはランナー既定の Node.js を使います
 - GNU Make — `make test` / `make lint` が統一エントリーポイントです
 - git
 
