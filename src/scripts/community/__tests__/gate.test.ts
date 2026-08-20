@@ -69,6 +69,7 @@ const REJECTED_LABEL_PATH = `${LABELS_PATH}/community-source%3Arejected`;
 const CHECK_CATALOG_URL = "https://github.com/caty-ai/x-collector/blob/main/docs/community-sources.md#checks";
 const HEAD_CHANGED_COMMENT = `${COMMENT_MARKER}\nThe pull request head SHA changed after validation. The gate stopped before merging; rerun validation on the current head.`;
 const SOURCE_EXISTS_ON_MAIN_COMMENT = `${COMMENT_MARKER}\nThe source dedup key now exists on the latest \`main\`. The gate stopped before merging to avoid duplicating a community entry.`;
+const RATE_LIMIT_EXCEEDED_COMMENT = `${COMMENT_MARKER}\nThe submitter has reached the community-source limit on the latest \`main\`. The gate stopped before merging; try again after the 30-day window advances.`;
 const SOURCE_RECHECK_FAILED_COMMENT = `${COMMENT_MARKER}\nThe gate could not re-check the latest \`main\` state before merging. A maintainer must inspect the workflow run; the gate will not retry blindly.`;
 const MERGE_REJECTED_COMMENT = `${COMMENT_MARKER}\nThe merge API rejected the validated merge attempt. A maintainer must inspect the workflow run; the gate will not retry blindly.`;
 const MAINTAINER_COMMENT = `${COMMENT_MARKER}\nThis same-repository maintainer pull request touches the community list. The contribution gate is informational and will not merge it.`;
@@ -502,12 +503,12 @@ function labelDeletionIndex(requests: RequestLogEntry[], labelPath: string): num
   return requests.findIndex((request) => request.method === "DELETE" && request.pathname === labelPath);
 }
 
-function commitListRoute(body: unknown = [{ sha: COMMIT_SHA }], page = 1): Route {
+function commitListRoute(body: unknown = [{ sha: COMMIT_SHA }], page = 1, sha = BASE_SHA): Route {
   return {
     path: "/repos/caty-ai/x-collector/commits",
     query: {
       path: "data/community-sources",
-      sha: BASE_SHA,
+      sha,
       per_page: "100",
       page: String(page),
     },
@@ -1025,12 +1026,59 @@ describe("community gate act mode", () => {
     expect(stickyBodies(result.requests)).toEqual([SOURCE_EXISTS_ON_MAIN_COMMENT]);
   });
 
+  it("stops before merging when live main already contains three recent submissions by the author", () => {
+    const first = historicalCommunitySource(1);
+    const second = historicalCommunitySource(2);
+    const third = historicalCommunitySource(3);
+    const result = runActCase([
+      ...labelCleanupRoutes(),
+      actPullRoute(),
+      mainRefRoute(),
+      mainTreeRoute(),
+      commitListRoute(undefined, 1, MAIN_SHA),
+      commitDetailRoute({ files: [first.file, second.file, third.file] }, 1),
+      first.contentRoute,
+      second.contentRoute,
+      third.contentRoute,
+      mergeRoute(),
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ]);
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(stickyBodies(result.requests)).toEqual([RATE_LIMIT_EXCEEDED_COMMENT]);
+  });
+
+  it("stops before merging when the live-main rate-limit re-check fails", () => {
+    const result = runActCase([
+      ...labelCleanupRoutes(),
+      actPullRoute(),
+      mainRefRoute(),
+      mainTreeRoute(),
+      {
+        ...commitListRoute(undefined, 1, MAIN_SHA),
+        status: 500,
+        body: { message: "commit list failed" },
+      },
+      commentsListRoute(),
+      stickyCommentCreateRoute(),
+    ]);
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(mergeRequests(result.requests)).toHaveLength(0);
+    expect(stickyBodies(result.requests)).toEqual([SOURCE_RECHECK_FAILED_COMMENT]);
+  });
+
   it("writes the merge-rejected sticky comment when the merge API rejects the validated merge attempt", () => {
     const result = runActCase([
       ...labelCleanupRoutes(),
       actPullRoute(),
       mainRefRoute(),
       mainTreeRoute(),
+      commitListRoute([], 1, MAIN_SHA),
       mergeRoute(409),
       commentsListRoute(),
       stickyCommentCreateRoute(),
@@ -1086,6 +1134,7 @@ describe("community gate act mode", () => {
       actPullRoute(),
       mainRefRoute(),
       mainTreeRoute(),
+      commitListRoute([], 1, MAIN_SHA),
       mergeRoute(),
     ]);
 
