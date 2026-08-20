@@ -1,0 +1,36 @@
+name: Risk Review Gate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+permissions: {contents: read}
+concurrency: {group: 'risk-review-${{ github.event.pull_request.number }}', cancel-in-progress: true}
+jobs:
+  risk-review-gate:
+    uses: caty-ai/family-dev-handbook/.github/workflows/reusable-review-labels.yml@ci-v1
+    permissions: {contents: read, issues: read, pull-requests: write}
+    with:
+      risk_paths_billing: |
+        src/collector/openrouter.ts
+        src/lib/pipeline/embedding-client.ts
+        src/lib/pipeline/classify-llm.ts
+        src/lib/pipeline/crosslink-llm.ts
+        src/lib/pipeline/compose-edition.ts
+        src/collector/evaluate-candidates.ts
+        src/collector/pipeline-backfill-ja.ts
+        src/lib/pipeline/enrich-youtube-transcript.ts
+      risk_paths_outbound: |
+        src/collector/pipeline-publish.ts
+        src/collector/run-prod-step5.ts
+        src/lib/pipeline/publish.ts
+        src/lib/ops-alert.ts
+        src/summary/daily.ts
+      risk_paths_gates: |
+        Makefile
+        package.json
+        vitest.config.ts
+        tsconfig.json
+        tsconfig.community.json
+        src/scripts/community/**
+      risk_paths_auth: |
+        src/middleware.ts
+        src/app/api/**
