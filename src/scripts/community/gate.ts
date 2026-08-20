@@ -31,6 +31,7 @@ enum GateErrorId {
 enum ActFailureKind {
   HeadChanged = "head_changed",
   SourceExistsOnMain = "source_exists_on_main",
+  RateLimitExceeded = "rate_limit_exceeded",
   SourceRecheckFailed = "source_recheck_failed",
   MergeRejected = "merge_rejected",
 }
@@ -515,6 +516,9 @@ function renderComment(contract: Contract, kind?: ActFailureKind): string {
   if (kind === ActFailureKind.SourceExistsOnMain) {
     return `${COMMENT_MARKER}\nThe source dedup key now exists on the latest \`main\`. The gate stopped before merging to avoid duplicating a community entry.`;
   }
+  if (kind === ActFailureKind.RateLimitExceeded) {
+    return `${COMMENT_MARKER}\nThe submitter has reached the community-source limit on the latest \`main\`. The gate stopped before merging; try again after the 30-day window advances.`;
+  }
   if (kind === ActFailureKind.SourceRecheckFailed) {
     return `${COMMENT_MARKER}\nThe gate could not re-check the latest \`main\` state before merging. A maintainer must inspect the workflow run; the gate will not retry blindly.`;
   }
@@ -555,10 +559,14 @@ async function removeLabel(prNumber: number, label: string): Promise<void> {
   }
 }
 
-async function latestMainHasDedupKey(dedupKey: string): Promise<boolean> {
+async function latestMainSha(): Promise<string> {
   const ref = await github<{ object: { sha: string } }>(`/repos/${UPSTREAM}/git/ref/heads/main`);
   if (!SHA_RE.test(ref.object.sha)) throw new Error("main ref returned an invalid SHA");
-  const tree = await readTree(ref.object.sha);
+  return ref.object.sha;
+}
+
+async function latestMainHasDedupKey(dedupKey: string, mainSha: string): Promise<boolean> {
+  const tree = await readTree(mainSha);
   return tree.tree.some((entry) => entry.path === `data/community-sources/x--${dedupKey}.json`);
 }
 
@@ -597,14 +605,25 @@ async function actMode(): Promise<number> {
     if (pull.head.sha !== contract.head_sha) {
       throw new ActFailure(ActFailureKind.HeadChanged, "pull request head changed after validation");
     }
+    let mainSha: string;
     let sourceExistsOnMain: boolean;
     try {
-      sourceExistsOnMain = await latestMainHasDedupKey(contract.dedup_key);
+      mainSha = await latestMainSha();
+      sourceExistsOnMain = await latestMainHasDedupKey(contract.dedup_key, mainSha);
     } catch {
       throw new ActFailure(ActFailureKind.SourceRecheckFailed, "could not re-check the latest main state");
     }
     if (sourceExistsOnMain) {
       throw new ActFailure(ActFailureKind.SourceExistsOnMain, "source now exists on main");
+    }
+    let recentCount: number;
+    try {
+      recentCount = await recentSubmissionCount(contract.submitted_by, mainSha);
+    } catch {
+      throw new ActFailure(ActFailureKind.SourceRecheckFailed, "could not re-check the latest main state");
+    }
+    if (recentCount >= MAX_COMMUNITY_SUBMISSIONS_PER_30_DAYS) {
+      throw new ActFailure(ActFailureKind.RateLimitExceeded, "submitter reached the live-main rate limit");
     }
     try {
       await github(`/repos/${UPSTREAM}/pulls/${contract.pr_number}/merge`, {
