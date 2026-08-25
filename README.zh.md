@@ -27,6 +27,9 @@ X Collector 从你选定的信息源收集更新，整理归类并把相关话�
 🔧 [工程师文档](docs/engineering.md)（英文） ｜ 📘 [详细规格](docs/reference.md)（英文）
 
 </div>
+<!-- repo-state:begin (generated; do not edit) -->
+<p align="center"><sub>generation: <code>95520ba</code> (2026-08-25T15:11:22Z) · verify: <a href="https://api.github.com/repos/caty-ai/x-collector/commits/feat/repo-state-caller-68">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
+<!-- repo-state:end -->
 
 ---
 
