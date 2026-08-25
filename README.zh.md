@@ -244,7 +244,7 @@ X Collector 建立在这些服务之上：[ScrapeCreators](https://scrapecreator
 
 ## 许可证
 
-[MIT](LICENSE) © 2026 Caty
+[MIT](LICENSE) © 2026 Sho Jikumaru
 
 我们希望任何人都能自由使用 X Collector——运行它、修改它、把它集成进你自己的产品。只要保留版权声明，商业使用和再分发都欢迎。
 

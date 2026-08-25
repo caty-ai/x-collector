@@ -244,7 +244,7 @@ X Collector stands on these services: [ScrapeCreators](https://scrapecreators.co
 
 ## License
 
-[MIT](LICENSE) © 2026 Caty
+[MIT](LICENSE) © 2026 Sho Jikumaru
 
 We want anyone to use X Collector freely — run it, modify it, and build it into your own products. As long as the copyright notice stays, commercial use and redistribution are both welcome.
 

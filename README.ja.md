@@ -244,7 +244,7 @@ X Collector は次のサービスの上に成り立っています: [ScrapeCreat
 
 ## ライセンス
 
-[MIT](LICENSE) © 2026 Caty
+[MIT](LICENSE) © 2026 Sho Jikumaru
 
 誰でも自由に使って、改造して、自分のサービスに組み込んでほしいのでMITにしています。著作権表示さえ残していただければ、商用利用も再配布も歓迎です。
 
