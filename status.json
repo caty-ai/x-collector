@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/caty-ai/family-os/main/docs/repo-state/status.schema.json",
+  "schema_version": 1,
+  "generator_version": "repo-state-gen v1",
+  "repo": "caty-ai/x-collector",
+  "stamp_mode": "auto",
+  "generated_at": "2026-08-25T15:11:22Z",
+  "describes_commit": "95520ba0cd7fb0dde841cb9a60daa0c457976fd7",
+  "describes_commit_date": "2026-08-25T15:11:22Z",
+  "branch": "feat/repo-state-caller-68",
+  "latest_tag": null,
+  "latest_release_url": null,
+  "agents_entry": null,
+  "canonical_api": "https://api.github.com/repos/caty-ai/x-collector/commits/feat/repo-state-caller-68",
+  "canonical_raw": "https://raw.githubusercontent.com/caty-ai/x-collector/95520ba0cd7fb0dde841cb9a60daa0c457976fd7/status.json",
+  "freshness_contract": "SHA comparison only; dates may only ever trigger distrust. Protocol: docs/repo-state/spec.md, section 'Reader protocol'."
+}

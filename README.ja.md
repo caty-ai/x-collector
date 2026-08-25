@@ -27,6 +27,9 @@ X Collector は、自分で選んだ情報源から更新を集めて整理し�
 🔧 [エンジニア向けドキュメント](docs/engineering.ja.md) ｜ 📘 [詳細仕様](docs/reference.ja.md)
 
 </div>
+<!-- repo-state:begin (generated; do not edit) -->
+<p align="center"><sub>generation: <code>95520ba</code> (2026-08-25T15:11:22Z) · verify: <a href="https://api.github.com/repos/caty-ai/x-collector/commits/feat/repo-state-caller-68">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
+<!-- repo-state:end -->
 
 ---
 
