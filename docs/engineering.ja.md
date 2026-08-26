@@ -32,6 +32,7 @@ X Collector は、自分で選んだ情報源からAI・テクノロジーの最
 | データベース | PostgreSQL。最低サーバーバージョンの指定はなし | ✅ Prisma providerとマイグレーションを確認 |
 | ホスティング | Railway | ✅ 本番稼働を確認済み |
 | OS（開発・セルフホスト） | Linux（`ubuntu-latest`）と macOS（`macos-latest`・Apple Silicon） | ✅ フルテストスイート（typecheck・Prisma generate・テスト）が両OSのCIで実走 |
+| OS（WSL2 補足） | WSL2（Windows 上の Ubuntu） | ⚠️ Linux 経路でカバー。個別の実走はなし。クローンは Linux ファイルシステム側（例: `~/`）に置き、`/mnt/c` は避けてください — drvfs 越しでは `next dev` のファイル監視が不安定で、`npm install` も大幅に遅くなります |
 | MCPクライアント | Claude CLI、Claude.ai、Claude Desktop | ⚠️ ドキュメント記載あり。この環境では未接続 |
 
 ---
