@@ -114,6 +114,13 @@ railway variables --service x-collector-step5-cron --set RETENTION_MODE=apply
 
 ### 本番 env の事前確認（Railway）
 
+前提ツール（既定の Ubuntu / WSL2 イメージには入っていない）:
+
+- `rg`（ripgrep）— Ubuntu/WSL2: `sudo apt-get install ripgrep` / macOS: `brew install ripgrep`
+- `railway` CLI — `npm i -g @railway/cli`（[公式の他の導入手段](https://docs.railway.com/guides/cli)も可）
+
+> **WSL2 で運用する場合**: リポジトリは Linux ファイルシステム側（例: `~/`）に置き、`/mnt/c` 配下は避けてください（ファイル監視が不安定・npm が大幅に低速）。また `gh` はディストロ内でインストール・認証してください — Windows 側の `gh.exe` が PATH に載っていると、認証情報が Windows プロファイルに書かれ、Windows 形式のパスが返るため `contribute-source` などのツールが正しく動きません。
+
 ```bash
 # 例: cron service 側の必須キー確認
 railway variables --service x-collector-cron | rg '^(DATABASE_URL|SCRAPECREATORS_API_KEY|OPENROUTER_API_KEY)='
