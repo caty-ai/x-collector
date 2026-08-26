@@ -12,7 +12,7 @@ Thank you for your interest in contributing to this project. Please follow the w
 
 PostgreSQL and API credentials are only needed to run the app or collectors; `npm ci && make test` needs none of them.
 
-> **WSL2**: clone under the Linux filesystem (e.g. `~/`), not `/mnt/c`, and install/authenticate `gh` inside the distro — a Windows-side `gh.exe` on PATH stores credentials in the Windows profile and returns Windows-style paths. Details: [docs/operations.md](docs/operations.md#本番-env-の事前確認railway).
+> **WSL2**: clone under the Linux filesystem (e.g. `~/`), not `/mnt/c`, and install/authenticate `gh` inside the distro — a Windows-side `gh.exe` on PATH stores credentials in the Windows profile and uses Windows-side Git and path semantics, which break on the Linux temp paths tools like `contribute-source` pass it. Details: [docs/operations.md](docs/operations.md#本番-env-の事前確認railway).
 
 ## Development workflow (Issue-First)
 
@@ -66,7 +66,7 @@ Please use [Issues](../../issues) for bug reports and feature requests.
 
 PostgreSQL と API 認証情報はアプリまたはコレクターを実行する場合にのみ必要です。`npm ci && make test` にはどちらも必要ありません。
 
-> **WSL2**: クローンは Linux ファイルシステム側（例: `~/`）に置き、`/mnt/c` は避けてください。また `gh` はディストロ内でインストール・認証してください — Windows 側の `gh.exe` が PATH に載っていると、認証情報が Windows プロファイルに書かれ、Windows 形式のパスが返ります。詳細: [docs/operations.md](docs/operations.md#本番-env-の事前確認railway)。
+> **WSL2**: クローンは Linux ファイルシステム側（例: `~/`）に置き、`/mnt/c` は避けてください。また `gh` はディストロ内でインストール・認証してください — Windows 側の `gh.exe` が PATH に載っていると、認証情報が Windows プロファイルに書かれ、Windows 側の Git・パス解釈で動くため `contribute-source` などが渡す Linux パスを扱えません。詳細: [docs/operations.md](docs/operations.md#本番-env-の事前確認railway)。
 
 ### 開発フロー（Issue-First）
 

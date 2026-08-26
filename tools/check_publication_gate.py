@@ -226,7 +226,9 @@ def iter_source_paths(root, excluded_policy_path):
     """Return (paths, mode); only the non-git fallback applies EXCLUDED_DIRS."""
     git_mode = _contains_git_entry(root)
     paths = _git_paths(root) if git_mode else root.rglob("*")
-    policy_key = os.path.abspath(str(excluded_policy_path))
+    excluded_policy_keys = {os.path.abspath(str(root / DENYLIST_NAME))}
+    if excluded_policy_path is not None:
+        excluded_policy_keys.add(os.path.abspath(str(excluded_policy_path)))
     selected = []
     for path in paths:
         try:
@@ -235,7 +237,7 @@ def iter_source_paths(root, excluded_policy_path):
             continue
         if not git_mode and any(part in EXCLUDED_DIRS for part in relative.parts[:-1]):
             continue
-        if os.path.abspath(str(path)) == policy_key:
+        if os.path.abspath(str(path)) in excluded_policy_keys:
             continue
         selected.append(path)
     ordered = sorted(selected, key=lambda candidate: candidate.relative_to(root).as_posix())
@@ -733,24 +735,51 @@ def selftest_policy_parsers():
             raise RuntimeError("selftest failed: non-object registry accepted")
 
 
-def selftest_repository_policy():
-    if os.environ.get("PUBLICATION_GATE_SELFTEST_COPY_PROBE"):
-        return
+def _selftest_repository_root():
+    script_path = Path(__file__).resolve()
+    if script_path.parent.name == "tools":
+        return script_path.parent.parent
+    return script_path.parent
 
-    repository_root = Path(__file__).resolve().parent.parent
+
+def _selftest_repository_policy_source():
+    repository_root = _selftest_repository_root()
+    policy_path = repository_root / DENYLIST_NAME
+    if not policy_path.is_file():
+        return None
+    return _read_utf8(policy_path, _denylist_error_name(repository_root, policy_path))
+
+
+def selftest_repository_policy():
+    repository_root = _selftest_repository_root()
+    if _selftest_repository_policy_source() is None:
+        print("ok: selftest_repository_policy (skipped: no repository policy)")
+        return "skip-printed"
     rules = load_denylist(repository_root)
     local_user_patterns = [pattern for name, pattern in rules if name == "local-user-path"]
     _selftest_check(len(local_user_patterns) == 1, "repository local-user-path rule")
     local_user_path = local_user_patterns[0]
     macos_leak = "/Us" + "ers/alice/x-collector/.env"
+    macos_env_leak = "export HOME=/Us" + "ers/bob"
     linux_leak = "/ho" + "me/alice/x-collector/.env"
+    linux_dotted_leak = "/ho" + "me/j" ".doe/x-collector/.env"
     _selftest_check(
         local_user_path.search(macos_leak) is not None,
         "repository local-user-path macOS leak",
     )
     _selftest_check(
+        local_user_path.search(macos_env_leak) is not None,
+        "repository local-user-path macOS env assignment",
+    )
+    _selftest_check(
         local_user_path.search(linux_leak) is not None,
         "repository local-user-path Linux leak",
+    )
+    linux_dotted_match = local_user_path.search(linux_dotted_leak)
+    _selftest_check(
+        linux_dotted_match is not None
+        and linux_dotted_match.group(0) == "/ho" + "me/j" ".doe",
+        "repository local-user-path dotted Linux leak",
     )
     _selftest_check(
         all(
@@ -758,6 +787,7 @@ def selftest_repository_policy():
             for sample in (
                 "/home/<user>/x-collector/.env",
                 "/home/{user}/x-collector/.env",
+                "/HOME/alice/x-collector/.env",
                 "https://api.github.com/users/alice",
             )
         ),
@@ -773,6 +803,28 @@ def selftest_repository_policy():
         == 1
         and failures == ["denylist: leak.txt:1 contains local-user-path"],
         "repository local-user-path Linux scan finding",
+    )
+    macos_failures = []
+    _selftest_check(
+        check_denylist(
+            {"env.sh": macos_env_leak},
+            (("local-user-path", local_user_path),),
+            macos_failures,
+        )
+        == 1
+        and macos_failures == ["denylist: env.sh:1 contains local-user-path"],
+        "repository local-user-path macOS env scan finding",
+    )
+    dotted_failures = []
+    _selftest_check(
+        check_denylist(
+            {"dotted.txt": linux_dotted_leak},
+            (("local-user-path", local_user_path),),
+            dotted_failures,
+        )
+        == 1
+        and dotted_failures == ["denylist: dotted.txt:1 contains local-user-path"],
+        "repository local-user-path dotted Linux scan finding",
     )
 
 
@@ -1209,6 +1261,31 @@ def selftest_end_to_end():
             "explicit in-root denylist is path-excluded: %r" % output,
         )
 
+    repository_policy = _selftest_repository_policy_source()
+    if repository_policy is not None:
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as external:
+            root = Path(temporary)
+            _materialize_fixture(root)
+            (root / DENYLIST_NAME).write_text(repository_policy, encoding="utf-8")
+            external_denylist = Path(external) / DENYLIST_NAME
+            external_denylist.write_text(repository_policy, encoding="utf-8")
+            status, output = _capture_main(
+                [
+                    "--root",
+                    str(root),
+                    "--account-slug",
+                    "neutral-owner",
+                    "--denylist",
+                    str(external_denylist),
+                ]
+            )
+            _selftest_check(
+                status == 0
+                and "source files scanned : 1" in output
+                and "denylist matches     : 0" in output,
+                "external repo policy excludes in-repo policy scan: %r" % output,
+            )
+
     if not os.environ.get("PUBLICATION_GATE_SELFTEST_COPY_PROBE"):
         with tempfile.TemporaryDirectory() as temporary:
             copied_gate = Path(temporary) / "check_publication_gate.py"
@@ -1223,6 +1300,11 @@ def selftest_end_to_end():
                 env=environment,
                 check=False,
                 text=True,
+            )
+            _selftest_check(
+                "ok: selftest_repository_policy (skipped: no repository policy)\n" in result.stdout
+                and "\nok: selftest_repository_policy\n" not in result.stdout,
+                "copied-single-file repository-policy skip line: %r" % result.stdout,
             )
             _selftest_check(
                 result.returncode == 0 and "PASS (publication gate selftest" in result.stdout,
@@ -1241,7 +1323,9 @@ def run_selftests():
         selftest_end_to_end,
     )
     for test in tests:
-        test()
+        outcome = test()
+        if outcome == "skip-printed":
+            continue
         print("ok: %s" % test.__name__)
     print("PASS (publication gate selftest; assertions: %d)" % SELFTEST_ASSERTIONS)
     return 0

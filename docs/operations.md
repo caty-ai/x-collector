@@ -119,7 +119,7 @@ railway variables --service x-collector-step5-cron --set RETENTION_MODE=apply
 - `rg`（ripgrep）— Ubuntu/WSL2: `sudo apt-get install ripgrep` / macOS: `brew install ripgrep`
 - `railway` CLI — `npm i -g @railway/cli`（[公式の他の導入手段](https://docs.railway.com/guides/cli)も可）
 
-> **WSL2 で運用する場合**: リポジトリは Linux ファイルシステム側（例: `~/`）に置き、`/mnt/c` 配下は避けてください（ファイル監視が不安定・npm が大幅に低速）。また `gh` はディストロ内でインストール・認証してください — Windows 側の `gh.exe` が PATH に載っていると、認証情報が Windows プロファイルに書かれ、Windows 形式のパスが返るため `contribute-source` などのツールが正しく動きません。
+> **WSL2 で運用する場合**: リポジトリは Linux ファイルシステム側（例: `~/`）に置き、`/mnt/c` 配下は避けてください（ファイル監視が不安定・npm が大幅に低速）。また `gh` はディストロ内でインストール・認証してください — Windows 側の `gh.exe` が PATH に載っていると、認証情報が Windows プロファイルに書かれ、Windows 側の Git・パス解釈で動くため、`contribute-source` などが渡す Linux パス（`/tmp/...`）を扱えず正しく動きません。
 
 ```bash
 # 例: cron service 側の必須キー確認
