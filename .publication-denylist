@@ -3,4 +3,4 @@
 # 生値そのものを検査したい場合は CI secret 経由 (--denylist "$PUBLICATION_DENYLIST_PATH") を使う。
 internal-tailscale-ip	\b100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}\b
 internal-tailnet-host	\b[A-Za-z0-9-]+\.ts\.net\b
-local-user-path	/Users/[A-Za-z0-9_-]+/
+local-user-path	(?-i:/Users/|/home/(?![<{])[A-Za-z0-9._-]+)

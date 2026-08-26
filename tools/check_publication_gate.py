@@ -733,6 +733,49 @@ def selftest_policy_parsers():
             raise RuntimeError("selftest failed: non-object registry accepted")
 
 
+def selftest_repository_policy():
+    if os.environ.get("PUBLICATION_GATE_SELFTEST_COPY_PROBE"):
+        return
+
+    repository_root = Path(__file__).resolve().parent.parent
+    rules = load_denylist(repository_root)
+    local_user_patterns = [pattern for name, pattern in rules if name == "local-user-path"]
+    _selftest_check(len(local_user_patterns) == 1, "repository local-user-path rule")
+    local_user_path = local_user_patterns[0]
+    macos_leak = "/Us" + "ers/alice/x-collector/.env"
+    linux_leak = "/ho" + "me/alice/x-collector/.env"
+    _selftest_check(
+        local_user_path.search(macos_leak) is not None,
+        "repository local-user-path macOS leak",
+    )
+    _selftest_check(
+        local_user_path.search(linux_leak) is not None,
+        "repository local-user-path Linux leak",
+    )
+    _selftest_check(
+        all(
+            local_user_path.search(sample) is None
+            for sample in (
+                "/home/<user>/x-collector/.env",
+                "/home/{user}/x-collector/.env",
+                "https://api.github.com/users/alice",
+            )
+        ),
+        "repository local-user-path clean controls",
+    )
+    failures = []
+    _selftest_check(
+        check_denylist(
+            {"leak.txt": linux_leak},
+            (("local-user-path", local_user_path),),
+            failures,
+        )
+        == 1
+        and failures == ["denylist: leak.txt:1 contains local-user-path"],
+        "repository local-user-path Linux scan finding",
+    )
+
+
 def selftest_scanners():
     rules = (("private marker", re.compile("private" + "[- ]marker", re.IGNORECASE)),)
     failures = []
@@ -1190,7 +1233,13 @@ def selftest_end_to_end():
 def run_selftests():
     global SELFTEST_ASSERTIONS
     SELFTEST_ASSERTIONS = 0
-    tests = (selftest_policy_parsers, selftest_scanners, selftest_registry_checks, selftest_end_to_end)
+    tests = (
+        selftest_policy_parsers,
+        selftest_repository_policy,
+        selftest_scanners,
+        selftest_registry_checks,
+        selftest_end_to_end,
+    )
     for test in tests:
         test()
         print("ok: %s" % test.__name__)
