@@ -826,6 +826,61 @@ def selftest_repository_policy():
         and dotted_failures == ["denylist: dotted.txt:1 contains local-user-path"],
         "repository local-user-path dotted Linux scan finding",
     )
+    windows_user_patterns = [
+        pattern for name, pattern in rules if name == "windows-user-path"
+    ]
+    _selftest_check(len(windows_user_patterns) == 1, "repository windows-user-path rule")
+    windows_user_path = windows_user_patterns[0]
+    windows_backslash_leak = "C:\\Us" + "ers\\alice\\x-collector\\.env"
+    windows_json_escaped_leak = "C:\\\\Us" + "ers\\\\alice\\\\x-collector\\\\.env"
+    windows_lowercase_leak = "c:\\us" + "ers\\bob\\secrets.txt"
+    windows_forward_leak = "C:/Us" + "ers/alice/x-collector/.env"
+    windows_drive_d_leak = "D:\\Us" + "ers\\carol\\notes.md"
+    windows_file_url_leak = "file:///C:/Us" + "ers/carol/x-collector/.env"
+    _selftest_check(
+        all(
+            windows_user_path.search(sample) is not None
+            for sample in (
+                windows_backslash_leak,
+                windows_json_escaped_leak,
+                windows_lowercase_leak,
+                windows_forward_leak,
+                windows_drive_d_leak,
+                windows_file_url_leak,
+            )
+        ),
+        "repository windows-user-path leaks",
+    )
+    windows_dotted_leak = "C:\\Us" + "ers\\j.doe\\x-collector\\.env"
+    windows_dotted_match = windows_user_path.search(windows_dotted_leak)
+    _selftest_check(
+        windows_dotted_match is not None
+        and windows_dotted_match.group(0) == "C:\\Us" + "ers\\j.doe",
+        "repository windows-user-path dotted leak",
+    )
+    _selftest_check(
+        all(
+            windows_user_path.search(sample) is None
+            for sample in (
+                "C:\\Us" + "ers\\<user>\\x-collector\\.env",
+                "C:\\Us" + "ers\\{user}\\x-collector\\.env",
+                "https://api.github.com/users/alice",
+                "mailto:Users/alice",
+            )
+        ),
+        "repository windows-user-path clean controls",
+    )
+    windows_failures = []
+    _selftest_check(
+        check_denylist(
+            {"win.txt": windows_backslash_leak},
+            (("windows-user-path", windows_user_path),),
+            windows_failures,
+        )
+        == 1
+        and windows_failures == ["denylist: win.txt:1 contains windows-user-path"],
+        "repository windows-user-path scan finding",
+    )
 
 
 def selftest_scanners():
