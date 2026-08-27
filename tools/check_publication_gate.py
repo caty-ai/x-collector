@@ -832,6 +832,8 @@ def selftest_repository_policy():
     _selftest_check(len(windows_user_patterns) == 1, "repository windows-user-path rule")
     windows_user_path = windows_user_patterns[0]
     windows_backslash_leak = "C:\\Us" + "ers\\alice\\x-collector\\.env"
+    windows_mixed_sep_leak = "C:\\Us" + "ers/alice\\x-collector\\.env"
+    windows_cjk_leak = "C:\\Us" + "ers\\翔太郎\\x-collector\\.env"
     windows_json_escaped_leak = "C:\\\\Us" + "ers\\\\alice\\\\x-collector\\\\.env"
     windows_lowercase_leak = "c:\\us" + "ers\\bob\\secrets.txt"
     windows_forward_leak = "C:/Us" + "ers/alice/x-collector/.env"
@@ -842,6 +844,8 @@ def selftest_repository_policy():
             windows_user_path.search(sample) is not None
             for sample in (
                 windows_backslash_leak,
+                windows_mixed_sep_leak,
+                windows_cjk_leak,
                 windows_json_escaped_leak,
                 windows_lowercase_leak,
                 windows_forward_leak,
@@ -866,6 +870,7 @@ def selftest_repository_policy():
                 "C:\\Us" + "ers\\{user}\\x-collector\\.env",
                 "https://api.github.com/users/alice",
                 "mailto:Users/alice",
+                "mailto:/Us" + "ers/alice",
             )
         ),
         "repository windows-user-path clean controls",
@@ -880,6 +885,18 @@ def selftest_repository_policy():
         == 1
         and windows_failures == ["denylist: win.txt:1 contains windows-user-path"],
         "repository windows-user-path scan finding",
+    )
+    encoded_windows_failures = []
+    _selftest_check(
+        check_denylist(
+            {"enc.txt": "C:%5CUs" + "ers%5Calice"},
+            (("windows-user-path", windows_user_path),),
+            encoded_windows_failures,
+        )
+        == 1
+        and encoded_windows_failures
+        == ["denylist: enc.txt:1 contains windows-user-path (decoded view)"],
+        "repository windows-user-path decoded scan finding",
     )
 
 
