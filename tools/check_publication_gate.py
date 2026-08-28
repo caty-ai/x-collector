@@ -947,12 +947,25 @@ def selftest_repository_policy():
         ),
         "repository wsl-drvfs-user-path leaks",
     )
+    wsl_file_url_match = wsl_user_path.search(wsl_file_url_leak)
+    _selftest_check(
+        wsl_file_url_match is not None
+        and wsl_file_url_match.group(0) == "/mn" + "t/c/users/carol",
+        "repository wsl-drvfs-user-path file URL span pin",
+    )
     wsl_dotted_leak = "/mn" + "t/c/users/j" ".doe/x-collector/.env"
     wsl_dotted_match = wsl_user_path.search(wsl_dotted_leak)
     _selftest_check(
         wsl_dotted_match is not None
         and wsl_dotted_match.group(0) == "/mn" + "t/c/users/j" ".doe",
         "repository wsl-drvfs-user-path dotted leak",
+    )
+    wsl_hyphenated_leak = "/mn" + "t/c/users/anne" "-marie/x-collector/.env"
+    wsl_hyphenated_match = wsl_user_path.search(wsl_hyphenated_leak)
+    _selftest_check(
+        wsl_hyphenated_match is not None
+        and wsl_hyphenated_match.group(0) == "/mn" + "t/c/users/anne" "-marie",
+        "repository wsl-drvfs-user-path hyphenated leak",
     )
     _selftest_check(
         all(
