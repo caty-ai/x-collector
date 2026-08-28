@@ -7,8 +7,13 @@
 # Windows 側は大文字小文字を区別しないため小文字綴りも同じ漏洩だが、`local-user-path` の
 # case-sensitive 部にも `windows-user-path` のドライブ文字前提にも掛からないための独立ルール。
 # `local-user-path` を case-insensitive 化して代用してはならない (`api.github.com/users/...` の FP クラスが再び開く)。
+# 先頭にアンカーを置かない形は 5席レビュー (#76) の裁定。Opus/Codex/Kimi の3席が独立に、先頭 lookbehind が
+# UNC (`\\wsl.localhost\<distro>\mnt\...`)・`vscode-remote://wsl+<distro>/mnt/...`・`file://localhost/mnt/...`・
+# 相対や省略形 (`../`, `.../`) を取りこぼす fail-open を作ると実証した。`local-user-path` も先頭アンカーを持たない
+# ため、これが family の既定形。代償は URL パス形 (`https://example.com/mnt/<drive>/users/<name>`) の過検出だが、
+# fail-closed 側であり、3リポ 537 ファイルの実測で誤検出ゼロ。
 internal-tailscale-ip	\b100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}\b
 internal-tailnet-host	\b[A-Za-z0-9-]+\.ts\.net\b
 local-user-path	(?-i:/Users/|/home/(?![<{])[A-Za-z0-9._-]+)
 windows-user-path	\b[A-Za-z]:[\\/]+Users[\\/]+(?![<{])[\w.-]+
-wsl-drvfs-user-path	(?<![\w.-])[\\/]+mnt[\\/]+[A-Za-z][\\/]+users[\\/]+(?![<{])[\w.-]+
+wsl-drvfs-user-path	[\\/]mnt[\\/]+[A-Za-z][\\/]+users[\\/]+(?![<{])[\w.-]+
