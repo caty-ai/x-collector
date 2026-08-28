@@ -898,6 +898,133 @@ def selftest_repository_policy():
         == ["denylist: enc.txt:1 contains windows-user-path (decoded view)"],
         "repository windows-user-path decoded scan finding",
     )
+    wsl_user_patterns = [
+        pattern for name, pattern in rules if name == "wsl-drvfs-user-path"
+    ]
+    _selftest_check(len(wsl_user_patterns) == 1, "repository wsl-drvfs-user-path rule")
+    wsl_user_path = wsl_user_patterns[0]
+    wsl_home_leak = "/mn" + "t/c/users/alice/x-collector/.env"
+    wsl_uppercase_leak = "/MN" + "T/C/USERS/BOB/notes.md"
+    wsl_drive_d_leak = "/mn" + "t/d/users/carol/secrets.txt"
+    wsl_cjk_leak = "/mn" + "t/c/users/翔太郎/x-collector/.env"
+    wsl_env_leak = "export HOME=/mn" + "t/c/users/alice"
+    wsl_file_url_leak = "file:///mn" + "t/c/users/carol/x-collector/.env"
+    wsl_json_escaped_leak = "\\/mn" + "t\\/c\\/users\\/alice"
+    wsl_unc_leak = "\\\\wsl.localhost\\Ubuntu\\mn" + "t\\c\\users\\alice\\docs"
+    wsl_vscode_remote_leak = (
+        "vscode-remote://wsl+Ubuntu/mn" + "t/c/users/alice/docs"
+    )
+    wsl_abbreviated_leak = ".../mn" + "t/c/users/alice/project/x.ts"
+    wsl_all_backslash_leak = "\\mn" + "t\\c\\users\\alice"
+    _selftest_check(
+        all(
+            wsl_user_path.search(sample) is not None
+            for sample in (
+                wsl_unc_leak,
+                wsl_vscode_remote_leak,
+                wsl_abbreviated_leak,
+                wsl_all_backslash_leak,
+            )
+        ),
+        "repository wsl-drvfs-user-path newly covered leaks",
+    )
+    _selftest_check(
+        all(
+            wsl_user_path.search(sample) is not None
+            for sample in (
+                wsl_home_leak,
+                wsl_uppercase_leak,
+                wsl_drive_d_leak,
+                wsl_cjk_leak,
+                wsl_env_leak,
+                wsl_file_url_leak,
+                wsl_json_escaped_leak,
+                wsl_unc_leak,
+                wsl_vscode_remote_leak,
+                wsl_abbreviated_leak,
+                wsl_all_backslash_leak,
+            )
+        ),
+        "repository wsl-drvfs-user-path leaks",
+    )
+    wsl_file_url_match = wsl_user_path.search(wsl_file_url_leak)
+    _selftest_check(
+        wsl_file_url_match is not None
+        and wsl_file_url_match.group(0) == "/mn" + "t/c/users/carol",
+        "repository wsl-drvfs-user-path file URL span pin",
+    )
+    wsl_dotted_leak = "/mn" + "t/c/users/j" ".doe/x-collector/.env"
+    wsl_dotted_match = wsl_user_path.search(wsl_dotted_leak)
+    _selftest_check(
+        wsl_dotted_match is not None
+        and wsl_dotted_match.group(0) == "/mn" + "t/c/users/j" ".doe",
+        "repository wsl-drvfs-user-path dotted leak",
+    )
+    wsl_hyphenated_leak = "/mn" + "t/c/users/anne" "-marie/x-collector/.env"
+    wsl_hyphenated_match = wsl_user_path.search(wsl_hyphenated_leak)
+    _selftest_check(
+        wsl_hyphenated_match is not None
+        and wsl_hyphenated_match.group(0) == "/mn" + "t/c/users/anne" "-marie",
+        "repository wsl-drvfs-user-path hyphenated leak",
+    )
+    _selftest_check(
+        all(
+            wsl_user_path.search(sample) is None
+            for sample in (
+                "/opt/c/users/alice",
+                "/mnt/1/users/foo",
+            )
+        ),
+        "repository wsl-drvfs-user-path review clean controls",
+    )
+    _selftest_check(
+        all(
+            wsl_user_path.search(sample) is None
+            for sample in (
+                "/mnt/c/users/<user>/x-collector/.env",
+                "/mnt/c/users/{user}/x-collector/.env",
+                "https://api.github.com/users/alice",
+                "mailto:Users/alice",
+                "/mnt/wsl/instances/foo",
+                "/mnt/c/Windows/System32",
+                "/mnt/wsl/users/foo",
+                "/mnt/backup/users/shared",
+                "/opt/c/users/alice",
+                "/mnt/1/users/foo",
+            )
+        ),
+        "repository wsl-drvfs-user-path clean controls",
+    )
+    wsl_failures = []
+    _selftest_check(
+        check_denylist(
+            {"wsl.txt": wsl_home_leak},
+            (("wsl-drvfs-user-path", wsl_user_path),),
+            wsl_failures,
+        )
+        == 1
+        and wsl_failures == ["denylist: wsl.txt:1 contains wsl-drvfs-user-path"],
+        "repository wsl-drvfs-user-path scan finding",
+    )
+    encoded_wsl_failures = []
+    _selftest_check(
+        check_denylist(
+            {"enc.txt": "%2Fmnt%2Fc%2Fus" + "ers%2Falice"},
+            (("wsl-drvfs-user-path", wsl_user_path),),
+            encoded_wsl_failures,
+        )
+        == 1
+        and encoded_wsl_failures
+        == ["denylist: enc.txt:1 contains wsl-drvfs-user-path (decoded view)"],
+        "repository wsl-drvfs-user-path decoded scan finding",
+    )
+    _selftest_check(
+        local_user_path.search("/mn" + "t/c/Us" + "ers/alice/x-collector/.env") is not None
+        and local_user_path.search("/mn" + "t/c/users/alice/x-collector/.env") is None
+        and windows_user_path.search("/mn" + "t/c/users/alice/x-collector/.env") is None
+        and wsl_user_path.search("/mn" + "t/c/users/alice/x-collector/.env") is not None,
+        "repository wsl-drvfs-user-path complements case-sensitive rules",
+    )
 
 
 def selftest_scanners():
