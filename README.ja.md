@@ -28,7 +28,7 @@ X Collector は、自分で選んだ情報源から更新を集めて整理し�
 
 </div>
 <!-- repo-state:begin (generated; do not edit) -->
-<p align="center"><sub>generation: <code>4e55dbf</code> (2026-08-28T07:06:02Z) · verify: <a href="https://api.github.com/repos/caty-ai/x-collector/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
+<p align="center"><sub>generation: <code>ba05b65</code> (2026-08-29T02:52:36Z) · verify: <a href="https://api.github.com/repos/caty-ai/x-collector/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
 <!-- repo-state:end -->
 
 ---
