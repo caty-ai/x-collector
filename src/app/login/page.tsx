@@ -1,4 +1,5 @@
 import LoginCard from "@/components/auth/LoginCard";
+import { describeLoginError, firstSearchParam } from "@/lib/auth/login-error";
 
 type LoginPageProps = {
   searchParams?: Record<string, string | string[] | undefined>;
@@ -8,18 +9,6 @@ function normalizeCallbackUrl(raw: string | undefined): string {
   if (!raw) return "/";
   if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
   return raw;
-}
-
-function firstSearchParam(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-export function describeLoginError(error: string | undefined): string | null {
-  if (!error) return null;
-  if (error === "AccessDenied") {
-    return "This Google account is not on the allowlist. Ask the administrator to add your address, or sign in with a different account.";
-  }
-  return "Sign-in failed. Please try again.";
 }
 
 export default function LoginPage({ searchParams }: LoginPageProps) {

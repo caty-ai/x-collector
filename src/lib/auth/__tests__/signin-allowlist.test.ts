@@ -1,7 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { describeLoginError } from "@/app/login/page";
 import {
   __resetAllowlistWarningForTests,
   decideTokenAccess,
@@ -10,6 +9,7 @@ import {
   normalizeEmail,
   warnIfAllowlistUnconfigured,
 } from "@/lib/auth/admin";
+import { describeLoginError, firstSearchParam } from "@/lib/auth/login-error";
 import { authOptions } from "@/lib/auth/options";
 
 type SignInCallback = NonNullable<NonNullable<NextAuthOptions["callbacks"]>["signIn"]>;
@@ -300,6 +300,11 @@ describe("token access decisions", () => {
 });
 
 describe("login error messages", () => {
+  it("uses the first search parameter value", () => {
+    expect(firstSearchParam(["AccessDenied", "x"])).toBe("AccessDenied");
+    expect(firstSearchParam(undefined)).toBeUndefined();
+  });
+
   it("maps only known fixed strings and never reflects unknown values", () => {
     expect(describeLoginError("AccessDenied")).toBe(
       "This Google account is not on the allowlist. Ask the administrator to add your address, or sign in with a different account.",
