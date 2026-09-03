@@ -1,4 +1,4 @@
-/*! ask-ai-widget v0.1.3 — https://github.com/shojikumaru/ask-ai-widget
+/*! ask-ai-widget v0.1.3 — the open-source ask-ai-widget project, release tag v0.1.3
  *  Vendored 2026-09-03 for the newspaper reader (/calendar). MIT License, Copyright (c) 2026 Sho Jikumaru.
  *  No tracking, no external requests. Update by replacing this file with the tagged release. */
 (function () {
