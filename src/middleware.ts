@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "next-auth/middleware";
 
-import { isAdminEmailAllowed, isAdminRoute, maskEmailForLog } from "@/lib/auth/admin";
+import { decideTokenAccess, isAdminEmailAllowed, maskEmailForLog } from "@/lib/auth/admin";
 import { authSecret } from "@/lib/auth/options";
 import { SHARED_COOKIE_NAME, verifySharedCookie } from "@/lib/auth/shared-newspaper";
 
 export default withAuth(
   async (req) => {
     const pathname = req.nextUrl.pathname;
+    const email = typeof req.nextauth.token?.email === "string" ? req.nextauth.token.email : null;
 
     if (pathname === "/calendar" || pathname.startsWith("/calendar/")) {
-      if (req.nextauth.token) return NextResponse.next();
+      if (req.nextauth.token && isAdminEmailAllowed(email)) return NextResponse.next();
 
       const hasSharedAccess = await verifySharedCookie(req.cookies.get(SHARED_COOKIE_NAME)?.value);
       if (hasSharedAccess) return NextResponse.next();
@@ -18,22 +19,23 @@ export default withAuth(
       return NextResponse.redirect(new URL("/np-login", req.url));
     }
 
-    if (!isAdminRoute(pathname)) return NextResponse.next();
+    if (pathname === "/np-login") return NextResponse.next();
 
-    const email = typeof req.nextauth.token?.email === "string" ? req.nextauth.token.email : null;
-    const allowed = isAdminEmailAllowed(email);
-
-    if (allowed) return NextResponse.next();
+    const decision = decideTokenAccess({ pathname, email });
+    if (decision === "next") return NextResponse.next();
 
     console.warn(
       `[auth-admin] deny path=${pathname} email=${maskEmailForLog(email)} reason=allowlist_miss_or_unconfigured`,
     );
 
-    if (pathname.startsWith("/api/admin/")) {
+    if (decision === "forbidden_json") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    return new NextResponse("Forbidden", { status: 403 });
+    return new NextResponse(
+      "Forbidden: this account is not on the allowlist. Sign out at /api/auth/signout to switch accounts.",
+      { status: 403 },
+    );
   },
   {
     pages: {

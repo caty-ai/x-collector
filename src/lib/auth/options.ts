@@ -1,5 +1,13 @@
-import type { NextAuthOptions } from "next-auth";
+import type { NextAuthOptions, Session } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
+
+import {
+  evaluateSignIn,
+  isAdminEmailAllowed,
+  isAllowlistConfigured,
+  maskEmailForLog,
+  warnIfAllowlistUnconfigured,
+} from "@/lib/auth/admin";
 
 const fallbackGoogleClientId = "missing-google-client-id";
 const fallbackGoogleClientSecret = "missing-google-client-secret";
@@ -74,11 +82,16 @@ export const authSecret = resolveAuthSecret();
 
 const googleClientId = resolveGoogleClientId();
 const googleClientSecret = resolveGoogleClientSecret();
+const isProductionBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
 if (!isProductionRuntime() && missingFallbackGroups.length > 0) {
   console.warn(
     `[auth-options] development fallbacks active; missing env: ${missingFallbackGroups.join(", ")}`,
   );
+}
+
+if (!isProductionBuildPhase && process.env.NODE_ENV !== "test") {
+  warnIfAllowlistUnconfigured();
 }
 
 export const authOptions: NextAuthOptions = {
@@ -94,5 +107,39 @@ export const authOptions: NextAuthOptions = {
   },
   pages: {
     signIn: "/login",
+    error: "/login",
+  },
+  callbacks: {
+    signIn({ user, account, profile }) {
+      const profileRecord = profile as Record<string, unknown> | undefined;
+      const rawProfileEmail = profileRecord?.["email"];
+      const profileEmail = typeof rawProfileEmail === "string" ? rawProfileEmail : null;
+      const rawEmailVerified = profileRecord?.["email_verified"];
+      const emailVerified =
+        account?.provider === "google" && typeof rawEmailVerified === "boolean"
+          ? rawEmailVerified
+          : null;
+      const decision = evaluateSignIn({
+        email: profileEmail,
+        emailVerified,
+        userEmail: user?.email ?? null,
+      });
+
+      if (!decision.allowed) {
+        warnIfAllowlistUnconfigured();
+        console.warn(
+          `[auth-signin] deny provider=${account?.provider ?? "(none)"} email=${maskEmailForLog(profileEmail)} reason=${decision.reason}`,
+        );
+      }
+
+      return decision.allowed;
+    },
+    session({ session, token }) {
+      if (isAdminEmailAllowed(token.email)) return session;
+
+      const reason = isAllowlistConfigured() ? "allowlist_miss" : "allowlist_unconfigured";
+      console.warn(`[auth-session] deny email=${maskEmailForLog(token.email)} reason=${reason}`);
+      return {} as unknown as Session;
+    },
   },
 };

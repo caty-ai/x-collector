@@ -31,6 +31,6 @@
 
 - **Newsletter BFFのキー解決順** — サーバーサイドのルートは `NEWSLETTER_API_KEY` → `DIGEST_API_KEY` → `FEED_API_KEY` の順でAPIキーを解決します
 - **MCPのゲート** — `MCP_API_KEY` が未設定なら `FAMILY_FEED_API_KEY` にフォールバック。両方未設定のときはオープンな開発モードで動作します
-- **管理ルートはfail-close** — `ADMIN_EMAIL_ALLOWLIST` が未設定の場合、`/admin` と `/api/admin/**` は403を返します
+- **Googleログインと保護ルートはfail-close** — `ADMIN_EMAIL_ALLOWLIST` はGoogleログインとNextAuth保護ルートすべてを制限し、未設定・空なら誰もログインできず既存トークンも403になります
 - **既定のLLMモデル** — 分類・クロスリンク・紙面生成はいずれもOpenRouter経由の `google/gemini-3.1-flash-lite-preview` が既定です
 - **MCPエンドポイント** — `/api/mcp/mcp` のread-only Streamable HTTPで、`search_feed` と `get_daily_news` を提供します
