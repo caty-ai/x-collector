@@ -170,7 +170,7 @@ describe("NextAuth wiring", () => {
     ).toBe(false);
   });
 
-  it("denies non-Google and non-literally-verified profiles", async () => {
+  it("denies non-Google, incomplete, and non-literally-verified profiles", async () => {
     const signIn = getSignInCallback();
     vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "admin@example.com");
 
@@ -185,7 +185,12 @@ describe("NextAuth wiring", () => {
     const missingProfileEmail = signInInput();
     delete (missingProfileEmail.profile as Record<string, unknown>)["email"];
     expect(await signIn(missingProfileEmail)).toBe(false);
+
+    const missingUserEmail = signInInput();
+    delete (missingUserEmail.user as unknown as Record<string, unknown>)["email"];
+    expect(await signIn(missingUserEmail)).toBe(false);
     expect(await signIn(signInInput({ userEmail: null }))).toBe(false);
+    expect(await signIn(signInInput({ userEmail: "" }))).toBe(false);
   });
 
   it("binds verification to the same user address", async () => {

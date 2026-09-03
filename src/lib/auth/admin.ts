@@ -66,7 +66,7 @@ export const isAllowlistConfigured = (): boolean => getAllowlist().size > 0;
 export const evaluateSignIn = (input: {
   email?: string | null;
   emailVerified?: boolean | null;
-  userEmail?: string | null;
+  userEmail: string | null;
 }): SignInDecision => {
   if (!input.email || input.userEmail === null || input.userEmail === "") {
     return { allowed: false, reason: "email_missing" };
@@ -74,10 +74,7 @@ export const evaluateSignIn = (input: {
   if (input.emailVerified !== true) {
     return { allowed: false, reason: "email_unverified" };
   }
-  if (
-    input.userEmail !== undefined &&
-    normalizeEmail(input.email) !== normalizeEmail(input.userEmail)
-  ) {
+  if (normalizeEmail(input.email) !== normalizeEmail(input.userEmail)) {
     return { allowed: false, reason: "email_mismatch" };
   }
   if (!isAllowlistConfigured()) {

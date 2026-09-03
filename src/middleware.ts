@@ -34,7 +34,7 @@ export default withAuth(
 
     return new NextResponse(
       "Forbidden: this account is not on the allowlist. Sign out at /api/auth/signout to switch accounts.",
-      { status: 403 },
+      { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } },
     );
   },
   {
