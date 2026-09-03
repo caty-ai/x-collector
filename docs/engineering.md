@@ -17,6 +17,7 @@ X Collector is a self-hosted Next.js + PostgreSQL service that collects AI and t
 - **Make source quality visible.** Daily, rules-based trust scores influence newspaper ranking; stories from low-trust or unverified sources are badged in the newspaper, and blocked sources are excluded from selection.
 - **Retire declining discovered sources safely.** Only automatically discovered sources are eligible for automatic deactivation, and only after two consecutive weekly gates; manually added sources are never automatically stopped.
 - **Manage sources in one place.** The settings interface covers platform source lists, candidate review, and restoration of lifecycle-deactivated sources.
+- **Reader actions.** Each newspaper article has Ask-AI / X / Facebook / copy-link buttons and a stable positional anchor (`/calendar?date=YYYY-MM-DD#a-YYYY-MM-DD-n`; anchors are re-assigned if an edition is re-published); a self-hosted ask-ai-widget v0.1.3 banner (© 2026 Sho Jikumaru; vendored verbatim at `public/calendar/ask-ai-widget.js`, MIT, no tracking, no external requests) lets readers ask their own AI about the day's edition. The widget injects its own `<style>` element (relevant if you add a CSP `style-src`) and has no unmount API, so each date change leaves a few inert document listeners behind (proportional to the number of date switches in a session).
 
 ---
 
