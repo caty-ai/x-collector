@@ -1,8 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import ReactMarkdown, { type Components } from "react-markdown";
 
+import { ArticleActions } from "@/components/reader/ArticleActions";
+import { AskAiBanner } from "@/components/reader/AskAiBanner";
+import {
+  buildArticleAnchorId,
+  buildArticleUrl,
+  buildEditionQuestion,
+  buildEditionUrl,
+  extractFirstExternalUrl,
+  formatDateLabelJa,
+  isIsoDate,
+  resolveDeepLinkAnchor,
+} from "@/components/reader/reader-links";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Headline } from "@/components/ui/Headline";
 import { Rule } from "@/components/ui/Rule";
@@ -372,11 +385,23 @@ function trustBadgeLabelForArticle(
   return matchedByUrl?.trustLabel ? TRUST_BADGE_LABELS[matchedByUrl.trustLabel] || null : null;
 }
 
-export default function NewsletterViewerPanel({ masthead }: NewsletterViewerPanelProps) {
+export default function NewsletterViewerPanel(props: NewsletterViewerPanelProps) {
+  return (
+    <Suspense fallback={<div className="border border-hairline bg-paper p-5 font-sans text-wired-meta text-ink/60">読み込み中...</div>}>
+      <NewsletterViewerPanelContent {...props} />
+    </Suspense>
+  );
+}
+
+function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) {
+  const searchParams = useSearchParams();
+  const urlDate = searchParams.get("date");
+  const prevUrlDateRef = useRef(urlDate);
   const today = formatUtcToJstDate(new Date());
-  const [selectedDate, setSelectedDate] = useState(today);
-  const [appliedDate, setAppliedDate] = useState(today);
-  const [visibleMonth, setVisibleMonth] = useState(() => monthStartFromIso(today));
+  const initialDate = isIsoDate(urlDate) ? urlDate : today;
+  const [selectedDate, setSelectedDate] = useState(initialDate);
+  const [appliedDate, setAppliedDate] = useState(initialDate);
+  const [visibleMonth, setVisibleMonth] = useState(() => monthStartFromIso(initialDate));
   const [state, setState] = useState<ViewerState>({
     loading: true,
     edition: null,
@@ -389,12 +414,18 @@ export default function NewsletterViewerPanel({ masthead }: NewsletterViewerPane
   const [indicatorLoading, setIndicatorLoading] = useState(false);
   const [indicatorError, setIndicatorError] = useState<string | null>(null);
   const [ogImages, setOgImages] = useState<Record<string, OgImageState>>({});
+  const [origin, setOrigin] = useState("");
+  const [locationHash, setLocationHash] = useState("");
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const monthIndicatorCache = useRef<Record<string, Record<string, DayIndicator>>>({});
   const indicatorRequestSeq = useRef(0);
+  const editionRequestSeq = useRef(0);
   const ogImageRequestKeys = useRef<Set<string>>(new Set());
   const ogImageEpochRef = useRef(0);
   const previousMarkdownRef = useRef<string | null>(null);
+  const renderedEditionDateRef = useRef<string | null>(null);
+  const lastDeepLinkRef = useRef<string | null>(null);
 
   const applyDate = useCallback((date: string) => {
     setSelectedDate(date);
@@ -403,6 +434,9 @@ export default function NewsletterViewerPanel({ masthead }: NewsletterViewerPane
   }, []);
 
   const loadEdition = useCallback(async (date: string) => {
+    const requestId = ++editionRequestSeq.current;
+    if (editionRequestSeq.current !== requestId) return;
+    renderedEditionDateRef.current = null;
     setState({ loading: true, edition: null, markdown: null, emptyDay: false, error: null });
 
     const jsonParams = new URLSearchParams({
@@ -420,6 +454,8 @@ export default function NewsletterViewerPanel({ masthead }: NewsletterViewerPane
 
       try {
         const markdown = await fetchNewsletterMarkdown(date);
+        if (editionRequestSeq.current !== requestId) return;
+        renderedEditionDateRef.current = date;
         setState({
           loading: false,
           edition: jsonData.edition,
@@ -429,6 +465,7 @@ export default function NewsletterViewerPanel({ masthead }: NewsletterViewerPane
         });
       } catch (error) {
         if (error instanceof HttpError && error.status === 404) {
+          if (editionRequestSeq.current !== requestId) return;
           setState({
             loading: false,
             edition: jsonData.edition,
@@ -439,6 +476,7 @@ export default function NewsletterViewerPanel({ masthead }: NewsletterViewerPane
           return;
         }
 
+        if (editionRequestSeq.current !== requestId) return;
         setState({
           loading: false,
           edition: null,
@@ -449,10 +487,12 @@ export default function NewsletterViewerPanel({ masthead }: NewsletterViewerPane
       }
     } catch (error) {
       if (error instanceof HttpError && error.status === 404) {
+        if (editionRequestSeq.current !== requestId) return;
         setState({ loading: false, edition: null, markdown: null, emptyDay: true, error: null });
         return;
       }
 
+      if (editionRequestSeq.current !== requestId) return;
       setState({ loading: false, edition: null, markdown: null, emptyDay: false, error: buildErrorMessage(error) });
     }
   }, []);
@@ -559,6 +599,34 @@ export default function NewsletterViewerPanel({ masthead }: NewsletterViewerPane
   );
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const currentDate = params.get("date");
+    const nextHash = resolveDeepLinkAnchor(window.location.hash, appliedDate) ? window.location.hash : "";
+    params.set("date", appliedDate);
+
+    if (currentDate !== appliedDate || nextHash !== window.location.hash) {
+      window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}${nextHash}`);
+    }
+
+    setLocationHash(nextHash);
+    setOpenMenuId(null);
+  }, [appliedDate]);
+
+  useEffect(() => {
+    if (urlDate === prevUrlDateRef.current) return;
+    prevUrlDateRef.current = urlDate;
+    if (isIsoDate(urlDate) && urlDate !== appliedDate) applyDate(urlDate);
+  }, [appliedDate, applyDate, urlDate]);
+
+  useEffect(() => {
+    const syncHash = () => setLocationHash(window.location.hash);
+    setOrigin(window.location.origin);
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, []);
+
+  useEffect(() => {
     loadEdition(appliedDate);
   }, [appliedDate, loadEdition]);
 
@@ -580,8 +648,34 @@ export default function NewsletterViewerPanel({ masthead }: NewsletterViewerPane
   const calendarCells = useMemo(() => buildCalendarCells(visibleMonth), [visibleMonth]);
   const parsedNewsletter = useMemo(() => (state.markdown ? parseNewsletterMarkdown(state.markdown) : null), [state.markdown]);
 
+  useEffect(() => {
+    if (!parsedNewsletter || !state.markdown || !locationHash || renderedEditionDateRef.current !== appliedDate) return;
+
+    const deepLinkKey = `${locationHash}\u0000${state.markdown}`;
+    if (lastDeepLinkRef.current === deepLinkKey) return;
+    lastDeepLinkRef.current = deepLinkKey;
+
+    const anchor = resolveDeepLinkAnchor(locationHash, appliedDate);
+    if (!anchor) return;
+
+    const element = document.getElementById(buildArticleAnchorId(anchor.date, anchor.n));
+    if (!element) return;
+
+    const categoryDetails = element.closest("details") as HTMLDetailsElement | null;
+    const articleDetails = element.querySelector("details") as HTMLDetailsElement | null;
+    if (!categoryDetails || !articleDetails) return;
+
+    categoryDetails.open = true;
+    articleDetails.open = true;
+    document.querySelector(".is-target")?.classList.remove("is-target");
+    element.classList.add("is-target");
+    element.scrollIntoView({ block: "start" });
+  }, [appliedDate, locationHash, parsedNewsletter, state.markdown]);
+
+  let articleCounter = 0;
+
   return (
-    <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
+    <div className="flex flex-col gap-8 pb-28 lg:flex-row lg:items-start">
       <section id="reader-calendar" className="border border-hairline bg-paper p-4 lg:w-[320px] lg:shrink-0">
         <div className="flex items-center justify-between gap-2">
           <button
@@ -776,69 +870,89 @@ export default function NewsletterViewerPanel({ masthead }: NewsletterViewerPane
                           <div className="mt-5 space-y-3">
                             {section.articles.map((article, articleIdx) => {
                               const trustBadgeLabel = trustBadgeLabelForArticle(article, state.edition?.items);
+                              const articleNumber = ++articleCounter;
+                              const anchorId = buildArticleAnchorId(appliedDate, articleNumber);
+                              const sourceUrl = extractFirstExternalUrl(article.source, article.body);
 
                               return (
-                                <details
+                                <div
                                   key={`${sectionIdx}-${articleIdx}-${article.title}`}
-                                  className="group/article border-t border-hairline pt-4"
-                                  onToggle={(event) => {
-                                    if ((event.target as HTMLDetailsElement).open) {
-                                      handleArticleOpen(sectionIdx, articleIdx, article.source, article.body);
-                                    }
-                                  }}
+                                  id={anchorId}
+                                  className="scroll-mt-24 border-t border-hairline pt-4 [&.is-target]:outline [&.is-target]:outline-2 [&.is-target]:outline-ink [&.is-target]:outline-offset-[6px]"
                                 >
-                                  <summary className="flex cursor-pointer select-none items-start gap-3 marker:hidden [&::-webkit-details-marker]:hidden">
-                                    <span
-                                      aria-hidden="true"
-                                      className="mt-1 font-sans text-wired-meta text-ink/60 transition-transform group-open/article:rotate-90"
-                                    >
-                                      ▶
-                                    </span>
-                                    <span className="min-w-0">
-                                      <span className="flex flex-wrap items-center gap-2">
-                                        <span className="font-sans text-lg font-bold leading-6 text-ink">{article.title}</span>
-                                        {trustBadgeLabel && (
-                                          <span className="border border-ink bg-paper px-2 py-0.5 font-sans text-wired-eyebrow font-bold uppercase text-ink">
-                                            {trustBadgeLabel}
+                                  <details
+                                    className="group/article"
+                                    onToggle={(event) => {
+                                      if ((event.target as HTMLDetailsElement).open) {
+                                        handleArticleOpen(sectionIdx, articleIdx, article.source, article.body);
+                                      }
+                                    }}
+                                  >
+                                    <summary className="flex cursor-pointer select-none items-start gap-3 marker:hidden [&::-webkit-details-marker]:hidden">
+                                      <span
+                                        aria-hidden="true"
+                                        className="mt-1 font-sans text-wired-meta text-ink/60 transition-transform group-open/article:rotate-90"
+                                      >
+                                        ▶
+                                      </span>
+                                      <span className="min-w-0">
+                                        <span className="flex flex-wrap items-center gap-2">
+                                          <span className="font-sans text-lg font-bold leading-6 text-ink">{article.title}</span>
+                                          {trustBadgeLabel && (
+                                            <span className="border border-ink bg-paper px-2 py-0.5 font-sans text-wired-eyebrow font-bold uppercase text-ink">
+                                              {trustBadgeLabel}
+                                            </span>
+                                          )}
+                                        </span>
+                                        {article.source && (
+                                          <span className="mt-2 block font-sans text-wired-meta text-ink/60">
+                                            <Eyebrow className="mr-2">引用元</Eyebrow>
+                                            <ReactMarkdown
+                                              skipHtml
+                                              components={{
+                                                ...MARKDOWN_COMPONENTS,
+                                                p: ({ children }) => <>{children}</>,
+                                              }}
+                                            >
+                                              {article.source}
+                                            </ReactMarkdown>
                                           </span>
                                         )}
                                       </span>
-                                      {article.source && (
-                                        <span className="mt-2 block font-sans text-wired-meta text-ink/60">
-                                          <Eyebrow className="mr-2">引用元</Eyebrow>
-                                          <ReactMarkdown
-                                            skipHtml
-                                            components={{
-                                              ...MARKDOWN_COMPONENTS,
-                                              p: ({ children }) => <>{children}</>,
-                                            }}
-                                          >
-                                            {article.source}
-                                          </ReactMarkdown>
-                                        </span>
-                                      )}
-                                    </span>
-                                  </summary>
+                                    </summary>
 
-                                  {article.body && (
-                                    <div className="mt-4 pl-6">
-                                      {(() => {
-                                        const articleOgImage = ogImages[`${sectionIdx}-${articleIdx}`];
-                                        return articleOgImage?.status === "loaded" ? (
-                                          <img
-                                            src={articleOgImage.imageUrl}
-                                            loading="lazy"
-                                            alt=""
-                                            className="mb-4 max-h-56 w-auto border border-hairline object-cover"
-                                          />
-                                        ) : null;
-                                      })()}
-                                      <ReactMarkdown skipHtml className={MARKDOWN_CLASS_NAME} components={MARKDOWN_COMPONENTS}>
-                                        {article.body}
-                                      </ReactMarkdown>
-                                    </div>
-                                  )}
-                                </details>
+                                    {article.body && (
+                                      <div className="mt-4 pl-6">
+                                        {(() => {
+                                          const articleOgImage = ogImages[`${sectionIdx}-${articleIdx}`];
+                                          return articleOgImage?.status === "loaded" ? (
+                                            <img
+                                              src={articleOgImage.imageUrl}
+                                              loading="lazy"
+                                              alt=""
+                                              className="mb-4 max-h-56 w-auto border border-hairline object-cover"
+                                            />
+                                          ) : null;
+                                        })()}
+                                        <ReactMarkdown skipHtml className={MARKDOWN_CLASS_NAME} components={MARKDOWN_COMPONENTS}>
+                                          {article.body}
+                                        </ReactMarkdown>
+                                      </div>
+                                    )}
+                                  </details>
+
+                                  <ArticleActions
+                                    anchorId={anchorId}
+                                    articleUrl={buildArticleUrl(origin, appliedDate, articleNumber)}
+                                    title={article.title}
+                                    sourceUrl={sourceUrl}
+                                    summary={article.body}
+                                    isOpen={openMenuId === anchorId}
+                                    onToggle={() =>
+                                      setOpenMenuId((current) => (current === anchorId ? null : anchorId))
+                                    }
+                                  />
+                                </div>
                               );
                             })}
                           </div>
@@ -849,6 +963,17 @@ export default function NewsletterViewerPanel({ masthead }: NewsletterViewerPane
                 </div>
               )}
             </article>
+
+            {origin && (
+              <AskAiBanner
+                pageUrl={buildEditionUrl(origin, appliedDate)}
+                question={buildEditionQuestion({
+                  url: buildEditionUrl(origin, appliedDate),
+                  dateLabel: formatDateLabelJa(appliedDate),
+                  masthead,
+                })}
+              />
+            )}
           </>
         )}
       </div>
