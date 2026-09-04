@@ -64,7 +64,7 @@ The full pipeline is documented in [the V2 design](v2-design.md) (Japanese). Dep
 
 - Node.js 20 or newer
 - A PostgreSQL database
-- Google OAuth credentials for signing in to the management interface
+- Google OAuth credentials for signing in to the management interface, plus the Google account addresses you will allow to sign in
 - ScrapeCreators and OpenRouter API keys when you are ready to collect and classify data
 - A TranscriptAPI key only if you want YouTube transcript enrichment (optional)
 
@@ -90,11 +90,16 @@ AUTH_GOOGLE_ID=your_google_oauth_client_id
 AUTH_GOOGLE_SECRET=your_google_oauth_client_secret
 NEXTAUTH_URL=http://localhost:3000
 
+# Google accounts allowed to sign in (comma-separated). Unset = nobody can sign in.
+ADMIN_EMAIL_ALLOWLIST=you@example.com
+
 # The feed/newspaper UI reads through /api/bff/* proxy routes.
 # For a single local instance, point the app at itself and self-issue a key.
 RAILWAY_API_BASE_URL=http://localhost:3000
 FEED_API_KEY=any_long_random_string_you_issue_yourself
 ```
+
+`ADMIN_EMAIL_ALLOWLIST` is the list of Google accounts that may sign in; use each account's primary address as shown on myaccount.google.com (Gmail dot and plus variants, `googlemail.com`, and Workspace aliases count as different addresses). Sign-in fails closed: when the variable is unset or empty, every Google account gets `AccessDenied`, and the server logs a one-line warning at startup.
 
 Without `RAILWAY_API_BASE_URL` and `FEED_API_KEY`, sign-in succeeds but the feed, explorer, and newspaper screens return errors, because they all read through the BFF proxy.
 
@@ -126,6 +131,27 @@ Open `http://localhost:3000`, sign in, and add your own seed list under `/settin
 npm run collect
 ```
 
+<a id="reader-access-modes"></a>
+
+### Reader access modes
+
+The management interface (`/`, `/feed`, `/settings`, `/admin`) is always limited to allowlisted Google accounts. The newspaper at `/calendar` can be opened to readers in three ways; the first is the default, the other two are opt-in.
+
+1. **Allowlisted Google account** — anyone on `ADMIN_EMAIL_ALLOWLIST` signs in with Google and can read every screen, the newspaper included.
+2. **Shared passphrase** — set `NEWSPAPER_SHARED_ID` and `NEWSPAPER_SHARED_PASSWORD`, then readers sign in at `/np-login` with that pair and get a cookie that opens `/calendar` only. The cookie is signed with `AUTH_SECRET`, so rotating the secret signs every passphrase reader out. Both variables and a real auth secret must be set together, or the mode stays off.
+3. **Public newspaper** — set `NEWSPAPER_PUBLIC=1` (or `true`) and anyone can read `/calendar` without signing in. The default is off.
+
+What `NEWSPAPER_PUBLIC=1` opens and what it keeps closed:
+
+- **Opens** — `/calendar`, its static assets, the newsletter BFF, and the og-image BFF, for anonymous readers
+- **Stays closed** — `/`, `/feed`, `/settings`, `/admin`, `/api/admin/*`, and `/api/bff/feed` still require an allowlisted Google account; `/np-login` keeps working as before
+- **Published editions only** — the anonymous newsletter BFF returns published editions and answers 404 for drafts and empty dates; it forwards only validated `date`, `format`, `includeContent`, and `includeItems` parameters upstream
+- **og-image guard** — og-image requests must name an edition (`?date=`, a same-origin Referer carrying `?date=`, or a URL that belongs to the latest edition); the guard applies to signed-in readers too
+- **Throttle** — anonymous requests are rate-limited per IP (newsletter BFF 240 per 60 s, og-image BFF 120 per 60 s) as abuse friction, not as an authorization control
+- **Read at request time** — flipping the switch takes effect on restart (redeploy on hosts that bake env into the build)
+
+The authoritative rules, including the fail-close behaviour of every gate, are in the operations guide: [public mode](operations.md#公開モード-newspaper_public) and [auth / API key fail-closed rules](operations.md#auth--api-key-fail-closed-rules) (Japanese).
+
 ---
 
 ## Configuration
@@ -133,6 +159,8 @@ npm run collect
 | What you want to do | Where to look |
 |---|---|
 | Review every environment variable | [Environment variable reference](operations.md#環境変数全リファレンス) (Japanese) |
+| Open the newspaper to anonymous readers (`NEWSPAPER_PUBLIC=1`, default off) or change its subtitle (`NEWSPAPER_TAGLINE`, default is a Japanese tagline) | [Reader access modes](#reader-access-modes) above; [public mode](operations.md#公開モード-newspaper_public) (Japanese) |
+| Re-typeset an existing edition with the deterministic script mode | `npm run recompose:script -- --date-jst=YYYY-MM-DD --dry-run [--out content.md]`, then drop `--dry-run` to apply — [V2 pipeline helper CLI](operations.md#v2-パイプライン補助-cli) (Japanese) |
 | Run individual pipeline steps | [V2 pipeline helper CLI](operations.md#v2-パイプライン補助-cli) (Japanese) |
 | Configure production schedules | [Production cron guide](operations.md#cron本番運用) (Japanese) |
 | Add your own collection sources | [Adding sources](operations.md#ソース追加方法) (Japanese) |
