@@ -103,6 +103,8 @@ const EXPECTED_SCRIPTS: Record<string, string> = {
   "publish:pipeline": "ts-node -r dotenv/config src/collector/pipeline-publish.ts",
   "publish:prod": "node dist/collector/run-prod-step5.js",
   "publish:prod:daily": "ts-node -r dotenv/config src/collector/run-prod-step5.ts",
+  "recompose:script": "ts-node -r dotenv/config src/collector/run-recompose-edition-script.ts",
+  "recompose:script:prod": "node dist/collector/run-recompose-edition-script.js",
   "retention:pipeline": "ts-node -r dotenv/config src/collector/pipeline-retention.ts",
   "retention:prod": "node dist/collector/pipeline-retention.js",
   seed: "ts-node -r dotenv/config src/seed.ts",

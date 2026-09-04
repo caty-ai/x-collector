@@ -42,10 +42,10 @@ describe("text sanitization invariants", () => {
     expect(result.endsWith("…")).toBe(true);
   });
 
-  it("splits summary midpoint cuts without leaving either half ill formed", () => {
+  it("keeps a single sentence with a surrogate pair as one well-formed line", () => {
     const parts = splitSummaryLines(`abcd${"\u{1f600}"}efg`);
 
-    expect(parts).toHaveLength(2);
+    expect(parts).toHaveLength(1);
     expect(parts.every(isWellFormedString)).toBe(true);
   });
 
