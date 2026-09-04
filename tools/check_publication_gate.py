@@ -56,8 +56,49 @@ def language_of(path):
     return match.group("lang") if match else "en"
 
 
+STRING_ESCAPE = re.compile(
+    r"\\u([dD][89AaBb][0-9A-Fa-f]{2})\\u([dD][c-fC-F][0-9A-Fa-f]{2})"
+    r"|\\u([0-9A-Fa-f]{4})"
+    r"|\\U([0-9A-Fa-f]{8})"
+    r"|\\x([0-9A-Fa-f]{2})"
+    r"|\\(/)"
+)
+
+
+def decode_string_escapes(text):
+    """Decode path-relevant JSON/YAML escapes once, without tokenizing strings.
+
+    Backslash, quote, newline/tab, octal, named, and null escapes stay verbatim:
+    path rules already tolerate repeated backslashes and do not depend on quotes
+    or controls. Correctly decoding a literal ``\\\\u002f`` needs a tokenizer;
+    the accepted regex over-decodes it on the fail-closed side instead.
+    """
+
+    def replace(match):
+        if match.group(1) is not None:
+            high = int(match.group(1), 16)
+            low = int(match.group(2), 16)
+            return chr(0x10000 + ((high - 0xD800) << 10) + low - 0xDC00)
+        if match.group(3) is not None:
+            value = int(match.group(3), 16)
+            return match.group(0) if 0xD800 <= value <= 0xDFFF else chr(value)
+        if match.group(4) is not None:
+            value = int(match.group(4), 16)
+            if value > 0x10FFFF or 0xD800 <= value <= 0xDFFF:
+                return match.group(0)
+            return chr(value)
+        if match.group(5) is not None:
+            return chr(int(match.group(5), 16))
+        return "/"
+
+    return STRING_ESCAPE.sub(replace, text)
+
+
 def scan_views(text):
-    """Return raw plus iterative percent/HTML-decoded views."""
+    """Return raw plus iterative percent/HTML-decoded views, then a JSON/YAML
+    string-escape view of each (``\\uXXXX``, ``\\UXXXXXXXX``, ``\\xHH``,
+    ``\\/``) -- #77. The new views are not recursively decoded.
+    """
     views = [text]
     current = text
     for _ in range(3):
@@ -70,6 +111,10 @@ def scan_views(text):
         if unescaped == current:
             break
         current = unescaped
+    for view in tuple(views):
+        decoded = decode_string_escapes(view)
+        if decoded not in views:
+            views.append(decoded)
     return tuple(views)
 
 
@@ -1018,6 +1063,90 @@ def selftest_repository_policy():
         == ["denylist: enc.txt:1 contains wsl-drvfs-user-path (decoded view)"],
         "repository wsl-drvfs-user-path decoded scan finding",
     )
+    local_string_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"esc.txt": "\\u002fUs" + "ers\\u002falice"},
+            (("local-user-path", local_user_path),),
+            local_string_escape_failures,
+        )
+        == 1
+        and local_string_escape_failures
+        == ["denylist: esc.txt:1 contains local-user-path (decoded view)"],
+        "repository local-user-path string-escape scan finding",
+    )
+    local_solidus_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"esc.txt": "\\/Us" + "ers\\/alice"},
+            (("local-user-path", local_user_path),),
+            local_solidus_escape_failures,
+        )
+        == 1
+        and local_solidus_escape_failures
+        == ["denylist: esc.txt:1 contains local-user-path (decoded view)"],
+        "repository local-user-path solidus-escape scan finding",
+    )
+    wsl_string_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"esc.txt": "\\u002fmn" + "t\\u002fc\\u002fusers\\u002falice"},
+            (("wsl-drvfs-user-path", wsl_user_path),),
+            wsl_string_escape_failures,
+        )
+        == 1
+        and wsl_string_escape_failures
+        == ["denylist: esc.txt:1 contains wsl-drvfs-user-path (decoded view)"],
+        "repository wsl-drvfs-user-path string-escape scan finding",
+    )
+    wsl_backslash_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"esc.txt": "\\u005cmn" + "t\\u005cc\\u005cusers\\u005calice"},
+            (("wsl-drvfs-user-path", wsl_user_path),),
+            wsl_backslash_escape_failures,
+        )
+        == 1
+        and wsl_backslash_escape_failures
+        == ["denylist: esc.txt:1 contains wsl-drvfs-user-path (decoded view)"],
+        "repository wsl-drvfs-user-path backslash string-escape scan finding",
+    )
+    windows_string_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"esc.txt": "C:\\u005cUs" + "ers\\u005calice"},
+            (("windows-user-path", windows_user_path),),
+            windows_string_escape_failures,
+        )
+        == 1
+        and windows_string_escape_failures
+        == ["denylist: esc.txt:1 contains windows-user-path (decoded view)"],
+        "repository windows-user-path string-escape scan finding",
+    )
+    string_escape_clean_failures = []
+    path_rules = (
+        ("local-user-path", local_user_path),
+        ("windows-user-path", windows_user_path),
+        ("wsl-drvfs-user-path", wsl_user_path),
+    )
+    _selftest_check(
+        check_denylist(
+            {
+                "placeholder.txt": "\\u002fhome\\u002f<user>\\u002fproject",
+                "url.txt": "https:\\/\\/api.github.com\\/users\\/alice",
+                "regex.txt": "regex: [\\\\/]mn" + "t[\\\\/]+",
+                "i18n.txt": "\\u00e9\\u00e8 caf\\u00e9",
+                "usr.txt": "\\u002fusr\\u002flocal\\u002fbin",
+                "etc.txt": "\\u002fetc\\u002fhosts",
+                "emoji.txt": "\\ud83d\\ude00 emoji only",
+            },
+            path_rules,
+            string_escape_clean_failures,
+        )
+        == 0
+        and string_escape_clean_failures == [],
+        "repository path string-escape clean controls",
+    )
     _selftest_check(
         local_user_path.search("/mn" + "t/c/Us" + "ers/alice/x-collector/.env") is not None
         and local_user_path.search("/mn" + "t/c/users/alice/x-collector/.env") is None
@@ -1035,6 +1164,99 @@ def selftest_scanners():
         check_denylist(documents, rules, failures) == 1
         and "(decoded view)" in failures[0],
         "decoded denylist marker",
+    )
+    unicode_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"README.md": "private\\u002dmarker\n"}, rules, unicode_escape_failures
+        )
+        == 1
+        and "(decoded view)" in unicode_escape_failures[0],
+        "string-escape unicode denylist marker",
+    )
+    long_unicode_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"README.md": "private\\U0000002dmarker\n"},
+            rules,
+            long_unicode_escape_failures,
+        )
+        == 1
+        and "(decoded view)" in long_unicode_escape_failures[0],
+        "string-escape long-unicode denylist marker",
+    )
+    hex_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"README.md": "private\\x2dmarker\n"}, rules, hex_escape_failures
+        )
+        == 1
+        and "(decoded view)" in hex_escape_failures[0],
+        "string-escape hex denylist marker",
+    )
+    wrapped_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"README.md": "private%5Cu002dmarker\n"}, rules, wrapped_escape_failures
+        )
+        == 1
+        and "(decoded view)" in wrapped_escape_failures[0],
+        "string-escape percent-wrapped denylist marker",
+    )
+    escape_line_failures = []
+    _selftest_check(
+        check_denylist(
+            {"README.md": "safe\\u000aprivate\\u002dmarker\n"},
+            rules,
+            escape_line_failures,
+        )
+        == 1
+        and escape_line_failures
+        == ["denylist: README.md:2 contains private marker (decoded view)"],
+        "string-escape decoded-view line number",
+    )
+    surrogate_neighbour_failures = []
+    _selftest_check(
+        check_denylist(
+            {"README.md": "\\ud83d\\ude00 private\\u002dmarker"},
+            rules,
+            surrogate_neighbour_failures,
+        )
+        == 1
+        and "(decoded view)" in surrogate_neighbour_failures[0],
+        "string-escape surrogate pair preserves neighbouring match",
+    )
+    _selftest_check(
+        "😀" in scan_views("\\ud83d\\ude00"),
+        "string-escape surrogate pair combines",
+    )
+    lone_surrogate_views = scan_views("\\ud83d x")
+    _selftest_check(
+        "\\ud83d x" in lone_surrogate_views
+        and not any(
+            0xD800 <= ord(character) <= 0xDFFF
+            for view in lone_surrogate_views
+            for character in view
+        ),
+        "string-escape lone surrogate remains verbatim",
+    )
+    _selftest_check(
+        scan_views("\\U7FFFFFFF \\udc00 \\ud83d")
+        == ("\\U7FFFFFFF \\udc00 \\ud83d",),
+        "string-escape invalid code points remain verbatim",
+    )
+    _selftest_check(
+        scan_views("\\U002f") == ("\\U002f",),
+        "string-escape short uppercase escape remains verbatim",
+    )
+    _selftest_check(
+        scan_views("plain text") == ("plain text",),
+        "string-escape plain text view dedup",
+    )
+    _selftest_check(
+        scan_views("private%2Dmarker")[:2]
+        == ("private%2Dmarker", "private-marker"),
+        "string-escape existing view order",
     )
     raw_line_failures = []
     _selftest_check(
