@@ -125,6 +125,9 @@ describe("newsletter reader BFF", () => {
     const response = await getNewsletter(req("/api/bff/newsletter-editions/latest?format=markdown"));
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("shared markdown");
+    expect(console.warn).toHaveBeenCalledWith(
+      "[bff-auth] deny email=in***@example.com reason=allowlist_miss",
+    );
   });
 
   it("forwards only validated anonymous parameters and drops slug/unknown keys", async () => {
@@ -372,6 +375,9 @@ describe("og-image reader BFF", () => {
     );
     expect(response.status).toBe(200);
     expect(mocks.resolveOgImage).toHaveBeenCalledWith("https://example.com/a");
+    expect(console.warn).toHaveBeenCalledWith(
+      "[bff-auth] deny email=in***@example.com reason=allowlist_miss",
+    );
   });
 
   it("allows an anonymous target found in any date/referer/latest union member", async () => {
