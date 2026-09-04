@@ -31,6 +31,6 @@ Short versions of the rules integrators most often need. The documents above alw
 
 - **Newsletter BFF key fallback** — server-side routes resolve the API key in the order `NEWSLETTER_API_KEY` → `DIGEST_API_KEY` → `FEED_API_KEY`
 - **MCP gate** — `MCP_API_KEY` falls back to `FAMILY_FEED_API_KEY`; when both are unset the server runs in open dev mode
-- **Admin routes fail closed** — when `ADMIN_EMAIL_ALLOWLIST` is unset, `/admin` and `/api/admin/**` return 403
+- **Google sign-in and protected routes fail closed** — `ADMIN_EMAIL_ALLOWLIST` gates Google sign-in and every NextAuth-protected route; unset or empty denies all sign-ins, and tokens of non-allowlisted accounts are rejected (403 on pages, 401 on session-gated APIs; `/calendar` still honours the shared-passphrase cookie)
 - **Default LLM models** — classification, cross-linking, and composition all default to `google/gemini-3.1-flash-lite-preview` via OpenRouter
 - **MCP endpoint** — read-only Streamable HTTP at `/api/mcp/mcp`, exposing `search_feed` and `get_daily_news`

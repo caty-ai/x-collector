@@ -149,7 +149,7 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 | `GOOGLE_CLIENT_ID` | 任意 | `AUTH_GOOGLE_ID` の互換エイリアス |
 | `GOOGLE_CLIENT_SECRET` | 任意 | `AUTH_GOOGLE_SECRET` の互換エイリアス |
 | `NEXTAUTH_URL` | 推奨 | Auth.js callback URL（ローカル例: `http://localhost:3000`） |
-| `ADMIN_EMAIL_ALLOWLIST` | ✅（admin利用時） | `/admin` と `/api/admin/**` を許可するメールアドレスのカンマ区切り。未設定時は fail-close（403） |
+| `ADMIN_EMAIL_ALLOWLIST` | ✅（Auth有効時） | Googleログイン自体と全NextAuth保護ルート（`/admin`・`/api/admin/**` を含む）を許可するGoogleプライマリアドレスのカンマ区切り。trim＋小文字化で比較し、未設定・空なら誰もログインできず既存トークンもfail-close。myaccount.google.com に表示されるプライマリアドレスを指定すること。Gmailのドット・plus variant、`googlemail.com`、Workspace aliasは別アドレスとして扱う |
 | `NEWSPAPER_MASTHEAD` | 任意 | 紙面題字。未設定時は "AI Daily News" |
 | `NEWSPAPER_SHARED_ID` | 任意 | `/calendar` 共有ログインの ID。password と安全な auth secret が揃わない場合は無効 |
 | `NEWSPAPER_SHARED_PASSWORD` | 任意 | `/calendar` 共有ログインのパスワード。ID と安全な auth secret が揃わない場合は無効 |
@@ -223,6 +223,12 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 ### Auth / API key fail-closed rules
 
 - Auth.js env (`AUTH_SECRET`/`NEXTAUTH_SECRET`, `AUTH_GOOGLE_ID`/`GOOGLE_CLIENT_ID`, `AUTH_GOOGLE_SECRET`/`GOOGLE_CLIENT_SECRET`) は本番で未設定なら module init 時点で throw する。開発では既存 fallback を維持し、欠落した env group 名をまとめた warning を1行だけ出す。例外: `next build` 中（`NEXT_PHASE=phase-production-build`）は NODE_ENV=production でも throw せず fallback+warning に留める（secrets なしのローカルビルドを維持。サーバ起動時の module init で必ず再評価される）。
+- 管理者認可は、Google sign-in gate → middleware token gate → admin gate の順に同じ `ADMIN_EMAIL_ALLOWLIST` を適用する。さらに middleware の matcher 外にあるAPIは session callback がJWTのメールを再評価し、許可外なら既存のsession必須判定を401にする。未設定・空は全層でfail-close。許可判定にはGoogle profileの `email_verified === true` と、profile email／session user emailの正規化後一致も必要。
+- allowlist未設定・空の起動警告は、`[auth-signin] ADMIN_EMAIL_ALLOWLIST is unset or empty; Google sign-in is denied for everyone (fail-close). Set ADMIN_EMAIL_ALLOWLIST to a comma-separated list of Google primary addresses.`。`next build` とtestでは出さず、サーバ起動時にモジュールごとに1行（Nodeランタイムとmiddleware bundleで最大2行）出す。
+- sign-in拒否ログは `[auth-signin] deny provider=<provider|(none)> email=<masked> reason=<email_missing|email_unverified|email_mismatch|allowlist_unconfigured|allowlist_miss>`、session拒否ログは `[auth-session] deny email=<masked> reason=<allowlist_miss|allowlist_unconfigured>`。middleware拒否ログは従来どおり `[auth-admin] deny path=… email=<masked> reason=allowlist_miss_or_unconfigured` とする。生のメールアドレスは記録しない。
+- allowlistからアドレスを削除した場合、削除後はmiddleware／session gateが各リクエストで再評価するため保護ページは403・session必須APIは401になる（実効的な即時遮断）。JWT自体はアクセスがあるたびに再発行されるため既定 `maxAge`（30日）の満了は当てにできず、トークンそのものを確実に失効させる手段は `AUTH_SECRET`/`NEXTAUTH_SECRET` のローテーションのみ。
+- `/calendar` の `/np-login` 共有パスワード経路はNextAuthの外側なので機能自体に変更はない。allowlist外のGoogleアカウントはGoogle経由では `/calendar` に入れないが、有効な共有クッキーは従来どおり利用できる。
+- **デプロイ時は `AUTH_SECRET`/`NEXTAUTH_SECRET` の変更によるローテーションを同時に行うこと。** この変更以前に任意のGoogleアカウントへ発行されたsessionは、コードのデプロイだけでは失効しない。ローテーションは同じsecretでHMAC署名する `/calendar` 共有クッキー（`np_shared`）も無効化するため、共有パスワード利用者は `/np-login` から再ログインが必要（`/np-login` の機能自体は変わらない）。
 - `/api/feed`, `/api/family-feed`, `/api/newsletter-editions/latest`, `/api/mcp/[transport]` は、**effective route key が未設定のまま本番に入ると 401 fail-close** する。レスポンスは `{"error":"api key not configured"}`。
 - 同4 route は非本番では従来どおり open のままだが、auth が無効なことを module/process あたり 1 回だけ warning 出力する。
 
