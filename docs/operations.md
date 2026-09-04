@@ -75,7 +75,17 @@ npm run publish:prod
 - script mode の再組版は冪等で、当日版は夜間 cron でも再生成される。ローカル `.env` には `DATABASE_URL` と cron service と同じ `STEP_LOCALIZE_JA`（本番は `true`）を設定する。
   - Railway では `railway run --service <step5 service> npm run recompose:script:prod -- --date-jst=YYYY-MM-DD --dry-run [--out content.md]` を使い、確認後に `--dry-run` を外す。
   - script mode は `Why it matters` を出力せず、body / blurb fallback から HTML、front-matter、fence、heading marker を除去する。dry-run は `PipelineRun` を作成・更新しない。
+  - `Why it matters` は script mode では設計上出さない（決定論的な抽出であり「なぜ重要か」を合成すると創作になるため）。llm mode（`STEP5_COMPOSE_MODE` 未設定時の既定）は編集的な体裁として引き続き出力する。両形式とも同梱リーダーは読める（`Why it matters:` 行はプレーンテキスト化時に除外される）。
 - 旧コマンド（収集のみ）が必要な場合は `npm run collect:prod:legacy` を使用。
+
+### script mode のサニタイザー契約（plain-text contract）
+
+- `contentMd` 向けの出力は1行のプレーンテキストとする。
+- HTML 要素、コメント、script/style、front matter、fence、Markdown のマーカーとリンク構文を除去する。
+- HTML entity は最後にデコードするため、入力の `&lt;script&gt;` はリテラルな `<script>` として現れる。これは意図した挙動であり、`contentMd` は HTML ではなくプレーンテキスト／Markdown である。
+- 入力はサニタイズ前に `BODY_SANITIZE_MAX_INPUT_CHARS`（20,000文字）で上限を設ける。
+- `GET /api/newsletter-editions/latest?format=markdown` と `GET /api/newsletter-editions/{id}/content` は `text/markdown; charset=utf-8` と `X-Content-Type-Options: nosniff` で返す。ブラウザ向けの BFF プロキシ（`/api/bff/newsletter-editions/latest`）は現状 `content-type` しか透過しないため、`nosniff` の伝播は #85 / #88 の後続で扱う。
+- `contentMd` を raw HTML として描画する surface は必ずエスケープする。同梱リーダーは HTML として描画しない。
 
 ### `dist/` の運用ポリシー
 
