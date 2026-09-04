@@ -1,9 +1,8 @@
-import { getServerSession } from "next-auth";
 import type { NextRequest } from "next/server";
 
-import { authOptions } from "@/lib/auth/options";
 import { isNewspaperPublic } from "@/lib/auth/public-newspaper";
 import { SHARED_COOKIE_NAME, verifySharedCookie } from "@/lib/auth/shared-newspaper";
+import { resolveAllowlistedSession } from "@/lib/bff/session-auth";
 
 export type BffReaderAuth =
   | { mode: "public" }
@@ -12,7 +11,7 @@ export type BffReaderAuth =
   | { mode: "denied" };
 
 export async function resolveBffReaderAuth(req: NextRequest): Promise<BffReaderAuth> {
-  const session = await getServerSession(authOptions);
+  const session = await resolveAllowlistedSession();
   if (session) return { mode: "session" };
 
   const hasSharedAccess = await verifySharedCookie(req.cookies.get(SHARED_COOKIE_NAME)?.value);

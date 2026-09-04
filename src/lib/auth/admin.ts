@@ -50,6 +50,8 @@ const allowlistWarning =
 
 let allowlistWarningShown = false;
 
+// Currently unused by middleware; kept as the single definition of an "admin path" for future callers.
+// Removing it is a follow-up decision.
 export const isAdminRoute = (pathname: string): boolean => {
   return pathname === "/admin" || pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/");
 };

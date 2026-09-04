@@ -1,13 +1,12 @@
-import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 
-import { authOptions } from "@/lib/auth/options";
+import { resolveAllowlistedSession } from "@/lib/bff/session-auth";
 import { buildFeedUpstreamUrl, resolveFeedApiKey, resolveRailwayApiBaseUrl } from "@/lib/bff/upstream";
 
 // BFF pattern stub for issue #11:
 // Browser -> /api/bff/feed (session required) -> Railway /api/feed (Bearer injected server-side)
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await resolveAllowlistedSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
