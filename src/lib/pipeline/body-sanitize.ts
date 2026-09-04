@@ -8,6 +8,8 @@ const INLINE_ENTITY_MAP: Record<string, string> = {
   nbsp: " ",
 };
 
+export const BODY_SANITIZE_MAX_INPUT_CHARS = 20_000;
+
 function decodeHtmlEntities(raw: string): string {
   return raw.replace(
     /&(?:#(x[0-9a-f]+|\d+)|([a-z]+));/gi,
@@ -123,12 +125,17 @@ function stripGenericHtmlTokens(raw: string): string {
       const previousNonWhitespace = raw.slice(0, offset).match(/\S(?=\s*$)/)?.[0] || "";
       const hasAttributes = /\s/.test(token.slice(1, -1));
       const isShortIdentifier = /^[A-Za-z][A-Za-z0-9]{0,2}$/.test(tagName);
+      const escapedName = tagName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const hasMatchingCloser = new RegExp(`</${escapedName}\\s*>`, "i").test(
+        raw.slice(offset + token.length),
+      );
 
       if (
         token.includes("@") ||
         (!token.startsWith("</") &&
           !hasAttributes &&
           !/[:-]/.test(tagName) &&
+          !hasMatchingCloser &&
           (/[\p{L}\p{N}]/u.test(previousNonWhitespace) || isShortIdentifier))
       ) {
         return token;
@@ -140,6 +147,11 @@ function stripGenericHtmlTokens(raw: string): string {
 
 export function sanitizeBodyFallback(raw: string | null | undefined): string {
   if (!raw) return "";
+
+  if (raw.length > BODY_SANITIZE_MAX_INPUT_CHARS) {
+    raw = raw.slice(0, BODY_SANITIZE_MAX_INPUT_CHARS);
+    if (/[\uD800-\uDBFF]$/.test(raw)) raw = raw.slice(0, -1);
+  }
 
   try {
     let sanitized = raw.replace(/\r\n?/g, "\n");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeBodyFallback } from "../body-sanitize";
+import { BODY_SANITIZE_MAX_INPUT_CHARS, sanitizeBodyFallback } from "../body-sanitize";
 
 describe("sanitizeBodyFallback", () => {
   it("removes multi-line and single-line leading front matter", () => {
@@ -71,5 +71,38 @@ describe("sanitizeBodyFallback", () => {
   it("returns an empty string for absent input", () => {
     expect(sanitizeBodyFallback(null)).toBe("");
     expect(sanitizeBodyFallback(undefined)).toBe("");
+  });
+
+  it("caps input before sanitizing and leaves shorter input unchanged", () => {
+    expect(BODY_SANITIZE_MAX_INPUT_CHARS).toBe(20_000);
+    expect(sanitizeBodyFallback("x".repeat(25_000))).toBe("x".repeat(20_000));
+    expect(sanitizeBodyFallback("short body")).toBe("short body");
+    expect(sanitizeBodyFallback("short body\uD83D")).toBe("short body\uD83D");
+  });
+
+  it("does not leave a split surrogate pair at the input cap", () => {
+    expect(sanitizeBodyFallback("a".repeat(19_999) + "😀tail")).toBe("a".repeat(19_999));
+  });
+
+  it("applies the cap before existing sanitizer passes", () => {
+    const sanitized = sanitizeBodyFallback("intro\n```ts\n" + "c".repeat(30_000));
+
+    expect(sanitized).toMatch(/^intro/);
+    expect(sanitized.length).toBeLessThanOrEqual(BODY_SANITIZE_MAX_INPUT_CHARS);
+  });
+
+  it("bounds entity-heavy input before decoding", () => {
+    const sanitized = sanitizeBodyFallback("&#x110000;".repeat(25_000));
+
+    expect(sanitized.length).toBeLessThanOrEqual(BODY_SANITIZE_MAX_INPUT_CHARS);
+  });
+
+  it("strips symmetric unknown tags while preserving text-like openers", () => {
+    expect(sanitizeBodyFallback("<foo>bar</foo> and <x>y</x> tail")).toBe("bar and y tail");
+    expect(sanitizeBodyFallback("Array<T> of items")).toBe("Array<T> of items");
+    expect(sanitizeBodyFallback("<T>x</T>")).toBe("x");
+    expect(sanitizeBodyFallback("mail <a@b.c> ok")).toBe("mail <a@b.c> ok");
+    expect(sanitizeBodyFallback("<foo>only opener")).toBe("<foo>only opener");
+    expect(sanitizeBodyFallback("<Foo>bar</FOO>")).toBe("bar");
   });
 });

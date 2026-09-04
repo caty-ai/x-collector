@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeBearerCheck } from "@/lib/auth/bearer";
+import { editionMarkdownHeaders } from "@/lib/pipeline/edition-markdown-response";
 
 const prisma = new PrismaClient();
 let warnedMissingNewsletterApiKey = false;
@@ -162,12 +163,7 @@ export async function GET(req: NextRequest) {
 
     return new NextResponse(edition.contentMd, {
       status: 200,
-      headers: {
-        "content-type": "text/markdown; charset=utf-8",
-        "x-edition-id": edition.id,
-        "x-edition-slug": edition.slug,
-        "x-edition-status": edition.status,
-      },
+      headers: editionMarkdownHeaders(edition),
     });
   }
 
