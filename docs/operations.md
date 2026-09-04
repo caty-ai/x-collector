@@ -36,6 +36,7 @@ README から移設した、運用・チューニング系の詳細リファレ�
 - `npm run retention:pipeline`（raw source rows + newsletter未採用の古い `PipelineItem` を整理。既定 dry-run）
 - `npm run collect:prod:cycle`（収集 + Step0→1-3→4→6 の統合ジョブ）
 - `npm run publish:prod:daily`（Step5 単独ジョブ）
+- `npm run recompose:script -- --date-jst=YYYY-MM-DD --dry-run [--out content.md]`（既存 edition を script mode だけで再組版。確認後は `--dry-run` を外して反映）
 
 ## Step4 LLM manual-run
 
@@ -71,6 +72,9 @@ npm run publish:prod
   - compose では「候補が十分あるセクションは最低 N 件（既定3件）」をプロンプトで要求し、密度不足時は1回だけ再生成して薄い出力を緩和。
   - `--dry-run` で当日 edition 未作成の場合、compose は自動スキップされる（`composeSkippedReason` を出力）。
   - `RETENTION_MODE=dry-run|apply` を与えた場合のみ、Step5 後段で retention を追加実行する。未設定時は完全 skip。
+- script mode の再組版は冪等で、当日版は夜間 cron でも再生成される。ローカル `.env` には `DATABASE_URL` と cron service と同じ `STEP_LOCALIZE_JA`（本番は `true`）を設定する。
+  - Railway では `railway run --service <step5 service> npm run recompose:script:prod -- --date-jst=YYYY-MM-DD --dry-run [--out content.md]` を使い、確認後に `--dry-run` を外す。
+  - script mode は `Why it matters` を出力せず、body / blurb fallback から HTML、front-matter、fence、heading marker を除去する。dry-run は `PipelineRun` を作成・更新しない。
 - 旧コマンド（収集のみ）が必要な場合は `npm run collect:prod:legacy` を使用。
 
 ### `dist/` の運用ポリシー
@@ -200,7 +204,7 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 | `STEP5_COMPOSE_DENSE_SECTION_MIN_CANDIDATES` | 任意 | 高密度セクション扱いする候補件数の閾値（既定: `3`） |
 | `STEP5_COMPOSE_DENSITY_RETRY_MAX` | 任意 | 密度不足時の再生成リトライ回数（既定: `1`、0で無効） |
 | `STEP5_SCRIPT_MAX_PER_SECTION` | 任意 | script mode のセクション別掲載上限（既定: `0`＝上限なし） |
-| `STEP5_SCRIPT_SUMMARY_MAX_CHARS` | 任意 | script mode の summary 最大文字数（既定: `220`） |
+| `STEP5_SCRIPT_SUMMARY_MAX_CHARS` | 任意 | script mode の summary 最大文字数（既定: `320`。上限内の文末境界を優先して切る） |
 | `STEP_GITHUB_REPO_DEDUP_ENABLED` | 任意 | `true` の時だけ GitHub repo の重複抑制を有効化（既定: 無効） |
 | `STEP_LOCALIZE_JA` | 任意 | `true` の時だけ組版で日本語ローカライズ結果を優先（既定: 無効） |
 | `RETENTION_MODE` | 任意 | `dry-run` または `apply`。`publish:prod` 後段 retention の明示スイッチ。未設定/その他は skip |

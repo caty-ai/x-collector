@@ -1,6 +1,10 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { COMPOSE_STEP } from "./compose-edition";
-import { isHighSurrogate, isLowSurrogate, sanitizeToWellFormed } from "./text-sanitize";
+import { sanitizeBodyFallback } from "./body-sanitize";
+import { clipSummary, EMPTY_SUMMARY, splitSummaryLines } from "./compose-script-text";
+import { sanitizeToWellFormed } from "./text-sanitize";
+
+export { clipSummary, splitSummaryLines, truncateWithEllipsis } from "./compose-script-text";
 
 export const COMPOSE_SCRIPT_CREATED_BY = "step5_compose:script:v1";
 export const COMPOSE_SCRIPT_MODEL = COMPOSE_SCRIPT_CREATED_BY;
@@ -8,12 +12,9 @@ export const COMPOSE_SCRIPT_MAX_PER_SECTION = parseNonNegativeInt(
   process.env.STEP5_SCRIPT_MAX_PER_SECTION,
   0,
 );
-export const COMPOSE_SCRIPT_SUMMARY_MAX_CHARS = parsePositiveInt(
+export const COMPOSE_SCRIPT_SUMMARY_MAX_CHARS = resolveScriptSummaryMaxChars(
   process.env.STEP5_SCRIPT_SUMMARY_MAX_CHARS,
-  220,
 );
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 const SECTION_ORDER = [
   "1_latest_ai_news",
@@ -47,7 +48,7 @@ const SECTION_TITLES: Record<string, string> = {
   "11_market_voice": "市場の声・実ユーザー評価",
 };
 
-interface ComposeScriptRow {
+export interface ComposeScriptRow {
   bindingId: number;
   pipelineItemId: string;
   section: string;
@@ -75,6 +76,7 @@ export interface ComposeScriptEditionOptions {
   dryRun?: boolean;
   maxPerSection?: number;
   summaryMaxChars?: number;
+  captureContent?: boolean;
   logger?: Pick<Console, "log" | "warn" | "error">;
 }
 
@@ -89,12 +91,17 @@ export interface ComposeScriptEditionMetrics {
   outputItemCount: number;
   contentChars: number;
   summary: string;
+  contentMd?: string;
 }
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(raw || "", 10);
   if (Number.isFinite(parsed) && parsed > 0) return parsed;
   return fallback;
+}
+
+export function resolveScriptSummaryMaxChars(raw: string | undefined): number {
+  return parsePositiveInt(raw, 320);
 }
 
 function parseNonNegativeInt(raw: string | undefined, fallback: number): number {
@@ -173,91 +180,23 @@ function normalizeText(input: string | null | undefined): string {
   return (input || "").replace(/\s+/g, " ").trim();
 }
 
-function isSplitSurrogatePair(input: string, cutIndex: number): boolean {
-  if (cutIndex <= 0 || cutIndex >= input.length) return false;
-  return (
-    isHighSurrogate(input.charCodeAt(cutIndex - 1)) && isLowSurrogate(input.charCodeAt(cutIndex))
-  );
-}
-
-/**
- * Cut-point is surrogate-pair-safe, but output is NOT guaranteed well-formed
- * for already-ill-formed input — sanitizeToWellFormed() before persisting.
- */
-export function truncateWithEllipsis(input: string, maxChars: number): string {
-  if (maxChars <= 0) return "";
-  if (input.length <= maxChars) return input;
-  const cutIndex = Math.max(0, maxChars - 1);
-  const safeCutIndex = isSplitSurrogatePair(input, cutIndex) ? cutIndex - 1 : cutIndex;
-  return `${input.slice(0, safeCutIndex).trimEnd()}…`;
-}
-
-export function splitSummaryLines(summary: string): string[] {
-  const sentenceChunks = summary
-    .match(/[^。！？.!?]+[。！？.!?]?/g)
-    ?.map((chunk) => chunk.trim())
-    .filter(Boolean);
-
-  if (sentenceChunks && sentenceChunks.length >= 2) {
-    return sentenceChunks.slice(0, 3);
-  }
-
-  if (!summary) {
-    return ["要約データなし。", "要点データなし。"];
-  }
-
-  const midpoint = Math.ceil(summary.length / 2);
-  const safeMidpoint = isSplitSurrogatePair(summary, midpoint) ? midpoint + 1 : midpoint;
-  const left = summary.slice(0, safeMidpoint).trim();
-  const right = summary.slice(safeMidpoint).trim();
-
-  if (!right) {
-    const fallback = left || "要約データなし。";
-    return [fallback, fallback];
-  }
-
-  return [left, right].slice(0, 3);
-}
-
 function buildSummaryLines(
   row: ComposeScriptRow,
   summaryMaxChars: number,
   localizeJa: boolean,
 ): string[] {
+  const bodyFallback = normalizeText(sanitizeBodyFallback(row.body));
+  const blurbFallback = normalizeText(sanitizeBodyFallback(row.blurb));
   const baseSource = localizeJa
     ? normalizeText(row.summaryJa) ||
-      normalizeText(row.blurb) ||
-      normalizeText(row.body) ||
+      bodyFallback ||
+      blurbFallback ||
       normalizeText(row.title) ||
-      "概要情報なし。"
-    : normalizeText(row.blurb) ||
-      normalizeText(row.body) ||
-      normalizeText(row.title) ||
-      "概要情報なし。";
+      EMPTY_SUMMARY
+    : bodyFallback || blurbFallback || normalizeText(row.title) || EMPTY_SUMMARY;
 
-  const clipped = truncateWithEllipsis(baseSource, summaryMaxChars);
+  const clipped = clipSummary(baseSource, summaryMaxChars);
   return splitSummaryLines(clipped);
-}
-
-function buildRecencyLabel(editionDate: Date, publishedAt: Date | null): string {
-  if (!publishedAt) return "公開日未設定";
-
-  const diffDays = Math.floor((editionDate.getTime() - publishedAt.getTime()) / DAY_MS);
-  if (diffDays <= 0) return "当日公開";
-  if (diffDays <= 2) return `直近${diffDays}日`;
-  if (diffDays <= 7) return `${diffDays}日前`;
-  return "7日超";
-}
-
-function buildWhyItMatters(row: ComposeScriptRow, editionDate: Date): string {
-  const platform = normalizeText(row.platform) || "unknown";
-  const primaryTag = normalizeText(row.primaryTag) || "未分類";
-  const subTag = normalizeText(row.subTag);
-  const actionTag = normalizeText(row.actionTag) || "INFO";
-  const tagLabel = subTag ? `${primaryTag}/${subTag}` : primaryTag;
-  const recencyLabel = buildRecencyLabel(editionDate, row.publishedAt);
-
-  return `Why it matters: ${platform}由来の${tagLabel}領域（${actionTag}）。${recencyLabel}の更新で、優先度判断の材料になる。`;
 }
 
 function toSectionHeading(sectionKey: string): string {
@@ -271,9 +210,8 @@ function toSectionHeading(sectionKey: string): string {
   return `## ${title}`;
 }
 
-function renderArticleBlock(
+export function renderArticleBlock(
   row: ComposeScriptRow,
-  editionDate: Date,
   summaryMaxChars: number,
   localizeJa: boolean,
 ): string {
@@ -285,15 +223,16 @@ function renderArticleBlock(
     : row.topicClusterBadge
       ? `${baseTitle} ${row.topicClusterBadge}`
       : baseTitle;
-  const summaryLines = buildSummaryLines(row, summaryMaxChars, localizeJa);
-  const why = buildWhyItMatters(row, editionDate);
+  const guardedSummaryLines = buildSummaryLines(row, summaryMaxChars, localizeJa)
+    .map((line) => line.replace(/^(?:\s*(?:#{1,6}(?=\s)|[>|]))+\s*/, "").trim())
+    .filter(Boolean);
+  const summaryLines = guardedSummaryLines.length > 0 ? guardedSummaryLines : [EMPTY_SUMMARY];
   const platform = normalizeText(row.platform) || "source";
   const sourceUrl = normalizeText(row.url) || "about:blank";
 
   return [
     `### ${title}`,
     ...summaryLines,
-    why,
     `引用元: [${platform}](${sourceUrl})`,
     "",
   ].join("\n");
@@ -423,7 +362,7 @@ function collapseGithubRepoArticles(rows: ComposeScriptRow[]): ComposeScriptRow[
   });
 }
 
-function buildMarkdown(params: {
+export function buildMarkdown(params: {
   rows: ComposeScriptRow[];
   editionDate: Date;
   maxPerSection: number;
@@ -431,8 +370,7 @@ function buildMarkdown(params: {
   topicClusterEnabled: boolean;
   localizeJa: boolean;
 }): { contentMd: string; outputItemCount: number } {
-  const { rows, editionDate, maxPerSection, summaryMaxChars, topicClusterEnabled, localizeJa } =
-    params;
+  const { rows, maxPerSection, summaryMaxChars, topicClusterEnabled, localizeJa } = params;
 
   const lines: string[] = [];
   let outputItemCount = 0;
@@ -451,7 +389,7 @@ function buildMarkdown(params: {
       maxPerSection > 0 ? sortedRows.slice(0, maxPerSection) : sortedRows;
 
     for (const row of sectionRows) {
-      lines.push(renderArticleBlock(row, editionDate, summaryMaxChars, localizeJa));
+      lines.push(renderArticleBlock(row, summaryMaxChars, localizeJa));
       outputItemCount += 1;
     }
   }
@@ -531,6 +469,7 @@ export async function composeNewsletterEditionScript(
       outputItemCount: 0,
       contentChars: 0,
       summary: "compose skipped: no bindings",
+      ...(options.captureContent ? { contentMd: "" } : {}),
     };
   }
 
@@ -612,25 +551,29 @@ export async function composeNewsletterEditionScript(
     : topicCollapsedRows;
 
   const anchorPipelineItemId = bindings[0].pipelineItemId;
-  const latestRun = await prisma.pipelineRun.findFirst({
-    where: {
-      pipelineItemId: anchorPipelineItemId,
-      step: COMPOSE_STEP,
-    },
-    orderBy: { attempt: "desc" },
-    select: { attempt: true },
-  });
+  let run: { id: number } | null = null;
+  if (!dryRun) {
+    const latestRun = await prisma.pipelineRun.findFirst({
+      where: {
+        pipelineItemId: anchorPipelineItemId,
+        step: COMPOSE_STEP,
+      },
+      orderBy: { attempt: "desc" },
+      select: { attempt: true },
+    });
 
-  const run = await prisma.pipelineRun.create({
-    data: {
-      pipelineItemId: anchorPipelineItemId,
-      step: COMPOSE_STEP,
-      status: "running",
-      attempt: (latestRun?.attempt || 0) + 1,
-      model: COMPOSE_SCRIPT_MODEL,
-      inputHash: null,
-    },
-  });
+    run = await prisma.pipelineRun.create({
+      data: {
+        pipelineItemId: anchorPipelineItemId,
+        step: COMPOSE_STEP,
+        status: "running",
+        attempt: (latestRun?.attempt || 0) + 1,
+        model: COMPOSE_SCRIPT_MODEL,
+        inputHash: null,
+      },
+      select: { id: true },
+    });
+  }
 
   try {
     const { contentMd, outputItemCount } = buildMarkdown({
@@ -642,9 +585,9 @@ export async function composeNewsletterEditionScript(
       localizeJa,
     });
 
+    const sanitizedContentMd = sanitizeToWellFormed(contentMd);
     if (!dryRun) {
       const summary = `SCRIPT最終組版完了: bindings=${bindingCount}, outputItems=${outputItemCount}, contentChars=${contentMd.length}`;
-      const sanitizedContentMd = sanitizeToWellFormed(contentMd);
       const sanitizedSummary = sanitizeToWellFormed(summary);
       const totalReplaced = sanitizedContentMd.replacedCount + sanitizedSummary.replacedCount;
       if (totalReplaced > 0) {
@@ -660,12 +603,12 @@ export async function composeNewsletterEditionScript(
           model: COMPOSE_SCRIPT_MODEL,
           generatedAt: new Date(),
           status: "published",
-          publishedAt: new Date(),
+          publishedAt: edition.publishedAt ?? new Date(),
         },
       });
     }
 
-    await prisma.pipelineRun.update({
+    if (run) await prisma.pipelineRun.update({
       where: { id: run.id },
       data: {
         status: "completed",
@@ -699,9 +642,10 @@ export async function composeNewsletterEditionScript(
       outputItemCount,
       contentChars: contentMd.length,
       summary: `compose completed(script): dryRun=${dryRun}, bindingCount=${bindingCount}, outputItemCount=${outputItemCount}, contentChars=${contentMd.length}`,
+      ...(options.captureContent ? { contentMd: sanitizedContentMd.result } : {}),
     };
   } catch (error) {
-    await prisma.pipelineRun.update({
+    if (run) await prisma.pipelineRun.update({
       where: { id: run.id },
       data: {
         status: "failed",
