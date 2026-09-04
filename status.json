@@ -4,14 +4,14 @@
   "generator_version": "repo-state-gen v1",
   "repo": "caty-ai/x-collector",
   "stamp_mode": "auto",
-  "generated_at": "2026-09-03T19:13:47Z",
-  "describes_commit": "18904865d84039fef07875e91d9e1fa2717ce346",
-  "describes_commit_date": "2026-09-03T19:13:47Z",
+  "generated_at": "2026-09-04T03:48:35Z",
+  "describes_commit": "28be38dc0a64f1378ec71ab3513a34b7f09d61df",
+  "describes_commit_date": "2026-09-04T03:48:35Z",
   "branch": "main",
   "latest_tag": "v0.1.7",
   "latest_release_url": "https://github.com/caty-ai/x-collector/releases/tag/v0.1.7",
   "agents_entry": null,
   "canonical_api": "https://api.github.com/repos/caty-ai/x-collector/commits/main",
-  "canonical_raw": "https://raw.githubusercontent.com/caty-ai/x-collector/18904865d84039fef07875e91d9e1fa2717ce346/status.json",
+  "canonical_raw": "https://raw.githubusercontent.com/caty-ai/x-collector/28be38dc0a64f1378ec71ab3513a34b7f09d61df/status.json",
   "freshness_contract": "SHA comparison only; dates may only ever trigger distrust. Protocol: docs/repo-state/spec.md, section 'Reader protocol'."
 }
