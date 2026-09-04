@@ -3,6 +3,11 @@ import { withAuth } from "next-auth/middleware";
 
 import { decideTokenAccess, isAdminEmailAllowed, maskEmailForLog } from "@/lib/auth/admin";
 import { authSecret } from "@/lib/auth/options";
+import {
+  decideReaderAccess,
+  isNewspaperPublic,
+  isReaderPath,
+} from "@/lib/auth/public-newspaper";
 import { SHARED_COOKIE_NAME, verifySharedCookie } from "@/lib/auth/shared-newspaper";
 
 export default withAuth(
@@ -10,13 +15,25 @@ export default withAuth(
     const pathname = req.nextUrl.pathname;
     const email = typeof req.nextauth.token?.email === "string" ? req.nextauth.token.email : null;
 
-    if (pathname === "/calendar" || pathname.startsWith("/calendar/")) {
-      if (req.nextauth.token && isAdminEmailAllowed(email)) return NextResponse.next();
+    if (isReaderPath(pathname)) {
+      const hasToken = req.nextauth.token != null;
+      const tokenAllowlisted = hasToken && isAdminEmailAllowed(email);
+      const isPublic = isNewspaperPublic();
+      const hasSharedCookie =
+        !isPublic && !tokenAllowlisted
+          ? await verifySharedCookie(req.cookies.get(SHARED_COOKIE_NAME)?.value)
+          : false;
+      const decision = decideReaderAccess({
+        pathname,
+        hasToken,
+        tokenAllowlisted,
+        hasSharedCookie,
+        isPublic,
+      });
 
-      const hasSharedAccess = await verifySharedCookie(req.cookies.get(SHARED_COOKIE_NAME)?.value);
-      if (hasSharedAccess) return NextResponse.next();
-
-      return NextResponse.redirect(new URL("/np-login", req.url));
+      return decision === "next"
+        ? NextResponse.next()
+        : NextResponse.redirect(new URL("/np-login", req.url));
     }
 
     if (pathname === "/np-login") return NextResponse.next();

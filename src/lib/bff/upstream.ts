@@ -43,3 +43,22 @@ export function buildNewsletterLatestUpstreamUrl(baseUrl: URL, sourceUrl: URL): 
   appendSearchParams(upstreamUrl, sourceUrl);
   return upstreamUrl;
 }
+
+export type NewsletterLatestPublicParams = {
+  date?: string;
+  format?: "markdown" | "json";
+  includeContent?: "0" | "1";
+  includeItems?: "0" | "1";
+};
+
+export function buildNewsletterLatestPublicUpstreamUrl(
+  baseUrl: URL,
+  params: NewsletterLatestPublicParams,
+): URL {
+  const upstreamUrl = new URL(NEWSLETTER_LATEST_UPSTREAM_PATH, baseUrl);
+  if (params.date) upstreamUrl.searchParams.set("date", params.date);
+  if (params.format === "markdown") upstreamUrl.searchParams.set("format", "markdown");
+  if (params.includeContent) upstreamUrl.searchParams.set("includeContent", params.includeContent);
+  if (params.includeItems) upstreamUrl.searchParams.set("includeItems", params.includeItems);
+  return upstreamUrl;
+}
