@@ -20,14 +20,27 @@ describe("sanitizeBodyFallback", () => {
     expect(sanitizeBodyFallback("before <style>body{}" )).toBe("before");
   });
 
-  it("decodes supported entities and preserves autolinks as URLs", () => {
+  it("decodes named and numeric entities after stripping real HTML", () => {
     expect(sanitizeBodyFallback("A&amp;B &lt;x&gt; &quot;q&quot; &#39;a&#39; &apos;b&apos;&nbsp;<https://a.test/x>"))
-      .toBe("A&B \"q\" 'a' 'b' https://a.test/x");
+      .toBe("A&B <x> \"q\" 'a' 'b' https://a.test/x");
+    expect(sanitizeBodyFallback("Caf&#233; &#8217;test&#x2019; &#x110000; &#xD800;")).toBe(
+      "Café ’test’ &#x110000; &#xD800;",
+    );
+    expect(sanitizeBodyFallback("A&nbsp;&nbsp;B")).toBe("A B");
+    expect(sanitizeBodyFallback("literal &lt;script&gt; and &lt;div&gt;")).toBe(
+      "literal <script> and <div>",
+    );
+    expect(sanitizeBodyFallback("inject &lt;script&gt; into a page. The rest matters.")).toBe(
+      "inject <script> into a page. The rest matters.",
+    );
   });
 
   it("removes images, unwraps simple links and emphasis", () => {
     expect(sanitizeBodyFallback("![alt](image.png) [label](https://x.test) **bold** __strong__ *em* _under_"))
       .toBe("label bold strong em under");
+    expect(sanitizeBodyFallback("snake_case_name 2*3*4 **bold** *em* __b__ _i_")).toBe(
+      "snake_case_name 2*3*4 bold em b i",
+    );
   });
 
   it("strips line-level markdown while preserving inline comparisons", () => {
@@ -38,13 +51,16 @@ describe("sanitizeBodyFallback", () => {
   });
 
   it("strips ruby and namespaced/custom HTML while preserving email and generics", () => {
-    const raw = "<ruby>漢<rt>かん</rt><rp>(</rp></ruby><o:p>x</o:p><mj-text>y</mj-text><v:shape id=x>z</v:shape> <name@host> Array<T> Array<string>";
-    expect(sanitizeBodyFallback(raw)).toBe("漢 かん ( x y z <name@host> Array<T> Array<string>");
+    const raw = "<ruby>漢<rt>かん</rt><rp>(</rp></ruby><o:p>x</o:p><mj-text>y</mj-text><v:shape x=\"1\">z</v:shape> <name@host> Array<T> Array <T> here. Array<string>";
+    expect(sanitizeBodyFallback(raw)).toBe("漢 かん ( x y z <name@host> Array<T> Array <T> here. Array<string>");
   });
 
   it("cleans structural markers from whitespace-collapsed blurb text", () => {
     expect(sanitizeBodyFallback("--- ## Heading | col | - item Step 1. Do this."))
-      .toBe("Heading col - item Step 1. Do this.");
+      .toBe("Heading | col | - item Step 1. Do this.");
+    expect(sanitizeBodyFallback("result a || b fallback\n| table | row |\nkept | inline")).toBe(
+      "result a || b fallback kept | inline",
+    );
   });
 
   it("documents parenthesized markdown URL and unclosed front-matter behavior", () => {

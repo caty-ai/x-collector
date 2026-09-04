@@ -62,9 +62,9 @@ describe("splitSummaryLines", () => {
     expect(splitSummaryLines("100. item" )).toEqual(["100.", "item"]);
   });
 
-  it("uses one empty fallback but drops punctuation-only lines", () => {
+  it("uses one empty fallback for whitespace and punctuation-only input", () => {
     expect(splitSummaryLines("  ")).toEqual(["概要情報なし。"]);
-    expect(splitSummaryLines("。。。" )).toEqual([]);
+    expect(splitSummaryLines("。。。" )).toEqual(["概要情報なし。"]);
   });
 
   it("keeps a single long sentence as one well-formed line", () => {

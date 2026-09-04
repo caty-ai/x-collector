@@ -140,6 +140,7 @@ export function splitSummaryLines(text: string): string[] {
   const remainder = summary.slice(start).trim();
   if (remainder && containsSummaryText(remainder)) lines.push(remainder);
 
+  if (lines.length === 0) return [EMPTY_SUMMARY];
   if (lines.length <= 8) return lines;
   return [...lines.slice(0, 7), lines.slice(7).join(" ")];
 }
