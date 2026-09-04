@@ -165,6 +165,11 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 | `NEXTAUTH_URL` | 推奨 | Auth.js callback URL（ローカル例: `http://localhost:3000`） |
 | `ADMIN_EMAIL_ALLOWLIST` | ✅（Auth有効時） | Googleログイン自体と全NextAuth保護ルート（`/admin`・`/api/admin/**` を含む）を許可するGoogleプライマリアドレスのカンマ区切り。trim＋小文字化で比較し、未設定・空なら誰もログインできず既存トークンもfail-close。myaccount.google.com に表示されるプライマリアドレスを指定すること。Gmailのドット・plus variant、`googlemail.com`、Workspace aliasは別アドレスとして扱う |
 | `NEWSPAPER_MASTHEAD` | 任意 | 紙面題字。未設定時は "AI Daily News" |
+| `NEWSPAPER_TAGLINE` | 任意 | 読者向けの紙面サブタイトル。未設定時は「AIの最新ニュースを、毎日ひとつの紙面に。」 |
+| `NEWSPAPER_SITE_URL` | 任意 | `/calendar` の `og:url` / `metadataBase` に使う絶対 URL。未設定時は `NEXTAUTH_URL` に fallback。どちらも有効な http(s) URL でない場合は `og:url` 自体を出力しない |
+| `NEWSPAPER_POWERED_BY_LABEL` | 任意 | footer の任意クレジット表示。`NEWSPAPER_POWERED_BY_URL` と両方が有効な場合のみ表示 |
+| `NEWSPAPER_POWERED_BY_URL` | 任意 | footer の任意クレジット先 http(s) URL。label と両方が有効な場合のみ表示 |
+| `NEWSPAPER_PUBLIC` | 任意 | `1` / `true` のときだけ匿名の紙面閲覧を許可する opt-in switch。既定は fail-close（off） |
 | `NEWSPAPER_SHARED_ID` | 任意 | `/calendar` 共有ログインの ID。password と安全な auth secret が揃わない場合は無効 |
 | `NEWSPAPER_SHARED_PASSWORD` | 任意 | `/calendar` 共有ログインのパスワード。ID と安全な auth secret が揃わない場合は無効 |
 | `SCRAPECREATORS_API_KEY` | ✅ | ScrapeCreators API キー（Twitter/Instagram/Facebook/Reddit） |
@@ -236,12 +241,23 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 
 ### Auth / API key fail-closed rules
 
+#### 公開モード (`NEWSPAPER_PUBLIC`)
+
+- `NEWSPAPER_PUBLIC=1` または `true` のとき、匿名利用者へ `/calendar`、`/calendar/*` の静的 asset、newsletter BFF、og-image BFF を開く。`/`、`/feed`、`/settings`、`/admin`、`/api/admin/*`、`/api/bff/feed` を含むその他の route は従来どおり allowlist 済み Google account が必要。`/np-login` は変更せず、switch off 時の共有ログインにも引き続き使える。
+- 公開モードの匿名 newsletter BFF は、検証済みの `date`、`format`、`includeContent`、`includeItems` だけを upstream へ転送し、`slug` その他の parameter を破棄する。さらに BFF で published edition だけを返し、draft と空日は同じ 404 にする。upstream route 自体には status filter がないため、その filter と JSON の public projection は follow-up 対応とする。
+- JSON edition payload は現状 `slug`、`status`、`model`、`id`、timestamps、および `items[].sourceRef` / `trustLabel` / `pipelineItemId` を含む。公開用途に絞った response projection は follow-up で扱う。
+- 公開モードでは session / shared-cookie 利用者を含む全 caller の og-image request に edition membership guard を適用する。guard は有効な `?date=`、同一 origin Referer の有効な `?date=`、latest edition の URL 集合の union だけを許可する。運用 script は明示的に `?date=` を渡せる。
+- 過去日の reader panel は同一 origin Referer の query に依存する。`Referrer-Policy` が query を削る構成では過去日の og image が `none` に劣化する（fail-closed）。panel が og-image request 自体へ `date` を渡す変更は follow-up とする。
+- newsletter BFF は IP ごと 240 requests/60秒、og-image BFF は 120 requests/60秒の in-memory throttle を匿名 public request にだけ適用する。これは proxy が付ける X-Forwarded-For に依存する abuse friction であり、認可 control ではない。month-summary endpoint と deployment-level rate limit は follow-up とする。
+- 絶対 `og:url` の出力には `NEWSPAPER_SITE_URL` または `NEXTAUTH_URL` が必要。credentials 付き URL や非 http(s) URL は採用しない。
+- 読み取りはリクエスト時。再起動で反映（ビルド時に env を焼き込むホストでは再デプロイ）。
+
 - Auth.js env (`AUTH_SECRET`/`NEXTAUTH_SECRET`, `AUTH_GOOGLE_ID`/`GOOGLE_CLIENT_ID`, `AUTH_GOOGLE_SECRET`/`GOOGLE_CLIENT_SECRET`) は本番で未設定なら module init 時点で throw する。開発では既存 fallback を維持し、欠落した env group 名をまとめた warning を1行だけ出す。例外: `next build` 中（`NEXT_PHASE=phase-production-build`）は NODE_ENV=production でも throw せず fallback+warning に留める（secrets なしのローカルビルドを維持。サーバ起動時の module init で必ず再評価される）。
 - 管理者認可は、Google sign-in gate → middleware token gate → admin gate の順に同じ `ADMIN_EMAIL_ALLOWLIST` を適用する。さらに middleware の matcher 外にあるAPIは session callback がJWTのメールを再評価し、許可外なら既存のsession必須判定を401にする。未設定・空は全層でfail-close。許可判定にはGoogle profileの `email_verified === true` と、profile email／session user emailの正規化後一致も必要。
 - allowlist未設定・空の起動警告は、`[auth-signin] ADMIN_EMAIL_ALLOWLIST is unset or empty; Google sign-in is denied for everyone (fail-close). Set ADMIN_EMAIL_ALLOWLIST to a comma-separated list of Google primary addresses.`。`next build` とtestでは出さず、サーバ起動時にモジュールごとに1行（Nodeランタイムとmiddleware bundleで最大2行）出す。
 - sign-in拒否ログは `[auth-signin] deny provider=<provider|(none)> email=<masked> reason=<email_missing|email_unverified|email_mismatch|allowlist_unconfigured|allowlist_miss>`、session拒否ログは `[auth-session] deny email=<masked> reason=<allowlist_miss|allowlist_unconfigured>`。middleware拒否ログは従来どおり `[auth-admin] deny path=… email=<masked> reason=allowlist_miss_or_unconfigured` とする。生のメールアドレスは記録しない。
 - allowlistからアドレスを削除した場合、削除後はmiddleware／session gateが各リクエストで再評価するため保護ページは403・session必須APIは401になる（実効的な即時遮断）。JWT自体はアクセスがあるたびに再発行されるため既定 `maxAge`（30日）の満了は当てにできず、トークンそのものを確実に失効させる手段は `AUTH_SECRET`/`NEXTAUTH_SECRET` のローテーションのみ。
-- `/calendar` の `/np-login` 共有パスワード経路はNextAuthの外側なので機能自体に変更はない。allowlist外のGoogleアカウントはGoogle経由では `/calendar` に入れないが、有効な共有クッキーは従来どおり利用できる。
+- `/calendar` の `/np-login` 共有パスワード経路はNextAuthの外側なので機能自体に変更はない。allowlist外のGoogleアカウントはGoogle経由では `/calendar` に入れない（`NEWSPAPER_PUBLIC` が off のとき）が、有効な共有クッキーは従来どおり利用できる。
 - **デプロイ時は `AUTH_SECRET`/`NEXTAUTH_SECRET` の変更によるローテーションを同時に行うこと。** この変更以前に任意のGoogleアカウントへ発行されたsessionは、コードのデプロイだけでは失効しない。ローテーションは同じsecretでHMAC署名する `/calendar` 共有クッキー（`np_shared`）も無効化するため、共有パスワード利用者は `/np-login` から再ログインが必要（`/np-login` の機能自体は変わらない）。
 - `/api/feed`, `/api/family-feed`, `/api/newsletter-editions/latest`, `/api/mcp/[transport]` は、**effective route key が未設定のまま本番に入ると 401 fail-close** する。レスポンスは `{"error":"api key not configured"}`。
 - 同4 route は非本番では従来どおり open のままだが、auth が無効なことを module/process あたり 1 回だけ warning 出力する。

@@ -7,7 +7,7 @@ export const metadata = { title: PRODUCT_NAME, description: "AI Tweet Intelligen
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="ja">
       <body className="min-h-screen bg-background font-sans antialiased">
         <AuthProvider>{children}</AuthProvider>
       </body>
