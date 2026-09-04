@@ -42,6 +42,23 @@ function publishedMarkdown(markdown: string): Response {
   });
 }
 
+function authenticatedCaller(mode: "session" | "shared"): void {
+  if (mode === "session") {
+    mocks.getServerSession.mockResolvedValue({ user: { email: "allowed@example.com" } });
+    return;
+  }
+
+  mocks.verifySharedCookie.mockResolvedValue(true);
+}
+
+function public404Shape(response: Response) {
+  return {
+    contentType: response.headers.get("content-type"),
+    upstream: response.headers.get("x-bff-upstream"),
+    keys: [...response.headers.keys()].sort(),
+  };
+}
+
 beforeEach(() => {
   mocks.getServerSession.mockReset().mockResolvedValue(null);
   mocks.verifySharedCookie.mockReset().mockResolvedValue(false);
@@ -147,6 +164,79 @@ describe("newsletter reader BFF", () => {
     }
   });
 
+  it("normalizes upstream anonymous 404 bodies to one indistinguishable public response", async () => {
+    configurePublic();
+    mocks.fetch.mockResolvedValue(
+      new Response('{"error":"Edition exists but contentMd is empty"}', {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const response = await getNewsletter(req("/api/bff/newsletter-editions/latest"));
+
+    expect(response.status).toBe(404);
+    expect(public404Shape(response)).toEqual({
+      contentType: "application/json; charset=utf-8",
+      upstream: "/api/newsletter-editions/latest",
+      keys: ["content-type", "x-bff-upstream"],
+    });
+    expect(await response.text()).toBe('{"error":"Edition not found"}');
+  });
+
+  it("returns the exact same anonymous 404 for draft editions and upstream 404s", async () => {
+    configurePublic();
+    mocks.fetch
+      .mockResolvedValueOnce(
+        new Response('{"error":"Edition exists but contentMd is empty"}', {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('{"error":"Edition not found"}', {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ edition: { status: "draft" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+    const upstream404 = await getNewsletter(req("/api/bff/newsletter-editions/latest"));
+    const missing404 = await getNewsletter(req("/api/bff/newsletter-editions/latest"));
+    const draft404 = await getNewsletter(req("/api/bff/newsletter-editions/latest?format=json"));
+
+    expect(missing404.status).toBe(upstream404.status);
+    expect(draft404.status).toBe(upstream404.status);
+    expect(public404Shape(missing404)).toEqual(public404Shape(upstream404));
+    expect(public404Shape(draft404)).toEqual(public404Shape(upstream404));
+    expect(await upstream404.text()).toBe('{"error":"Edition not found"}');
+    expect(await missing404.text()).toBe('{"error":"Edition not found"}');
+    expect(await draft404.text()).toBe('{"error":"Edition not found"}');
+  });
+
+  it("keeps shared upstream 404 bodies verbatim", async () => {
+    configurePublic();
+    mocks.verifySharedCookie.mockResolvedValue(true);
+    mocks.fetch.mockResolvedValue(
+      new Response('{"error":"Edition exists but contentMd is empty"}', {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const response = await getNewsletter(req("/api/bff/newsletter-editions/latest"));
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toBe("application/json");
+    expect(response.headers.get("x-bff-upstream")).toBe("/api/newsletter-editions/latest");
+    expect(await response.text()).toBe('{"error":"Edition exists but contentMd is empty"}');
+  });
+
   it("forwards published markdown unchanged", async () => {
     configurePublic();
     mocks.fetch.mockResolvedValue(publishedMarkdown("# Published"));
@@ -181,6 +271,28 @@ describe("newsletter reader BFF", () => {
     expect(await response.json()).toEqual({ error: "Too many requests" });
     expect(mocks.fetch).toHaveBeenCalledTimes(240);
   });
+
+  it.each(["session", "shared"] as const)(
+    "does not consume the public throttle for %s newsletter callers",
+    async (mode) => {
+      configurePublic();
+      authenticatedCaller(mode);
+      mocks.fetch.mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ edition: { status: "published" } }), {
+            headers: { "content-type": "application/json" },
+          }),
+      );
+
+      const request = req("/api/bff/newsletter-editions/latest", {
+        "x-forwarded-for": "203.0.113.12",
+      });
+
+      for (let count = 0; count < 241; count += 1) {
+        expect((await getNewsletter(request)).status).toBe(200);
+      }
+    },
+  );
 });
 
 describe("og-image reader BFF", () => {
@@ -256,6 +368,19 @@ describe("og-image reader BFF", () => {
         referer: "https://evil.example/calendar?date=2026-07-31",
       }),
     );
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    expect(new URL(String(mocks.fetch.mock.calls[0]?.[0])).searchParams.has("date")).toBe(false);
+  });
+
+  it("ignores impossible public dates and still checks the latest edition", async () => {
+    configurePublic();
+    mocks.fetch.mockResolvedValue(publishedMarkdown("https://example.com/a"));
+
+    const response = await getOgImage(
+      req("/api/bff/og-image?url=https%3A%2F%2Fexample.com%2Fa&date=2026-02-31"),
+    );
+
+    expect(response.status).toBe(200);
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
     expect(new URL(String(mocks.fetch.mock.calls[0]?.[0])).searchParams.has("date")).toBe(false);
   });
@@ -353,6 +478,32 @@ describe("og-image reader BFF", () => {
     expect(response.headers.get("retry-after")).toBe("60");
     expect(await response.json()).toEqual({ error: "Too many requests" });
   });
+
+  it.each(["session", "shared"] as const)(
+    "does not consume the public throttle for %s og-image callers",
+    async (mode) => {
+      configurePublic();
+      authenticatedCaller(mode);
+      mocks.fetch.mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.searchParams.get("format") === "markdown") {
+          return publishedMarkdown("https://example.com/a");
+        }
+
+        return new Response(JSON.stringify({ edition: { status: "published" } }), {
+          headers: { "content-type": "application/json" },
+        });
+      });
+
+      const request = req("/api/bff/og-image?url=https%3A%2F%2Fexample.com%2Fa", {
+        "x-forwarded-for": "203.0.113.13",
+      });
+
+      for (let count = 0; count < 121; count += 1) {
+        expect((await getOgImage(request)).status).toBe(200);
+      }
+    },
+  );
 });
 
 it("imports resolveBffReaderAuth only in the two reader BFF routes", () => {

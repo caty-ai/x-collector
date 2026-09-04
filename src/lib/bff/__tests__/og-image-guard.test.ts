@@ -43,12 +43,41 @@ again https://example.com/story/
     expect(normalizeUrlForMatch(' <"https://EXAMPLE.com/a/#one"> ')).toBe(
       "https://example.com/a",
     );
-    expect(normalizeUrlForMatch("https://example.com/a/。" )).toBe("https://example.com/a");
+    expect(normalizeUrlForMatch("https://example.com/a/。")).toBe("https://example.com/a");
     expect(normalizeUrlForMatch("ftp://example.com/a")).toBeNull();
     expect(normalizeUrlForMatch("not a URL")).toBeNull();
     expect(isUrlInEdition("https://EXAMPLE.com/a/#two", new Set(["https://example.com/a"]))).toBe(
       true,
     );
+  });
+
+  it("keeps balanced parentheses in markdown and bare URLs", () => {
+    const markdownUrls = extractEditionUrls(
+      "[t](https://en.wikipedia.org/wiki/Transformer_(machine_learning))",
+    );
+    const bareUrls = extractEditionUrls(
+      "see https://en.wikipedia.org/wiki/Transformer_(machine_learning)。",
+    );
+
+    expect(markdownUrls).toContain(
+      "https://en.wikipedia.org/wiki/Transformer_(machine_learning)",
+    );
+    expect(bareUrls).toContain(
+      "https://en.wikipedia.org/wiki/Transformer_(machine_learning)",
+    );
+  });
+
+  it("strips only unbalanced trailing closing parentheses", () => {
+    const urls = new Set([
+      "https://en.wikipedia.org/wiki/Transformer_(machine_learning)",
+    ]);
+
+    expect(
+      isUrlInEdition(
+        "https://en.wikipedia.org/wiki/Transformer_(machine_learning))",
+        urls,
+      ),
+    ).toBe(true);
   });
 
   it("stops markdown link targets before adjacent Japanese text", () => {

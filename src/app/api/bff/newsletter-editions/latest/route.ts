@@ -11,6 +11,18 @@ import {
 } from "@/lib/bff/upstream";
 import { isAcceptablePublicDate } from "@/lib/reader/edition-nav";
 
+const NEWSLETTER_LATEST_UPSTREAM = "/api/newsletter-editions/latest";
+
+function publicNotFound(): Response {
+  return new Response('{"error":"Edition not found"}', {
+    status: 404,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "x-bff-upstream": NEWSLETTER_LATEST_UPSTREAM,
+    },
+  });
+}
+
 function publicParams(sourceUrl: URL): NewsletterLatestPublicParams | null {
   const params: NewsletterLatestPublicParams = {};
   const date = sourceUrl.searchParams.get("date");
@@ -91,6 +103,9 @@ export async function GET(req: NextRequest) {
     });
 
     const payload = await upstreamResponse.text();
+    if (auth.mode === "public" && upstreamResponse.status === 404) {
+      return publicNotFound();
+    }
     if (auth.mode === "public" && upstreamResponse.ok) {
       const isPublished =
         format === "markdown"
@@ -104,14 +119,14 @@ export async function GET(req: NextRequest) {
               }
             })();
       if (!isPublished) {
-        return NextResponse.json({ error: "Edition not found" }, { status: 404 });
+        return publicNotFound();
       }
     }
     return new NextResponse(payload, {
       status: upstreamResponse.status,
       headers: {
         "content-type": upstreamResponse.headers.get("content-type") || "application/json; charset=utf-8",
-        "x-bff-upstream": "/api/newsletter-editions/latest",
+        "x-bff-upstream": NEWSLETTER_LATEST_UPSTREAM,
       },
     });
   } catch (error) {

@@ -3,6 +3,9 @@ import { buildNewsletterLatestPublicUpstreamUrl } from "@/lib/bff/upstream";
 const NON_EMPTY_TTL_MS = 10 * 60 * 1000;
 const EMPTY_TTL_MS = 60 * 1000;
 const CACHE_MAX_ENTRIES = 256;
+const TRAILING_URL_PUNCTUATION_RE = /[)\].,;:!?\>"'）」』】、。]/;
+const EDITION_MARKDOWN_URL_RE = /\]\((https?:\/\/[^\s()]*(?:\([^\s()]*\)[^\s()]*)*)\)/gi;
+const EDITION_BARE_URL_RE = /https?:\/\/[^\s<()）]*(?:\([^\s<()）]*\)[^\s<()）]*)*/gi;
 
 type CacheEntry = { urls: Set<string>; expiresAt: number };
 type LoadedEditionUrls = { urls: Set<string>; cacheable: boolean };
@@ -27,10 +30,18 @@ export class EditionUrlLoadError extends Error {
 }
 
 export function normalizeUrlForMatch(raw: string): string | null {
-  const stripped = raw
-    .trim()
-    .replace(/^[<>"']+|[<>"']+$/g, "")
-    .replace(/[)\].,;:!?\>"'）」』】、。]+$/g, "");
+  let stripped = raw.trim().replace(/^[<>"']+|[<>"']+$/g, "");
+
+  while (stripped.length > 0) {
+    const trailing = stripped.at(-1);
+    if (!trailing || !TRAILING_URL_PUNCTUATION_RE.test(trailing)) break;
+    if (trailing === ")") {
+      const openParens = stripped.match(/\(/g)?.length ?? 0;
+      const closeParens = stripped.match(/\)/g)?.length ?? 0;
+      if (closeParens <= openParens) break;
+    }
+    stripped = stripped.slice(0, -1);
+  }
 
   try {
     const url = new URL(stripped);
@@ -46,12 +57,12 @@ export function normalizeUrlForMatch(raw: string): string | null {
 export function extractEditionUrls(markdown: string): Set<string> {
   const urls = new Set<string>();
 
-  for (const match of markdown.matchAll(/\]\((https?:\/\/[^\s)]+)\)/gi)) {
+  for (const match of markdown.matchAll(EDITION_MARKDOWN_URL_RE)) {
     const normalized = normalizeUrlForMatch(match[1]);
     if (normalized) urls.add(normalized);
   }
 
-  for (const match of markdown.matchAll(/https?:\/\/[^\s)<）]+/gi)) {
+  for (const match of markdown.matchAll(EDITION_BARE_URL_RE)) {
     const normalized = normalizeUrlForMatch(match[0]);
     if (normalized) urls.add(normalized);
   }
