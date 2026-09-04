@@ -61,7 +61,7 @@ STRING_ESCAPE = re.compile(
     r"|\\u([0-9A-Fa-f]{4})"
     r"|\\U([0-9A-Fa-f]{8})"
     r"|\\x([0-9A-Fa-f]{2})"
-    r"|\\(/)"
+    r"|\\/"
 )
 
 
@@ -70,8 +70,9 @@ def decode_string_escapes(text):
 
     Backslash, quote, newline/tab, octal, named, and null escapes stay verbatim:
     path rules already tolerate repeated backslashes and do not depend on quotes
-    or controls. Correctly decoding a literal ``\\\\u002f`` needs a tokenizer;
-    the accepted regex over-decodes it on the fail-closed side instead.
+    or controls. Nested serialisation (JSON in JSON, ``\\\\u002f``, ``\\u002f``)
+    is resolved by the bounded rounds in :func:`scan_views`; depth beyond three
+    rounds is the documented boundary.
     """
 
     def replace(match):
@@ -95,9 +96,9 @@ def decode_string_escapes(text):
 
 
 def scan_views(text):
-    """Return raw plus iterative percent/HTML-decoded views, then a JSON/YAML
-    string-escape view of each (``\\uXXXX``, ``\\UXXXXXXXX``, ``\\xHH``,
-    ``\\/``) -- #77. The new views are not recursively decoded.
+    """Return raw plus iterative percent/HTML-decoded views, then up to three
+    string-escape rounds per view (``\\uXXXX``, ``\\UXXXXXXXX``, ``\\xHH``,
+    ``\\/``), stopping at the fixed point — #77.
     """
     views = [text]
     current = text
@@ -112,9 +113,14 @@ def scan_views(text):
             break
         current = unescaped
     for view in tuple(views):
-        decoded = decode_string_escapes(view)
-        if decoded not in views:
-            views.append(decoded)
+        current = view
+        for _ in range(3):
+            decoded = decode_string_escapes(current)
+            if decoded == current:
+                break
+            if decoded not in views:
+                views.append(decoded)
+            current = decoded
     return tuple(views)
 
 
@@ -1075,6 +1081,42 @@ def selftest_repository_policy():
         == ["denylist: esc.txt:1 contains local-user-path (decoded view)"],
         "repository local-user-path string-escape scan finding",
     )
+    nested_php_string_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"esc.txt": "\"\\\"\\\\\\/Us" + "ers\\\\\\/alice\\\"\""},
+            (("local-user-path", local_user_path),),
+            nested_php_string_escape_failures,
+        )
+        == 1
+        and nested_php_string_escape_failures
+        == ["denylist: esc.txt:1 contains local-user-path (decoded view)"],
+        "string-escape nested serialisation PHP json_encode",
+    )
+    nested_unicode_string_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"esc.txt": "\\u005cu002fUs" + "ers\\u005cu002falice"},
+            (("local-user-path", local_user_path),),
+            nested_unicode_string_escape_failures,
+        )
+        == 1
+        and nested_unicode_string_escape_failures
+        == ["denylist: esc.txt:1 contains local-user-path (decoded view)"],
+        "string-escape nested serialisation unicode backslash",
+    )
+    nested_backslash_string_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"esc.txt": "\\\\u002fUs" + "ers\\\\u002falice"},
+            (("local-user-path", local_user_path),),
+            nested_backslash_string_escape_failures,
+        )
+        == 1
+        and nested_backslash_string_escape_failures
+        == ["denylist: esc.txt:1 contains local-user-path (decoded view)"],
+        "string-escape nested serialisation double backslash",
+    )
     local_solidus_escape_failures = []
     _selftest_check(
         check_denylist(
@@ -1139,6 +1181,7 @@ def selftest_repository_policy():
                 "usr.txt": "\\u002fusr\\u002flocal\\u002fbin",
                 "etc.txt": "\\u002fetc\\u002fhosts",
                 "emoji.txt": "\\ud83d\\ude00 emoji only",
+                "unc.txt": "\\\\\\\\server\\\\share",
             },
             path_rules,
             string_escape_clean_failures,
@@ -1203,6 +1246,17 @@ def selftest_scanners():
         and "(decoded view)" in wrapped_escape_failures[0],
         "string-escape percent-wrapped denylist marker",
     )
+    entity_wrapped_escape_failures = []
+    _selftest_check(
+        check_denylist(
+            {"README.md": "private&#92;u002dmarker\n"},
+            rules,
+            entity_wrapped_escape_failures,
+        )
+        == 1
+        and "(decoded view)" in entity_wrapped_escape_failures[0],
+        "string-escape entity-wrapped denylist marker",
+    )
     escape_line_failures = []
     _selftest_check(
         check_denylist(
@@ -1252,6 +1306,14 @@ def selftest_scanners():
     _selftest_check(
         scan_views("plain text") == ("plain text",),
         "string-escape plain text view dedup",
+    )
+    _selftest_check(
+        "-" in scan_views("\\u005cu002d"),
+        "string-escape nested serialisation fixed point",
+    )
+    _selftest_check(
+        "-" not in scan_views("\\\\\\\\\\\\\\\\u002d"),
+        "string-escape depth boundary",
     )
     _selftest_check(
         scan_views("private%2Dmarker")[:2]
