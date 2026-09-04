@@ -125,20 +125,18 @@ function stripGenericHtmlTokens(raw: string): string {
       const previousNonWhitespace = raw.slice(0, offset).match(/\S(?=\s*$)/)?.[0] || "";
       const hasAttributes = /\s/.test(token.slice(1, -1));
       const isShortIdentifier = /^[A-Za-z][A-Za-z0-9]{0,2}$/.test(tagName);
-      const escapedName = tagName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const hasMatchingCloser = new RegExp(`</${escapedName}\\s*>`, "i").test(
-        raw.slice(offset + token.length),
-      );
 
-      if (
-        token.includes("@") ||
-        (!token.startsWith("</") &&
-          !hasAttributes &&
-          !/[:-]/.test(tagName) &&
-          !hasMatchingCloser &&
-          (/[\p{L}\p{N}]/u.test(previousNonWhitespace) || isShortIdentifier))
-      ) {
-        return token;
+      if (token.includes("@")) return token;
+
+      if (!token.startsWith("</") && !hasAttributes && !/[:-]/.test(tagName)) {
+        const escapedName = tagName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const hasMatchingCloser = new RegExp(`</${escapedName}\\s*>`, "i").test(
+          raw.slice(offset + token.length),
+        );
+
+        if (!hasMatchingCloser && (/[\p{L}\p{N}]/u.test(previousNonWhitespace) || isShortIdentifier)) {
+          return token;
+        }
       }
       return " ";
     },

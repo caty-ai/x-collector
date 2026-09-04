@@ -75,6 +75,8 @@ describe("sanitizeBodyFallback", () => {
 
   it("caps input before sanitizing and leaves shorter input unchanged", () => {
     expect(BODY_SANITIZE_MAX_INPUT_CHARS).toBe(20_000);
+    expect(sanitizeBodyFallback("x".repeat(20_000))).toBe("x".repeat(20_000));
+    expect(sanitizeBodyFallback("x".repeat(20_001))).toBe("x".repeat(20_000));
     expect(sanitizeBodyFallback("x".repeat(25_000))).toBe("x".repeat(20_000));
     expect(sanitizeBodyFallback("short body")).toBe("short body");
     expect(sanitizeBodyFallback("short body\uD83D")).toBe("short body\uD83D");
@@ -104,5 +106,9 @@ describe("sanitizeBodyFallback", () => {
     expect(sanitizeBodyFallback("mail <a@b.c> ok")).toBe("mail <a@b.c> ok");
     expect(sanitizeBodyFallback("<foo>only opener")).toBe("<foo>only opener");
     expect(sanitizeBodyFallback("<Foo>bar</FOO>")).toBe("bar");
+  });
+
+  it("strips a kept-style opener when a matching closer appears anywhere later (accepted §1.2 consequence)", () => {
+    expect(sanitizeBodyFallback("Array<T> of items\n\nlater </T> end")).toBe("Array of items later end");
   });
 });

@@ -84,7 +84,7 @@ npm run publish:prod
 - HTML 要素、コメント、script/style、front matter、fence、Markdown のマーカーとリンク構文を除去する。
 - HTML entity は最後にデコードするため、入力の `&lt;script&gt;` はリテラルな `<script>` として現れる。これは意図した挙動であり、`contentMd` は HTML ではなくプレーンテキスト／Markdown である。
 - 入力はサニタイズ前に `BODY_SANITIZE_MAX_INPUT_CHARS`（20,000文字）で上限を設ける。
-- `GET /api/newsletter-editions/latest?format=markdown` と `GET /api/newsletter-editions/{id}/content` は `text/markdown; charset=utf-8` と `X-Content-Type-Options: nosniff` で返す。
+- `GET /api/newsletter-editions/latest?format=markdown` と `GET /api/newsletter-editions/{id}/content` は `text/markdown; charset=utf-8` と `X-Content-Type-Options: nosniff` で返す。ブラウザ向けの BFF プロキシ（`/api/bff/newsletter-editions/latest`）は現状 `content-type` しか透過しないため、`nosniff` の伝播は #85 / #88 の後続で扱う。
 - `contentMd` を raw HTML として描画する surface は必ずエスケープする。同梱リーダーは HTML として描画しない。
 
 ### `dist/` の運用ポリシー
