@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { parseNewsletterMarkdown } from "../newsletter-markdown";
+import { extractArticleBodyAndSource, parseNewsletterMarkdown } from "../newsletter-markdown";
 
 const fixture = (name: string, suffix: string) => readFileSync(new URL(`./fixtures/editions/${name}.${suffix}`, import.meta.url), "utf8");
 describe("newsletter markdown golden fixtures", () => {
@@ -12,8 +12,8 @@ describe("newsletter markdown golden fixtures", () => {
     const articles = parsed.sections[0].articles;
     expect(articles[2].source).toBe("[platform](https://example.net/final)");
     expect(articles[2].body).toContain("引用元: [platform](https://example.net/earlier)");
-    expect(articles[3].source).toBe("");
-    expect(articles[3].body).toContain("引用元：");
+    expect(articles[3].source).toBe("[platform](https://example.org/full-width)");
+    expect(articles[3].body).toBe("This marker stays inside the body.");
     expect(articles[4].body).toContain("#### Detail heading\n**Pseudo heading**");
     expect(articles[0].body).toContain("Why it matters:");
     expect(parsed.sections[1].articles).toEqual([]);
@@ -35,5 +35,26 @@ describe("newsletter markdown golden fixtures", () => {
     const elapsed = performance.now() - start;
     expect(parsed.sections.flatMap((section) => section.articles)).toHaveLength(250);
     expect(elapsed).toBeLessThan(200);
+  });
+});
+
+describe("source markers", () => {
+  it("extracts a full-width source and removes its line from the body", () => {
+    expect(extractArticleBodyAndSource(["  Body.  ", "引用元：[platform](https://example.org/full-width)"])).toEqual({
+      body: "Body.", source: "[platform](https://example.org/full-width)",
+    });
+  });
+  it.each([[":", "："], ["：", ":"]])("uses the last mixed marker: %s then %s", (earlier, last) => {
+    expect(extractArticleBodyAndSource(["Body.", `引用元${earlier} earlier`, `引用元${last} last  `])).toEqual({
+      body: `Body.\n引用元${earlier} earlier`, source: "last",
+    });
+  });
+  it("accepts leading spaces before a full-width marker", () => {
+    expect(extractArticleBodyAndSource(["Body.", "   引用元：   https://example.org/full-width  "])).toEqual({
+      body: "Body.", source: "https://example.org/full-width",
+    });
+  });
+  it.each(["引用元 ： source", "引用元 : source", "A sentence with 引用元: source", "出典： source", "引用元﹕ source", "引用元：", "引用元:"])("keeps non-marker text: %s", (line) => {
+    expect(extractArticleBodyAndSource(["Body.", line])).toEqual({ body: `Body.\n${line}`, source: "" });
   });
 });

@@ -23,8 +23,8 @@
         },
         {
           "title": "Full-width source marker",
-          "body": "This marker stays inside the body.\n引用元： [platform](https://example.org/full-width)",
-          "source": ""
+          "body": "This marker stays inside the body.",
+          "source": "[platform](https://example.org/full-width)"
         },
         {
           "title": "Missing source",
