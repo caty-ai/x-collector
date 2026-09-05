@@ -2,7 +2,9 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown from "react-markdown";
+import { type Article, parseNewsletterMarkdown } from "@/lib/reader/newsletter-markdown";
+import { MARKDOWN_CLASS_NAME, MARKDOWN_COMPONENTS } from "@/lib/reader/markdown-render";
 
 import { ArticleActions } from "@/components/reader/ArticleActions";
 import { AskAiBanner } from "@/components/reader/AskAiBanner";
@@ -51,15 +53,7 @@ type CalendarCell = {
   inCurrentMonth: boolean;
 };
 
-type Article = { title: string; body: string; source: string };
-type Section = { title: string; intro: string; articles: Article[] };
 type OgImageState = { status: "idle" | "loading" | "loaded" | "none"; imageUrl?: string };
-
-type ParsedNewsletter = {
-  title: string;
-  preamble: string;
-  sections: Section[];
-};
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "下書き",
@@ -72,20 +66,6 @@ const TRUST_BADGE_LABELS: Record<string, string> = {
 };
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
-const MARKDOWN_CLASS_NAME =
-  "max-w-none space-y-4 font-wired-serif text-base leading-7 text-ink [&_a]:font-sans [&_blockquote]:border-l [&_blockquote]:border-ink [&_blockquote]:pl-4 [&_blockquote]:text-ink/70 [&_code]:border [&_code]:border-hairline [&_code]:bg-paper [&_code]:px-1 [&_code]:py-0.5 [&_h1]:font-wired-serif [&_h1]:text-wired-display-md [&_h1]:font-normal [&_h1]:text-ink [&_h2]:mt-8 [&_h2]:font-wired-serif [&_h2]:text-wired-display-sm [&_h2]:font-normal [&_h2]:text-ink [&_h3]:mt-6 [&_h3]:font-sans [&_h3]:text-wired-meta [&_h3]:font-bold [&_h3]:uppercase [&_h3]:text-ink [&_ol]:list-decimal [&_ol]:space-y-2 [&_ol]:pl-6 [&_p:first-of-type]:text-lg [&_p:first-of-type]:leading-8 [&_pre]:overflow-x-auto [&_pre]:border [&_pre]:border-hairline [&_pre]:bg-paper [&_pre]:p-3 [&_ul]:list-disc [&_ul]:space-y-2 [&_ul]:pl-6";
-
-const MARKDOWN_COMPONENTS: Components = {
-  a: ({ node: _node, ...props }) => (
-    <a
-      {...props}
-      target="_blank"
-      rel="noreferrer"
-      className="text-link underline underline-offset-2 hover:opacity-80"
-    />
-  ),
-};
-
 function parseIsoDateToUtcDate(date: string): Date {
   const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) {
@@ -178,106 +158,6 @@ function buildErrorMessage(error: unknown): string {
   }
 
   return "不明なエラーが発生しました";
-}
-
-function extractArticleBodyAndSource(lines: string[]): Pick<Article, "body" | "source"> {
-  let sourceLineIndex = -1;
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    if (/^\s*引用元:\s*(.+)\s*$/.test(lines[index])) {
-      sourceLineIndex = index;
-      break;
-    }
-  }
-
-  if (sourceLineIndex === -1) {
-    return { body: lines.join("\n").trim(), source: "" };
-  }
-
-  const source = lines[sourceLineIndex].replace(/^\s*引用元:\s*/, "").trim();
-  const body = lines
-    .filter((_, index) => index !== sourceLineIndex)
-    .join("\n")
-    .trim();
-
-  return { body, source };
-}
-
-function parseNewsletterMarkdown(markdown: string): ParsedNewsletter {
-  const sections: Section[] = [];
-  const preambleLines: string[] = [];
-  const lines = markdown.split(/\r?\n/);
-  let title = "";
-  let currentSection: { title: string; introLines: string[]; articles: Article[] } | null = null;
-  let currentArticle: { title: string; bodyLines: string[] } | null = null;
-
-  const flushArticle = () => {
-    if (!currentSection || !currentArticle) return;
-
-    const { body, source } = extractArticleBodyAndSource(currentArticle.bodyLines);
-    currentSection.articles.push({
-      title: currentArticle.title,
-      body,
-      source,
-    });
-    currentArticle = null;
-  };
-
-  const flushSection = () => {
-    if (!currentSection) return;
-
-    flushArticle();
-    sections.push({
-      title: currentSection.title,
-      intro: currentSection.introLines.join("\n").trim(),
-      articles: currentSection.articles,
-    });
-    currentSection = null;
-  };
-
-  for (const line of lines) {
-    const h1Match = line.match(/^#\s+(.+)$/);
-    if (h1Match) {
-      title = title || h1Match[1].trim();
-      continue;
-    }
-
-    const h2Match = line.match(/^##\s+(.+)$/);
-    if (h2Match) {
-      flushSection();
-      currentSection = {
-        title: h2Match[1].trim(),
-        introLines: [],
-        articles: [],
-      };
-      continue;
-    }
-
-    const h3Match = line.match(/^###\s+(.+)$/);
-    if (h3Match && currentSection) {
-      flushArticle();
-      currentArticle = {
-        title: h3Match[1].trim(),
-        bodyLines: [],
-      };
-      continue;
-    }
-
-    if (currentArticle) {
-      currentArticle.bodyLines.push(line);
-      continue;
-    }
-
-    if (currentSection) {
-      currentSection.introLines.push(line);
-      continue;
-    }
-
-    preambleLines.push(line);
-  }
-
-  flushSection();
-
-  return { title, preamble: preambleLines.join("\n").trim(), sections };
 }
 
 async function fetchNewsletterMarkdown(date: string): Promise<string> {
