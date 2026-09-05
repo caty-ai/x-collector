@@ -12,7 +12,7 @@ This folder holds the design documents for the loop that thanks and rewards x-co
 
 1. **Star → 特典リポ（private）への招待**、Issue/Discussions → **お礼コメント**、PR マージ → **Contributors 壁とリリースノート記名**。累積で上がり、下がらない。
 2. 最初は **record-only**（何をするつもりだったかを元帳に書くだけ・外部に一切送らない）で動かし、オーナーの承認コメント後にだけ **live** に切り替える。
-3. 長期の認証情報は **1本だけ**（`SUPPORTER_LOOP_TOKEN`・特典リポにしか届かない）。お礼コメントは呼び出し元リポの `GITHUB_TOKEN` で出す。
+3. 長期の認証情報は **用途別に2本**（`SUPPORTER_LEDGER_TOKEN` = 元帳の読み書きだけ・record-only で使うのはこれだけ / `SUPPORTER_LOOP_TOKEN` = 招待と解除だけ・live の `act` job でしか読まれない）。どちらも特典リポにしか届かない。お礼コメントは呼び出し元リポの `GITHUB_TOKEN` で出す。
 
 ## 置き場 / where things live
 
