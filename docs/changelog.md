@@ -2,7 +2,7 @@
 
 README から移設した改修履歴。最新の開発ステータスは [エンジニア向けドキュメントの開発状況](engineering.ja.md#development-status) を参照。
 
-## Unreleased
+## v0.4.1 — 2026-09-05
 
 - 同日の `publish` 再実行を冪等化（#108）。published 済み edition への再実行は no-op、`--allow-append` で明示追記。
 - `/a/` 記事向けの `robots.txt` と `sitemap.xml` を追加（#107）。`NEWSPAPER_PUBLIC` と site origin の両方が揃う時だけ公開エントリを出す。直近 7 日分・既存 loader 経由。robots は `/a/`・`/calendar`・`/sitemap.xml`・`/og-default.png` を許可、sitemap は 1 リクエスト 5 秒予算。
