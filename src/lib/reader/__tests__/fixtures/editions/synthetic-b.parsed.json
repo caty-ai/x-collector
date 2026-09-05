@@ -1,0 +1,37 @@
+{
+  "title": "Synthetic edition B",
+  "preamble": "A second preamble.",
+  "sections": [
+    {
+      "title": "Examples",
+      "intro": "A section introduction.",
+      "articles": [
+        {
+          "title": "Clean toolkit twin",
+          "body": "The same synthetic item has a clean source.",
+          "source": "[platform](https://example.com/toolkit)"
+        },
+        {
+          "title": "Literal <script>payload</script> title",
+          "body": "A harmless summary for a hostile-looking title.",
+          "source": "[platform](https://example.org/script-title)"
+        },
+        {
+          "title": "Literal [x](javascript:alert(1)) title",
+          "body": "Another harmless summary.",
+          "source": "[platform](https://example.net/link-title)"
+        },
+        {
+          "title": "Query example",
+          "body": "A synthetic query example.",
+          "source": "https://example.com/query?z=2&s=keep&a=1"
+        },
+        {
+          "title": "Repeated clean toolkit",
+          "body": "Document order determines the winner.",
+          "source": "[platform](https://example.com/toolkit)"
+        }
+      ]
+    }
+  ]
+}

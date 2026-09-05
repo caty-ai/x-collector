@@ -1,0 +1,52 @@
+{
+  "title": "Synthetic edition A",
+  "preamble": "Preamble before any section.",
+  "sections": [
+    {
+      "title": "Experiments",
+      "intro": "An introductory paragraph for this section.",
+      "articles": [
+        {
+          "title": "Compact toolkit",
+          "body": "A synthetic toolkit adds a compact mode.\nWhy it matters: The example illustrates a shorter workflow.",
+          "source": "[platform](https://example.com/toolkit/?utm_source=fixture&fbclid=tracking#details)"
+        },
+        {
+          "title": "Bare source",
+          "body": "A second synthetic summary.",
+          "source": "https://example.org/bare。、）」』】,.;:!?"
+        },
+        {
+          "title": "Last source wins",
+          "body": "A summary with two source lines.\n引用元: [platform](https://example.net/earlier)\nA final detail.",
+          "source": "[platform](https://example.net/final)"
+        },
+        {
+          "title": "Full-width source marker",
+          "body": "This marker stays inside the body.\n引用元： [platform](https://example.org/full-width)",
+          "source": ""
+        },
+        {
+          "title": "Missing source",
+          "body": "The body mentions https://example.net/body-only but supplies no source.\n#### Detail heading\n**Pseudo heading**\nThese lines remain in the body.",
+          "source": ""
+        },
+        {
+          "title": "Placeholder source",
+          "body": "A synthetic placeholder summary.",
+          "source": "[source](about:blank)"
+        },
+        {
+          "title": "Duplicate toolkit",
+          "body": "A later article with the exact same source.",
+          "source": "[platform](https://example.com/toolkit/?utm_source=fixture&fbclid=tracking#details)"
+        }
+      ]
+    },
+    {
+      "title": "Empty section",
+      "intro": "No articles are present here.",
+      "articles": []
+    }
+  ]
+}
