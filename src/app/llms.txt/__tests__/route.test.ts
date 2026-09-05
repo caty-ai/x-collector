@@ -1,12 +1,16 @@
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GET } from "../route";
+import { dynamic, GET } from "../route";
 
 afterEach(() => vi.unstubAllEnvs());
 
 const request = () => new NextRequest("https://reader.example/llms.txt");
 
 describe("GET /llms.txt", () => {
+  it("forces dynamic rendering", () => {
+    expect(dynamic).toBe("force-dynamic");
+  });
+
   it("returns public plain text with the specified headers", async () => {
     const response = await GET(request());
 
@@ -66,5 +70,14 @@ describe("GET /llms.txt", () => {
     }
     expect(body).toMatch(/[^\n]\n$/);
     expect(body).not.toContain("\r");
+  });
+
+  it("documents access rules and editorial priority", async () => {
+    const body = await (await GET(request())).text();
+
+    expect(body).toContain("Anonymous reads work only when the site's public reader mode is enabled; otherwise the edition endpoint returns 401 and the reader page redirects to a login page.");
+    expect(body).not.toContain("NEWSPAPER_PUBLIC=1");
+    expect(body).toContain("A malformed `date` or unknown `format` returns 400.");
+    expect(body).toContain("Article order within a section is the editorial priority: first is most important.");
   });
 });

@@ -1,6 +1,8 @@
-import { NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import { getMasthead, getTagline } from "@/lib/masthead";
 import { resolveSiteUrl } from "@/lib/reader/edition-meta";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const origin = resolveSiteUrl() ?? req.nextUrl.origin;
@@ -27,9 +29,10 @@ This is a daily AI-news edition compiled by x-collector. Each edition is a curat
 
 ## Access
 
-- Anonymous reads work only in public mode (NEWSPAPER_PUBLIC=1); otherwise the edition endpoint returns 401 and the reader page redirects to a login page.
+- Anonymous reads work only when the site's public reader mode is enabled; otherwise the edition endpoint returns 401 and the reader page redirects to a login page.
 - Anonymous traffic is rate-limited: on 429, back off and retry according to the Retry-After header.
 - Unknown or unpublished dates return 404; only published editions are served.
+- A malformed \`date\` or unknown \`format\` returns 400.
 - Content is Japanese-first.
 `;
 
