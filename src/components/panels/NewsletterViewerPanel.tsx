@@ -11,6 +11,7 @@ import { AskAiBanner } from "@/components/reader/AskAiBanner";
 import {
   buildArticleAnchorId,
   buildArticlePath,
+  buildEditionMarkdownUrl,
   buildEditionQuestion,
   buildEditionUrl,
   extractFirstExternalUrl,
@@ -836,7 +837,8 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
               <AskAiBanner
                 pageUrl={buildEditionUrl(origin, appliedDate)}
                 question={buildEditionQuestion({
-                  url: buildEditionUrl(origin, appliedDate),
+                  markdownUrl: buildEditionMarkdownUrl(origin, appliedDate),
+                  pageUrl: buildEditionUrl(origin, appliedDate),
                   dateLabel: formatDateLabelJa(appliedDate),
                   masthead,
                 })}
