@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -189,10 +188,15 @@ describe("middleware article adapter", () => {
     );
   });
 
-  it("throttles the 241st anonymous article per IP and releases it after 60 seconds", async () => {
-    vi.stubEnv("NEWSPAPER_PUBLIC", "1");
+  it("preserves quota across public-off redirects, throttles the 241st admission and releases it after 60 seconds", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
     const req = request(articlePath);
+    for (let count = 0; count < 241; count += 1) {
+      const response = await run(req);
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://reader.example/np-login");
+    }
+    vi.stubEnv("NEWSPAPER_PUBLIC", "1");
     for (let count = 0; count < 240; count += 1) {
       expect((await run(req)).headers.get("x-middleware-next")).toBe("1");
     }
@@ -236,10 +240,45 @@ describe("middleware article adapter", () => {
     },
   );
 
-  it("wires the same article predicate into the handler and authorized callback", () => {
-    const source = readFileSync(new URL("../../../middleware.ts", import.meta.url), "utf8");
-    const [handler, authorized] = source.split("authorized: ({ token, req }) => {");
-    expect(handler).toContain("isReaderPath(pathname) || isPublicArticleRequest(pathname, req.method)");
-    expect(authorized).toContain("isPublicArticleRequest(pathname, req.method)");
+  it("treats normalised dot-segment articles like the clean path in both public switch states", async () => {
+    const nextUrl = new URL("https://reader.example/a/2026-09-04/junk/%2e%2e/0123456789ab");
+    expect(nextUrl.pathname).toBe(articlePath);
+    const normalisedRequest = { ...request(articlePath), nextUrl, url: nextUrl.href };
+
+    for (const value of [undefined, "1"]) {
+      vi.stubEnv("NEWSPAPER_PUBLIC", value);
+      for (const req of [normalisedRequest, request(articlePath)]) {
+        expect(mocks.options?.callbacks.authorized({ token: null, req })).toBe(true);
+        const response = await run(req);
+        if (value === "1") {
+          expect(response.status).toBe(200);
+          expect(response.headers.get("x-middleware-next")).toBe("1");
+        } else {
+          expect(response.status).toBe(307);
+          expect(response.headers.get("location")).toBe("https://reader.example/np-login");
+        }
+      }
+    }
+  });
+
+  it("sends dot segments escaping the article path through token authorization", async () => {
+    const nextUrl = new URL("https://reader.example/a/2026-09-04/0123456789ab/../../admin");
+    expect(nextUrl.pathname).toBe("/a/admin");
+    const req = {
+      ...request(articlePath, { email: "other@example.com" }),
+      nextUrl,
+      url: nextUrl.href,
+    };
+
+    for (const value of [undefined, "1"]) {
+      vi.stubEnv("NEWSPAPER_PUBLIC", value);
+      expect(mocks.options?.callbacks.authorized({ token: null, req })).toBe(false);
+      expect(mocks.options?.callbacks.authorized({ token: req.nextauth.token, req })).toBe(true);
+      const response = await run(req);
+      expect(response.status).toBe(403);
+      expect(await response.text()).toBe(
+        "Forbidden: this account is not on the allowlist. Sign out at /api/auth/signout to switch accounts.",
+      );
+    }
   });
 });

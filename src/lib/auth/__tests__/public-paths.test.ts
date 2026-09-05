@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   PUBLIC_ARTICLE_PATH_RE,
@@ -48,6 +48,42 @@ describe("public article boundary", () => {
       expect(isPublicArticleRequest(articlePath, method)).toBe(false);
     },
   );
+
+  it("rejects any percent sign before regex evaluation (defence in depth)", () => {
+    for (const pathname of [`${articlePath}%`, `${articlePath}/%`, articlePath.replace("a", "%61")]) {
+      expect(PUBLIC_ARTICLE_PATH_RE.test(pathname)).toBe(false);
+      expect(isPublicArticlePath(pathname)).toBe(false);
+    }
+
+    const regexTest = vi.spyOn(PUBLIC_ARTICLE_PATH_RE, "test");
+    try {
+      // guard fires before the regex
+      expect(isPublicArticlePath("/a/2026-09-04/0123456789ab".replace("a", "%61"))).toBe(false);
+      expect(regexTest).not.toHaveBeenCalled();
+      expect(isPublicArticlePath(articlePath)).toBe(true);
+      expect(regexTest).toHaveBeenCalledTimes(1);
+      expect(regexTest).toHaveBeenCalledWith(articlePath);
+    } finally {
+      regexTest.mockRestore();
+    }
+  });
+
+  it("WHATWG normalisation happens before the predicate", () => {
+    const cases = [
+      ["/a/2026-09-04/junk/%2e%2e/0123456789ab", articlePath, true],
+      [`${articlePath}/%2e%2e`, "/a/2026-09-04/", false],
+      [`${articlePath}/../../admin`, "/a/admin", false],
+      ["/a/2026-09-04/%30123456789ab", "/a/2026-09-04/%30123456789ab", false],
+      ["/%61/2026-09-04/0123456789ab", "/%61/2026-09-04/0123456789ab", false],
+    ] as const;
+
+    for (const [raw, expectedPathname, expectedPublic] of cases) {
+      const pathname = new URL("https://reader.example" + raw).pathname;
+      expect(pathname).toBe(expectedPathname);
+      // A normalised clean article URL identifies the same resource as the clean URL.
+      expect(isPublicArticlePath(pathname)).toBe(expectedPublic);
+    }
+  });
 
   it.each(["get", "head"])("normalizes method %s", (method) => {
     expect(isPublicArticleRequest(articlePath, method)).toBe(true);
