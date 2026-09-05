@@ -17,3 +17,13 @@ internal-tailnet-host	\b[A-Za-z0-9-]+\.ts\.net\b
 local-user-path	(?-i:/Users/|/home/(?![<{])[A-Za-z0-9._-]+)
 windows-user-path	\b[A-Za-z]:[\\/]+Users[\\/]+(?![<{])[\w.-]+
 wsl-drvfs-user-path	[\\/]mnt[\\/]+[A-Za-z][\\/]+users[\\/]+(?![<{])[\w.-]+
+# `wsl-unc-linux-home` は Windows 側に現れる `local-user-path` の鏡像として、`\\wsl$` と
+# `\\wsl.localhost` の `<distro>\\home\\<name>` を対象にする。
+# `host-mount-user-path` は `/cygdrive/`、`/host_mnt/`、および Docker Desktop の
+# `/run/desktop/mnt/host/` を含む `/mnt/<root>/<drive>/users/` を対象にする。
+# `/c/users/` と `/mnt` 外の任意 root は対象外。必要な `[\\/][A-Za-z][\\/]+users` アンカーは
+# 3 family gate script 自身の selftest canary に 390 件 self-hit し、全 family gate を赤にするため採用しない。
+# `/mnt/cdrive/users/` は #76 の trade を変更せず対象外とする。
+# `local-user-path` を case-insensitive 化して代用してはならない。
+wsl-unc-linux-home	wsl(?:\$|\.localhost)[\\/]+[^\\/\s]+[\\/]+home[\\/]+(?![<{])[\w.-]+
+host-mount-user-path	[\\/](?:cygdrive|host_mnt|mnt[\\/]+[\w.-]+)[\\/]+[A-Za-z][\\/]+users[\\/]+(?![<{])[\w.-]+
