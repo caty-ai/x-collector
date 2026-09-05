@@ -6,6 +6,7 @@ import {
   buildArticleAnchorId,
   buildArticleQuestion,
   buildArticleUrl,
+  buildEditionMarkdownUrl,
   buildEditionQuestion,
   buildEditionUrl,
   buildShareUrls,
@@ -56,23 +57,37 @@ describe("reader links", () => {
     );
   });
 
+  it("builds the markdown edition URL", () => {
+    expect(buildEditionMarkdownUrl("https://news.example", "2026-09-02")).toBe(
+      "https://news.example/api/bff/newsletter-editions/latest?format=markdown&date=2026-09-02",
+    );
+  });
+
   it("uses a zero-padded Japanese date label", () => {
     expect(formatDateLabelJa("2026-09-02")).toBe("2026年09月02日");
     expect(formatDateLabelJa("not-a-date")).toBe("not-a-date");
   });
 
   it("builds a fully substituted edition question", () => {
-    const url = "https://news.example/calendar?date=2026-09-02";
+    const markdownUrl = "https://news.example/api/bff/newsletter-editions/latest?format=markdown&date=2026-09-02";
+    const pageUrl = "https://news.example/calendar?date=2026-09-02";
     const question = buildEditionQuestion({
-      url,
+      markdownUrl,
+      pageUrl,
       dateLabel: "2026年09月02日",
       masthead: "テスト新聞",
     });
 
-    expect(question).toContain(url);
+    expect(question).toContain(markdownUrl);
+    expect(question).toContain(pageUrl);
+    expect(question.indexOf(markdownUrl)).toBeLessThan(question.indexOf(pageUrl));
     expect(question).toContain("2026年09月02日");
     expect(question).toContain("テスト新聞");
-    expect(question).toContain("まず URL");
+    expect(question).toContain("まず");
+    expect(question).toContain("Markdown 版");
+    expect(question).toContain("この URL が読めない場合だけ、HTML 紙面ページ");
+    expect(question).toContain("どちらも読めない場合はその旨を伝えてください");
+    expect(question).toContain("見出しと引用元 URL を紙面のとおりに");
     expect(question).not.toContain("{");
   });
 

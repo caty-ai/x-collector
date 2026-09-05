@@ -40,6 +40,10 @@ export function buildEditionUrl(origin: string, date: string): string {
   return `${origin}/calendar?date=${date}`;
 }
 
+export function buildEditionMarkdownUrl(origin: string, date: string): string {
+  return `${origin}/api/bff/newsletter-editions/latest?format=markdown&date=${date}`;
+}
+
 export function buildArticleUrl(
   origin: string,
   date: string,
@@ -64,15 +68,17 @@ export function formatDateLabelJa(date: string): string {
 }
 
 export function buildEditionQuestion({
-  url,
+  markdownUrl,
+  pageUrl,
   dateLabel,
   masthead,
 }: {
-  url: string;
+  markdownUrl: string;
+  pageUrl: string;
   dateLabel: string;
   masthead: string;
 }): string {
-  return `${url} は ${dateLabel} 発行のニュース紙面「${masthead}」です。まず URL を開いて内容を読んでください（読めない場合はその旨を伝えてください）。この紙面から、今日特に大事そうな記事と、私に合いそうな記事を理由つきで選んでください`;
+  return `${markdownUrl} は ${dateLabel} 発行のニュース紙面「${masthead}」の Markdown 版です。最も読み取りやすい形式なので、まずこの URL を開いて内容を読んでください。この URL が読めない場合だけ、HTML 紙面ページ ${pageUrl} を開いてください（どちらも読めない場合はその旨を伝えてください）。この紙面から、今日特に大事そうな記事と、私に合いそうな記事を理由つきで選んでください。選んだ各記事の見出しと引用元 URL を紙面のとおりに添えてください`;
 }
 
 export function plainTextFromMarkdown(markdown: string): string {
