@@ -4,6 +4,7 @@ README から移設した改修履歴。最新の開発ステータスは [エ�
 
 ## Unreleased
 
+- `/a/` 記事向けの `robots.txt` と `sitemap.xml` を追加（#107）。`NEWSPAPER_PUBLIC` と site origin の両方が揃う時だけ公開エントリを出す。直近 7 日分・既存 loader 経由。
 - 全角 `引用元：` を引用元マーカーとして受理（#106）。半角の記事 ID は不変。
 
 ## v0.4.0 — 2026-09-05
