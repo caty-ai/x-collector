@@ -243,12 +243,13 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 
 #### 公開モード (`NEWSPAPER_PUBLIC`)
 
-- `NEWSPAPER_PUBLIC=1` または `true` のとき、匿名利用者へ `/calendar`、`/calendar/*` の静的 asset、newsletter BFF、og-image BFF を開く。`/`、`/feed`、`/settings`、`/admin`、`/api/admin/*`、`/api/bff/feed` を含むその他の route は従来どおり allowlist 済み Google account が必要。`/np-login` は変更せず、switch off 時の共有ログインにも引き続き使える。
+- `NEWSPAPER_PUBLIC=1` または `true` のとき、匿名利用者へ `/calendar`、`/calendar/*` の静的 asset、newsletter BFF、og-image BFF を開く。`/`、`/feed`、`/settings`、`/admin`、`/api/admin/*`、`/api/bff/feed` を含む管理用 route は従来どおり allowlist 済み Google account が必要。`/np-login` は変更せず、switch off 時の共有ログインにも引き続き使える。
+- 記事ランディングページ `/a/<YYYY-MM-DD>/<12-hex>` は、`NEWSPAPER_PUBLIC=1`（または `true`）かつ path が完全一致する GET/HEAD request のときだけ匿名に開く（末尾 `/` は任意）。switch 未設定時は allowlist 済みログインか有効な共有 cookie が必要。匿名 request には IP ごと 240 requests/60秒の throttle を適用し、超過時は `Retry-After: 60` 付きの 429 を返す（abuse friction であり認可 control ではない）。ページ本体は後続 release で提供し、それまで middleware を通過した request には Next が 404 を返す。
 - 公開モードの匿名 newsletter BFF は、検証済みの `date`、`format`、`includeContent`、`includeItems` だけを upstream へ転送し、`slug` その他の parameter を破棄する。さらに BFF で published edition だけを返し、draft と空日は同じ 404 にする。upstream route 自体には status filter がないため、その filter と JSON の public projection は follow-up 対応とする。
 - JSON edition payload は現状 `slug`、`status`、`model`、`id`、timestamps、および `items[].sourceRef` / `trustLabel` / `pipelineItemId` を含む。公開用途に絞った response projection は follow-up で扱う。
 - 公開モードでは session / shared-cookie 利用者を含む全 caller の og-image request に edition membership guard を適用する。guard は有効な `?date=`、同一 origin Referer の有効な `?date=`、latest edition の URL 集合の union だけを許可する。運用 script は明示的に `?date=` を渡せる。
 - 過去日の reader panel は同一 origin Referer の query に依存する。`Referrer-Policy` が query を削る構成では過去日の og image が `none` に劣化する（fail-closed）。panel が og-image request 自体へ `date` を渡す変更は follow-up とする。
-- newsletter BFF は IP ごと 240 requests/60秒、og-image BFF は 120 requests/60秒の in-memory throttle を匿名 public request にだけ適用する。これは proxy が付ける X-Forwarded-For に依存する abuse friction であり、認可 control ではない。month-summary endpoint と deployment-level rate limit は follow-up とする。
+- newsletter BFF は IP ごと 240 requests/60秒、og-image BFF は 120 requests/60秒、記事ページは 240 requests/60秒の in-memory throttle を匿名 public request にだけ適用する。これは proxy が付ける X-Forwarded-For に依存する abuse friction であり、認可 control ではない。month-summary endpoint と deployment-level rate limit は follow-up とする。
 - 絶対 `og:url` の出力には `NEWSPAPER_SITE_URL` または `NEXTAUTH_URL` が必要。credentials 付き URL や非 http(s) URL は採用しない。
 - 読み取りはリクエスト時。再起動で反映（ビルド時に env を焼き込むホストでは再デプロイ）。
 

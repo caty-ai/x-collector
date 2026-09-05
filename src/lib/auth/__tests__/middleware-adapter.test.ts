@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -7,7 +8,7 @@ const mocks = vi.hoisted(() => ({
     | undefined
     | {
         callbacks: {
-          authorized(input: { token: unknown; req: { nextUrl: URL } }): boolean;
+          authorized(input: { token: unknown; req: { nextUrl: URL; method?: string } }): boolean;
         };
       },
 }));
@@ -26,8 +27,11 @@ vi.mock("@/lib/auth/shared-newspaper", () => ({
 }));
 
 import middleware, { config } from "@/middleware";
+import { __resetPublicThrottleForTests } from "@/lib/bff/public-throttle";
 
 type MinimalRequest = {
+  method: string;
+  headers: Headers;
   nextUrl: URL;
   url: string;
   cookies: { get(name: string): { value: string } | undefined };
@@ -37,6 +41,8 @@ type MinimalRequest = {
 function request(pathname: string, token: { email?: string } | null = null): MinimalRequest {
   const url = `https://reader.example${pathname}`;
   return {
+    method: "GET",
+    headers: new Headers({ "x-forwarded-for": "203.0.113.98" }),
     nextUrl: new URL(url),
     url,
     cookies: { get: () => undefined },
@@ -49,11 +55,15 @@ async function run(req: MinimalRequest): Promise<Response> {
 }
 
 beforeEach(() => {
+  __resetPublicThrottleForTests();
+  vi.stubEnv("NEWSPAPER_PUBLIC", undefined);
   vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "allowed@example.com");
   mocks.verifySharedCookie.mockReset().mockResolvedValue(false);
 });
 
 afterEach(() => {
+  __resetPublicThrottleForTests();
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.clearAllMocks();
 });
@@ -138,5 +148,98 @@ describe("middleware reader adapter", () => {
     expect(await response.text()).toBe(
       "Forbidden: this account is not on the allowlist. Sign out at /api/auth/signout to switch accounts.",
     );
+  });
+});
+
+describe("middleware article adapter", () => {
+  const articlePath = "/a/2026-09-04/0123456789ab";
+
+  it.each(["GET", "HEAD"])("admits anonymous public %s articles", async (method) => {
+    vi.stubEnv("NEWSPAPER_PUBLIC", "1");
+    const response = await run({ ...request(articlePath), method });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("redirects to shared login when the public switch is unset", async () => {
+    const response = await run(request(articlePath));
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://reader.example/np-login");
+  });
+
+  it("admits a valid shared cookie when the public switch is unset", async () => {
+    mocks.verifySharedCookie.mockImplementation(async (value) => value === "valid-shared-cookie");
+    const req = request(articlePath);
+    req.cookies.get = (name) =>
+      name === "np_shared" ? { value: "valid-shared-cookie" } : undefined;
+    const response = await run(req);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("sends public POST articles through the existing token path", async () => {
+    vi.stubEnv("NEWSPAPER_PUBLIC", "1");
+    const response = await run({
+      ...request(articlePath, { email: "other@example.com" }),
+      method: "POST",
+    });
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe(
+      "Forbidden: this account is not on the allowlist. Sign out at /api/auth/signout to switch accounts.",
+    );
+  });
+
+  it("throttles the 241st anonymous article per IP and releases it after 60 seconds", async () => {
+    vi.stubEnv("NEWSPAPER_PUBLIC", "1");
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const req = request(articlePath);
+    for (let count = 0; count < 240; count += 1) {
+      expect((await run(req)).headers.get("x-middleware-next")).toBe("1");
+    }
+    const response = await run(req);
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(await response.text()).toBe("Too many requests");
+    const otherIp = request(articlePath);
+    otherIp.headers.set("x-forwarded-for", "203.0.113.99");
+    expect((await run(otherIp)).headers.get("x-middleware-next")).toBe("1");
+    expect((await run(request("/calendar"))).headers.get("x-middleware-next")).toBe("1");
+    now.mockReturnValue(61_000);
+    expect((await run(req)).headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("never throttles allowlisted tokens or consumes their anonymous quota", async () => {
+    vi.stubEnv("NEWSPAPER_PUBLIC", "1");
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    for (let count = 0; count < 241; count += 1) {
+      const response = await run(request(articlePath, { email: "allowed@example.com" }));
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+    }
+    for (let count = 0; count < 240; count += 1) {
+      expect((await run(request(articlePath))).headers.get("x-middleware-next")).toBe("1");
+    }
+    expect((await run(request(articlePath))).status).toBe(429);
+    const allowlistedResponse = await run(request(articlePath, { email: "allowed@example.com" }));
+    expect(allowlistedResponse.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it.each(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", undefined])(
+    "authorizes only article reader methods before the handler: %s",
+    (method) => {
+      expect(
+        mocks.options?.callbacks.authorized({
+          token: null,
+          req: { nextUrl: new URL(`https://reader.example${articlePath}`), method },
+        }),
+      ).toBe(method === "GET" || method === "HEAD");
+    },
+  );
+
+  it("wires the same article predicate into the handler and authorized callback", () => {
+    const source = readFileSync(new URL("../../../middleware.ts", import.meta.url), "utf8");
+    const [handler, authorized] = source.split("authorized: ({ token, req }) => {");
+    expect(handler).toContain("isReaderPath(pathname) || isPublicArticleRequest(pathname, req.method)");
+    expect(authorized).toContain("isPublicArticleRequest(pathname, req.method)");
   });
 });
