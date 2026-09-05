@@ -1,13 +1,14 @@
 import React from "react";
 import { ArticleAiMenu } from "@/components/reader/ArticleAiMenu";
 import { isSafeHttpUrl } from "@/components/reader/reader-links";
-import type { PoweredBy } from "@/lib/masthead";
+import type { PoweredBy, SourceRepoLink } from "@/lib/masthead";
 import { formatEditionDateLabel } from "./edition-nav";
 import { renderMarkdown } from "./markdown-render";
 
-export function ArticlePage({ masthead, poweredBy, date, id, sectionTitle, title, summary, sourceUrl, articleCount }: {
+export function ArticlePage({ masthead, poweredBy, sourceRepo, date, id, sectionTitle, title, summary, sourceUrl, articleCount }: {
   masthead: string;
   poweredBy: PoweredBy | null;
+  sourceRepo: SourceRepoLink | null;
   date: string;
   id: string;
   sectionTitle: string;
@@ -16,6 +17,9 @@ export function ArticlePage({ masthead, poweredBy, date, id, sectionTitle, title
   sourceUrl: string | null;
   articleCount: number;
 }) {
+  const credit = poweredBy && isSafeHttpUrl(poweredBy.url) ? poweredBy : null;
+  const source = sourceRepo && isSafeHttpUrl(sourceRepo.url) ? sourceRepo : null;
+
   return (
     <main className="min-h-screen bg-paper text-ink">
       <div className="mx-auto flex max-w-4xl flex-col gap-8 px-4 py-8 md:px-6 md:py-10">
@@ -35,7 +39,13 @@ export function ArticlePage({ masthead, poweredBy, date, id, sectionTitle, title
           <a href={`/calendar?date=${date}`} className="border border-ink bg-ink px-4 py-3 font-sans font-bold text-paper">{`この日の紙面を読む（他 ${articleCount - 1} 本）`}</a>
           <a href="/calendar" className="border border-ink px-4 py-3 font-sans">最新号</a>
         </nav>
-        {poweredBy && isSafeHttpUrl(poweredBy.url) ? <footer className="border-t border-hairline pt-4 font-sans text-wired-meta text-ink/60">Powered by <a href={poweredBy.url} target="_blank" rel="noopener noreferrer" className="underline">{poweredBy.label}</a></footer> : null}
+        {credit || source ? (
+          <footer className="border-t border-hairline pt-4 font-sans text-wired-meta text-ink/60">
+            {credit ? <>Powered by <a href={credit.url} target="_blank" rel="noopener noreferrer" className="underline">{credit.label}</a></> : null}
+            {credit && source ? " · " : null}
+            {source ? <>Source: <a href={source.url} target="_blank" rel="noopener noreferrer" className="underline">{source.label}</a></> : null}
+          </footer>
+        ) : null}
       </div>
     </main>
   );

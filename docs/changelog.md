@@ -2,6 +2,10 @@
 
 README から移設した改修履歴。最新の開発ステータスは [エンジニア向けドキュメントの開発状況](engineering.ja.md#development-status) を参照。
 
+## v0.4.3 — 2026-09-05
+
+- 公開紙面 `/calendar` と記事ページ `/a/<date>/<id>` の footer に「Source: GitHub」リンクを追加（#113）。既定はこのリポジトリ。`NEWSPAPER_SOURCE_REPO_URL` で差し替え（http/https のみ・不正値は既定へ・`off` で非表示）。
+
 ## v0.4.2 — 2026-09-05
 
 - 紙面単位の「AIに聞く」プロンプトを Markdown 版優先に変更（#104 Phase B）。AI はまず `/api/bff/newsletter-editions/latest?format=markdown&date=…` を読み、読めない場合だけ HTML 紙面へ。`/llms.txt`（v0.3.5）と同じ導線。

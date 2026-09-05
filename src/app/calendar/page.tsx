@@ -5,7 +5,7 @@ import ReaderShell from "@/components/app-shell/ReaderShell";
 import NewsletterViewerPanel from "@/components/panels/NewsletterViewerPanel";
 import { isNewspaperPublic } from "@/lib/auth/public-newspaper";
 import { PRODUCT_NAME } from "@/lib/branding";
-import { getMasthead, getPoweredBy, getTagline } from "@/lib/masthead";
+import { getMasthead, getPoweredBy, getSourceRepoLink, getTagline } from "@/lib/masthead";
 import { buildEditionMetadata, resolveSiteUrl } from "@/lib/reader/edition-meta";
 import { resolveEditionDate } from "@/lib/reader/edition-nav";
 
@@ -33,6 +33,7 @@ export default function CalendarPage({ searchParams }: CalendarPageProps) {
       editionDate={editionDate}
       accessLabel={isNewspaperPublic() ? "公開閲覧" : "共有閲覧モード"}
       poweredBy={getPoweredBy()}
+      sourceRepo={getSourceRepoLink()}
     >
       <NewsletterViewerPanel masthead={masthead} />
     </ReaderShell>

@@ -171,6 +171,7 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 | `NEWSPAPER_SITE_URL` | 任意 | `/calendar` の `og:url` / `metadataBase` に使う絶対 URL。未設定時は `NEXTAUTH_URL` に fallback。どちらも有効な http(s) URL でない場合は `og:url` 自体を出力しない |
 | `NEWSPAPER_POWERED_BY_LABEL` | 任意 | footer の任意クレジット表示。`NEWSPAPER_POWERED_BY_URL` と両方が有効な場合のみ表示 |
 | `NEWSPAPER_POWERED_BY_URL` | 任意 | footer の任意クレジット先 http(s) URL。label と両方が有効な場合のみ表示 |
+| `NEWSPAPER_SOURCE_REPO_URL` | 任意 | 公開紙面 footer の「Source: GitHub」リンク先。既定: `https://github.com/caty-ai/x-collector`。不正な scheme は既定値へ戻す。`off` でリンク非表示 |
 | `NEWSPAPER_PUBLIC` | 任意 | `1` / `true` のときだけ匿名の紙面閲覧を許可する opt-in switch。既定は fail-close（off） |
 | `NEWSPAPER_SHARED_ID` | 任意 | `/calendar` 共有ログインの ID。password と安全な auth secret が揃わない場合は無効 |
 | `NEWSPAPER_SHARED_PASSWORD` | 任意 | `/calendar` 共有ログインのパスワード。ID と安全な auth secret が揃わない場合は無効 |

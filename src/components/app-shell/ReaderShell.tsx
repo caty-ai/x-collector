@@ -4,7 +4,7 @@ import EditionNav from "@/components/app-shell/EditionNav";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Headline } from "@/components/ui/Headline";
 import { Rule } from "@/components/ui/Rule";
-import type { PoweredBy } from "@/lib/masthead";
+import type { PoweredBy, SourceRepoLink } from "@/lib/masthead";
 import {
   buildEditionPath,
   formatEditionDateLabel,
@@ -18,6 +18,7 @@ type ReaderShellProps = {
   editionDate: string;
   accessLabel: string;
   poweredBy?: PoweredBy | null;
+  sourceRepo: SourceRepoLink | null;
   children?: React.ReactNode;
 };
 
@@ -61,6 +62,7 @@ export default function ReaderShell({
   editionDate,
   accessLabel,
   poweredBy,
+  sourceRepo,
   children,
 }: ReaderShellProps) {
   return (
@@ -98,6 +100,14 @@ export default function ReaderShell({
             <a href={poweredBy.url} rel="noopener noreferrer" target="_blank">
               {poweredBy.label}
             </a>
+          ) : null}
+          {sourceRepo ? (
+            <span>
+              Source:{" "}
+              <a href={sourceRepo.url} rel="noopener noreferrer" target="_blank">
+                {sourceRepo.label}
+              </a>
+            </span>
           ) : null}
           <span className="border border-ink px-3 py-1 font-sans text-wired-eyebrow font-bold uppercase text-ink">
             {title}
