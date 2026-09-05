@@ -18,13 +18,24 @@ export function extractSourceUrl(source: string): string | null {
  * utm_* or fbclid, gclid, mc_cid, mc_eid, igshid, ref_src (case-insensitively).
  * Keep every other key (including s), sorting pairs by key then value using
  * code-unit order. Strip trailing slashes on non-root paths; retain the root /.
- * URL serialization canonicalizes escaping. Normalization is idempotent.
- * Never unify mobile hosts or follow redirects. Changing these rules changes IDs.
+ * In paths, decode %XX octets only for RFC 3986 unreserved characters
+ * (A-Z, a-z, 0-9, -, ., _, ~); uppercase all other %XX triplets without
+ * decoding them. Leave literal path characters and URL-normalized hosts alone;
+ * query pairs are reserialized by URLSearchParams. Normalization is idempotent.
+ * Known divergences (by design):
+ * - A ) inside a bare or markdown source URL truncates extraction.
+ * - A trailing root-label dot host (example.com.) is a different host.
+ * - Mobile hosts and redirects are not unified.
+ * Changing these rules changes IDs.
  */
 export function normalizeSourceUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
     if (!/^https?:$/.test(parsed.protocol) || parsed.username || parsed.password) return null;
+    parsed.pathname = parsed.pathname.replace(/%[0-9a-f]{2}/gi, (triplet) => {
+      const character = String.fromCharCode(parseInt(triplet.slice(1), 16));
+      return /^[A-Za-z0-9._~-]$/.test(character) ? character : triplet.toUpperCase();
+    });
     parsed.hash = "";
     const pairs = Array.from(parsed.searchParams.entries()).filter(
       ([key]) => !/^(?:utm_.*|fbclid|gclid|mc_cid|mc_eid|igshid|ref_src)$/i.test(key),

@@ -1,8 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseNewsletterMarkdown } from "../newsletter-markdown";
-// The repository's Vitest include only matches .test.ts; register the TSX suite here.
-import "./markdown-render.test";
 
 const fixture = (name: string, suffix: string) => readFileSync(new URL(`./fixtures/editions/${name}.${suffix}`, import.meta.url), "utf8");
 describe("newsletter markdown golden fixtures", () => {
@@ -30,7 +28,8 @@ describe("newsletter markdown golden fixtures", () => {
     expect(fixture("empty", "md")).toBe("");
   });
   it("parses 250 articles in under 200 ms", () => {
-    const markdown = "# Load fixture\n## Section\n" + Array.from({ length: 250 }, (_, i) => `### Article ${i}\nSummary line.\n引用元: [platform](https://example.com/${i})\n\n`).join("");
+    const markdown = "# Load fixture\n## Section\n" + Array.from({ length: 250 }, (_, i) => `### Article ${i}\n${"Summary line. ".repeat(30)}\n引用元: [platform](https://example.com/${i})\n\n`).join("");
+    expect(markdown.length).toBeGreaterThanOrEqual(100_000);
     const start = performance.now();
     const parsed = parseNewsletterMarkdown(markdown);
     const elapsed = performance.now() - start;

@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { createSemaphore, SemaphoreQueueFullError } from "../semaphore";
 
 describe("semaphore", () => {
+  it("dequeues when aborted between the initial check and listener subscription", async () => {
+    const s = createSemaphore(1, 1);
+    const release = await s.acquire();
+    const controller = new AbortController();
+    const reason = { cancelled: "before subscription" };
+    const subscribe = controller.signal.addEventListener.bind(controller.signal);
+    controller.signal.addEventListener = (...args: Parameters<AbortSignal["addEventListener"]>) => {
+      controller.abort(reason);
+      subscribe(...args);
+    };
+    await expect(s.acquire(controller.signal)).rejects.toBe(reason);
+    expect(s.pending()).toBe(0);
+    release();
+    expect(s.active()).toBe(0);
+  });
   it("honours the limit and transfers a slot", async () => {
     const s = createSemaphore(2, 2);
     const a = await s.acquire();

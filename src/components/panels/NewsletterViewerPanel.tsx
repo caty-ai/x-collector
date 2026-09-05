@@ -1,10 +1,9 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { cloneElement, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import ReactMarkdown from "react-markdown";
 import { type Article, parseNewsletterMarkdown } from "@/lib/reader/newsletter-markdown";
-import { MARKDOWN_CLASS_NAME, MARKDOWN_COMPONENTS } from "@/lib/reader/markdown-render";
+import { renderMarkdown } from "@/lib/reader/markdown-render";
 
 import { ArticleActions } from "@/components/reader/ArticleActions";
 import { AskAiBanner } from "@/components/reader/AskAiBanner";
@@ -702,9 +701,7 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
 
             <article className="bg-paper">
               {!parsedNewsletter || parsedNewsletter.sections.length === 0 ? (
-                <ReactMarkdown skipHtml className={MARKDOWN_CLASS_NAME} components={MARKDOWN_COMPONENTS}>
-                  {state.markdown}
-                </ReactMarkdown>
+                renderMarkdown(state.markdown)
               ) : (
                 <div className="space-y-8">
                   {parsedNewsletter.title && (
@@ -713,11 +710,7 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
                     </Headline>
                   )}
 
-                  {parsedNewsletter.preamble && (
-                    <ReactMarkdown skipHtml className={MARKDOWN_CLASS_NAME} components={MARKDOWN_COMPONENTS}>
-                      {parsedNewsletter.preamble}
-                    </ReactMarkdown>
-                  )}
+                  {parsedNewsletter.preamble && renderMarkdown(parsedNewsletter.preamble)}
 
                   <div className="space-y-5">
                     {parsedNewsletter.sections.map((section, sectionIdx) => (
@@ -740,9 +733,7 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
 
                         {section.intro && (
                           <div className="mt-4">
-                            <ReactMarkdown skipHtml className={MARKDOWN_CLASS_NAME} components={MARKDOWN_COMPONENTS}>
-                              {section.intro}
-                            </ReactMarkdown>
+                            {renderMarkdown(section.intro)}
                           </div>
                         )}
 
@@ -787,15 +778,12 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
                                         {article.source && (
                                           <span className="mt-2 block font-sans text-wired-meta text-ink/60">
                                             <Eyebrow className="mr-2">引用元</Eyebrow>
-                                            <ReactMarkdown
-                                              skipHtml
-                                              components={{
-                                                ...MARKDOWN_COMPONENTS,
+                                            {cloneElement(
+                                              renderMarkdown(article.source, {
                                                 p: ({ children }) => <>{children}</>,
-                                              }}
-                                            >
-                                              {article.source}
-                                            </ReactMarkdown>
+                                              }),
+                                              { className: undefined },
+                                            )}
                                           </span>
                                         )}
                                       </span>
@@ -814,9 +802,7 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
                                             />
                                           ) : null;
                                         })()}
-                                        <ReactMarkdown skipHtml className={MARKDOWN_CLASS_NAME} components={MARKDOWN_COMPONENTS}>
-                                          {article.body}
-                                        </ReactMarkdown>
+                                        {renderMarkdown(article.body)}
                                       </div>
                                     )}
                                   </details>

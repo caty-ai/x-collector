@@ -58,6 +58,7 @@ export function createSemaphore(limit: number, maxQueue: number): {
         };
         queue.push(waiter);
         signal?.addEventListener("abort", onAbort, { once: true });
+        if (signal?.aborted) onAbort();
       });
     },
     pending: () => queue.length,

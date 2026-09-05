@@ -24,10 +24,17 @@ describe("frozen URL normalization", () => {
     ["https://example.com/a?b=two%20words&a=%7E", "https://example.com/a?a=%7E&b=two+words"],
     ["https://example.com/a?A=2&a=1&A=1", "https://example.com/a?A=1&A=2&a=1"],
     ["https://example.com/a?x=1&x=1&x=", "https://example.com/a?x=&x=1&x=1"],
+    ["https://example.com/%7Euser", "https://example.com/~user"],
+    ["https://example.com/a%2fb", "https://example.com/a%2Fb"],
+    ["https://example.com/%41", "https://example.com/A"],
+    ["https://example.com/%e3%81%82", "https://example.com/%E3%81%82"],
     ["https://m.example.com/a", "https://m.example.com/a"],
   ])("normalizes and is idempotent: %s", (input, expected) => {
     expect(normalizeSourceUrl(input)).toBe(expected);
     expect(normalizeSourceUrl(expected)).toBe(expected);
+  });
+  it("keeps encoded reserved characters distinct from literal path separators", () => {
+    expect(normalizeSourceUrl("https://example.com/a%2fb")).not.toBe(normalizeSourceUrl("https://example.com/a/b"));
   });
   it.each(["https://user:pass@example.com/a", "https://user@example.com/a", "https://:pass@example.com/a", "ftp://example.com/a", "javascript:alert(1)", "mailto:box@example.com", "about:blank", "", "not a URL", "/relative"])("rejects %s", (input) => {
     expect(normalizeSourceUrl(input)).toBeNull();
