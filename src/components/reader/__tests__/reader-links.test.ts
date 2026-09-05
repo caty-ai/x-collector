@@ -83,6 +83,7 @@ describe("reader links", () => {
       "- 項目 <em>一</em>",
       "Why it matters: remove this",
       "引用元: https://source.example",
+      "引用元： https://source.example/full-width",
     ].join("\n");
 
     expect(plainTextFromMarkdown(markdown)).toBe(
