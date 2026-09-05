@@ -26,6 +26,7 @@ type ComposeResult =
 
 interface CliOptions {
   dryRun: boolean;
+  allowAppend: boolean;
   skipCompose: boolean;
   dateKeyJst: string;
   limit: number;
@@ -50,6 +51,7 @@ function parseOptionalPositiveInt(raw: string | undefined): number | undefined {
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     dryRun: false,
+    allowAppend: false,
     skipCompose: false,
     dateKeyJst: getDateKeyInJst(),
     limit: parsePositiveInt(process.env.STEP5_PUBLISH_LIMIT, 120),
@@ -61,6 +63,11 @@ function parseArgs(argv: string[]): CliOptions {
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
+
+    if (token === "--allow-append") {
+      options.allowAppend = true;
+      continue;
+    }
 
     if (token === "--dry-run") {
       options.dryRun = true;
@@ -128,13 +135,7 @@ function errorMessage(error: unknown): string {
 async function main() {
   const startedAt = new Date();
   const options = parseArgs(process.argv.slice(2));
-  const requiredEnv = ["DATABASE_URL"];
-
-  if (!options.skipCompose && !options.dryRun && options.composeMode === "llm") {
-    requiredEnv.push("OPENROUTER_API_KEY");
-  }
-
-  assertRequiredEnv(requiredEnv);
+  assertRequiredEnv(["DATABASE_URL"]);
 
   console.log(
     `[prod-step5] start=${formatRuntimeTimestamp(startedAt)} tz=${PROD_RUNTIME_TIMEZONE} dateJst=${options.dateKeyJst} composeMode=${options.composeMode}`,
@@ -143,7 +144,19 @@ async function main() {
   const prisma = new PrismaClient();
   try {
     const editionDate = toPipelineDateUtc(options.dateKeyJst);
-    const step4Repair = options.dryRun
+    // Refuse before repair too: it can scan, write, and send ops alerts.
+    const existingEdition = options.allowAppend
+      ? null
+      : await prisma.newsletterEdition.findUnique({
+          where: { editionDate },
+          select: { status: true },
+        });
+    const alreadyPublished = existingEdition?.status === "published";
+    if (!alreadyPublished && !options.skipCompose && !options.dryRun && options.composeMode === "llm") {
+      assertRequiredEnv(["OPENROUTER_API_KEY"]);
+    }
+
+    const step4Repair = options.dryRun || alreadyPublished
       ? null
       : await runStep4RepairBeforePublish(prisma, {
           editionDate,
@@ -155,6 +168,7 @@ async function main() {
 
     const step5 = await publishPipelineItems(prisma, {
       dryRun: options.dryRun,
+      allowAppend: options.allowAppend,
       limit: options.limit,
       editionDate,
       logger: console,
@@ -163,7 +177,10 @@ async function main() {
     let compose: ComposeResult | null = null;
     let composeSkippedReason: string | null = null;
 
-    if (!options.skipCompose) {
+    if (step5.refusedReason) {
+      composeSkippedReason = "compose skipped: edition already published (same-day re-run refused; pass --allow-append to append)";
+      console.warn(`[step5] ${composeSkippedReason}`);
+    } else if (!options.skipCompose) {
       if (!step5.edition.id) {
         composeSkippedReason = options.dryRun
           ? "compose skipped: no persisted edition in dry-run (run without --dry-run to generate binding records first)"
@@ -191,6 +208,8 @@ async function main() {
     console.log(
       JSON.stringify(
         {
+          status: step5.refusedReason ? "skipped_already_published" : "ok",
+          refusedReason: step5.refusedReason,
           dateJst: options.dateKeyJst,
           dryRun: options.dryRun,
           runtime: {
@@ -214,6 +233,8 @@ async function main() {
         2,
       ),
     );
+
+    if (step5.refusedReason) return;
 
     if (!options.dryRun && step5.counter.clamped) {
       await sendOpsAlert(

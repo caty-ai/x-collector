@@ -159,6 +159,7 @@ interface PublishPlanItem {
 
 export interface PublishOptions {
   dryRun?: boolean;
+  allowAppend?: boolean;
   limit?: number;
   platforms?: string[];
   editionDate?: Date;
@@ -212,6 +213,7 @@ export interface PublishMetrics {
   };
   counter: PublishCounter;
   previews: PublishPreview[];
+  refusedReason: "edition_already_published" | null;
 }
 
 function createCounter(): PublishCounter {
@@ -468,6 +470,7 @@ export async function publishPipelineItems(
   const startedAt = new Date();
 
   const dryRun = Boolean(options.dryRun);
+  const allowAppend = Boolean(options.allowAppend);
   const limit = parseLimit(options.limit);
   const platforms = uniq(
     (options.platforms || [])
@@ -516,8 +519,44 @@ export async function publishPipelineItems(
   }
 
   logger.log(
-    `[publish] dateJst=${window.dateKeyJst} window=[${window.startUtc.toISOString()}..${window.endUtcExclusive.toISOString()}) limit=${limit} dryRun=${dryRun}`,
+    `[publish] dateJst=${window.dateKeyJst} window=[${window.startUtc.toISOString()}..${window.endUtcExclusive.toISOString()}) limit=${limit} dryRun=${dryRun}${allowAppend ? " allowAppend=true" : ""}`,
   );
+
+  const dateKey = formatDateKey(editionDate);
+  const editionSlug = buildEditionSlug(editionDate);
+  const editionTitle = buildEditionTitle(editionDate);
+
+  let edition = await prisma.newsletterEdition.findUnique({
+    where: {
+      editionDate,
+    },
+    select: {
+      id: true,
+      slug: true,
+      title: true,
+      status: true,
+    },
+  });
+
+  const editionInitiallyExists = Boolean(edition);
+
+  if (edition?.status === "published" && !allowAppend) {
+    logger.log(
+      `[publish] edition ${edition.id} for ${window.dateKeyJst} is already published; refusing re-run (pass --allow-append to append)`,
+    );
+    return {
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      dryRun,
+      limit,
+      editionDate: dateKey,
+      platforms: platforms.length > 0 ? platforms : undefined,
+      edition: { id: edition.id, slug: edition.slug, title: edition.title, existed: true },
+      counter: createCounter(),
+      previews: [],
+      refusedReason: "edition_already_published",
+    };
+  }
 
   const mainRowsWithLimitProbe = await prisma.pipelineItem.findMany({
     where: mainWhere,
@@ -611,23 +650,6 @@ export async function publishPipelineItems(
   const selected = candidates.slice(0, limit);
   counter.selected = selected.length;
 
-  const dateKey = formatDateKey(editionDate);
-  const editionSlug = buildEditionSlug(editionDate);
-  const editionTitle = buildEditionTitle(editionDate);
-
-  let edition = await prisma.newsletterEdition.findUnique({
-    where: {
-      editionDate,
-    },
-    select: {
-      id: true,
-      slug: true,
-      title: true,
-    },
-  });
-
-  const editionInitiallyExists = Boolean(edition);
-
   if (!edition && !dryRun) {
     edition = await prisma.newsletterEdition.create({
       data: {
@@ -640,6 +662,7 @@ export async function publishPipelineItems(
         id: true,
         slug: true,
         title: true,
+        status: true,
       },
     });
   }
@@ -794,5 +817,6 @@ export async function publishPipelineItems(
     },
     counter,
     previews,
+    refusedReason: null,
   };
 }

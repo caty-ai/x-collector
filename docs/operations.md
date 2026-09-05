@@ -69,6 +69,8 @@ npm run publish:prod
 - `collect:prod` は `run-prod-collect-cycle` を実行し、Step4 対象日は JST 日付で自動解決。
   - 検証時は `npm run collect:prod -- --dry-run --skip-collect --date-jst=YYYY-MM-DD` を利用可能。
 - `publish:prod` は同じ JST 日付キーで Step5（binding 生成）+ contentMd 最終 LLM 組版まで実行。
+- 同じ JST 日付の edition が既に `published` の場合、`publish:prod` / `publish:pipeline` の再実行は **何も書かずに終了**（`refusedReason=edition_already_published`、compose・retention・heartbeat も skip）。`draft` のままなら再開として従来どおり追記。published 済みに意図的に追記したい時だけ `-- --allow-append` を付ける。
+- 確認方法: `npm run publish:prod:daily -- --dry-run` の summary で `refusedReason` と `publish.metrics.selected` を見る。
   - compose では「候補が十分あるセクションは最低 N 件（既定3件）」をプロンプトで要求し、密度不足時は1回だけ再生成して薄い出力を緩和。
   - `--dry-run` で当日 edition 未作成の場合、compose は自動スキップされる（`composeSkippedReason` を出力）。
   - `RETENTION_MODE=dry-run|apply` を与えた場合のみ、Step5 後段で retention を追加実行する。未設定時は完全 skip。

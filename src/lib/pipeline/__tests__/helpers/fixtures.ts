@@ -59,19 +59,22 @@ interface PublishStubOptions {
   rescueRows?: Array<Record<string, unknown>>;
   boundIds?: Set<string>;
   sources?: Array<{ handle: string; trustLabel: string }>;
-  edition?: { id: string; slug: string; title: string };
+  edition?: { id: string; slug: string; title: string; status?: string };
   maxPosition?: number | null;
 }
 
 export function publishPrismaStub(options: PublishStubOptions = {}) {
   const queries: Array<Record<string, any>> = [];
   const bindingWrites: Array<Record<string, any>> = [];
+  const editionWrites: Array<Record<string, any>> = [];
+  const calls = { findMany: 0, updateMany: 0, pipelineRunCreate: 0, transaction: 0 };
   let itemQueryIndex = 0;
   const boundIds = options.boundIds || new Set<string>();
 
   const prisma = {
     pipelineItem: {
       findMany: async (args: Record<string, any>) => {
+        calls.findMany += 1;
         queries.push(args);
         const rows = itemQueryIndex++ === 0 ? options.mainRows || [] : options.rescueRows || [];
         const hasRowBasedGuard = args.where?.newsletterBindings?.none !== undefined;
@@ -83,20 +86,31 @@ export function publishPrismaStub(options: PublishStubOptions = {}) {
     },
     newsletterEdition: {
       findUnique: async () => options.edition || null,
+      create: async (args: Record<string, any>) => {
+        editionWrites.push(args);
+        return { id: "created-edition", ...args.data };
+      },
     },
     newsletterBinding: {
       findMany: async () => [],
       aggregate: async () => ({ _max: { position: options.maxPosition ?? null } }),
     },
     voiceSignal: {
-      updateMany: async () => ({ count: 0 }),
+      updateMany: async () => {
+        calls.updateMany += 1;
+        return { count: 0 };
+      },
     },
     pipelineRun: {
-      create: async () => ({ id: 1 }),
+      create: async () => {
+        calls.pipelineRunCreate += 1;
+        return { id: 1 };
+      },
       update: async () => undefined,
     },
-    $transaction: async (callback: (tx: Record<string, any>) => Promise<unknown>) =>
-      callback({
+    $transaction: async (callback: (tx: Record<string, any>) => Promise<unknown>) => {
+      calls.transaction += 1;
+      return callback({
         newsletterBinding: {
           upsert: async (args: Record<string, any>) => {
             bindingWrites.push(args);
@@ -109,10 +123,11 @@ export function publishPrismaStub(options: PublishStubOptions = {}) {
         pipelineRun: {
           update: async () => undefined,
         },
-      }),
+      });
+    },
   };
 
-  return { prisma: prisma as any, queries, bindingWrites };
+  return { prisma: prisma as any, queries, bindingWrites, editionWrites, calls };
 }
 
 export function crosslinkItem() {
