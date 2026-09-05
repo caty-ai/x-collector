@@ -138,17 +138,18 @@ npm run collect
 The management interface (`/`, `/feed`, `/settings`, `/admin`) is always limited to allowlisted Google accounts. The newspaper at `/calendar` can be opened to readers in three ways; the first is the default, the other two are opt-in.
 
 1. **Allowlisted Google account** — anyone on `ADMIN_EMAIL_ALLOWLIST` signs in with Google and can read every screen, the newspaper included.
-2. **Shared passphrase** — set `NEWSPAPER_SHARED_ID` and `NEWSPAPER_SHARED_PASSWORD`, then readers sign in at `/np-login` with that pair and get a cookie that opens `/calendar` only. The cookie is signed with `AUTH_SECRET` (or its alias `NEXTAUTH_SECRET`), so rotating the secret signs every passphrase reader out. Both variables and a real auth secret must be set together, or the mode stays off.
+2. **Shared passphrase** — set `NEWSPAPER_SHARED_ID` and `NEWSPAPER_SHARED_PASSWORD`, then readers sign in at `/np-login` with that pair and get a cookie that opens the reader paths (`/calendar` and matching GET/HEAD article paths). The cookie is signed with `AUTH_SECRET` (or its alias `NEXTAUTH_SECRET`), so rotating the secret signs every passphrase reader out. Both variables and a real auth secret must be set together, or the mode stays off.
 3. **Public newspaper** — set `NEWSPAPER_PUBLIC=1` (or `true`) and anyone can read `/calendar` without signing in. The default is off.
 
 What `NEWSPAPER_PUBLIC=1` opens and what it keeps closed:
 
 - **Opens** — `/calendar`, its static assets, the newsletter BFF, and the og-image BFF, for anonymous readers
+- **Article landing pages** — `/a/<YYYY-MM-DD>/<12-hex>` opens anonymously only when `NEWSPAPER_PUBLIC=1` (or `true`) AND the path matches exactly with GET/HEAD (an optional trailing slash is accepted). With the switch unset, an allowlisted login or valid shared cookie is required. Anonymous requests are throttled per IP at 240 per 60 s with `Retry-After: 60`, as abuse friction only. The page itself ships in a later release; until then, admitted requests receive Next’s 404.
 - **Stays closed** — `/`, `/feed`, `/settings`, `/admin`, `/api/admin/*`, and `/api/bff/feed` still require an allowlisted Google account
 - **`/np-login` is unchanged** — the shared-passphrase sign-in keeps working whether the switch is on or off
 - **Published editions only** — the anonymous newsletter BFF returns published editions and answers 404 for drafts and empty dates; it forwards only validated `date`, `format`, `includeContent`, and `includeItems` parameters upstream
 - **og-image guard** — og-image requests must name an edition (`?date=`, a same-origin Referer carrying `?date=`, or a URL that belongs to the latest edition); the guard applies to signed-in readers too
-- **Throttle** — anonymous requests are rate-limited per IP (newsletter BFF 240 per 60 s, og-image BFF 120 per 60 s) as abuse friction, not as an authorization control
+- **Throttle** — anonymous requests are rate-limited per IP (newsletter BFF 240 per 60 s, og-image BFF 120 per 60 s, article pages 240 per 60 s) as abuse friction, not as an authorization control
 - **Read at request time** — flipping the switch takes effect on restart (redeploy on hosts that bake env into the build)
 
 The authoritative rules, including the fail-close behaviour of every gate, are in the operations guide: [public mode](operations.md#公開モード-newspaper_public) and [auth / API key fail-closed rules](operations.md#auth--api-key-fail-closed-rules) (Japanese).

@@ -3,19 +3,21 @@ import { withAuth } from "next-auth/middleware";
 
 import { decideTokenAccess, isAdminEmailAllowed, maskEmailForLog } from "@/lib/auth/admin";
 import { authSecret } from "@/lib/auth/options";
+import { isPublicArticleRequest } from "@/lib/auth/public-paths";
 import {
   decideReaderAccess,
   isNewspaperPublic,
   isReaderPath,
 } from "@/lib/auth/public-newspaper";
 import { SHARED_COOKIE_NAME, verifySharedCookie } from "@/lib/auth/shared-newspaper";
+import { consumePublicThrottle } from "@/lib/bff/public-throttle";
 
 export default withAuth(
   async (req) => {
     const pathname = req.nextUrl.pathname;
     const email = typeof req.nextauth.token?.email === "string" ? req.nextauth.token.email : null;
 
-    if (isReaderPath(pathname)) {
+    if (isReaderPath(pathname) || isPublicArticleRequest(pathname, req.method)) {
       const hasToken = req.nextauth.token != null;
       const tokenAllowlisted = hasToken && isAdminEmailAllowed(email);
       const isPublic = isNewspaperPublic();
@@ -30,6 +32,19 @@ export default withAuth(
         hasSharedCookie,
         isPublic,
       });
+
+      if (
+        decision === "next" &&
+        isPublic &&
+        !tokenAllowlisted &&
+        isPublicArticleRequest(pathname, req.method) &&
+        !consumePublicThrottle(req, "article", 240)
+      ) {
+        return new NextResponse("Too many requests", {
+          status: 429,
+          headers: { "Retry-After": "60", "content-type": "text/plain; charset=utf-8" },
+        });
+      }
 
       return decision === "next"
         ? NextResponse.next()
@@ -62,7 +77,12 @@ export default withAuth(
       authorized: ({ token, req }) => {
         const pathname = req.nextUrl.pathname;
         if (pathname.startsWith("/api/admin/")) return true;
-        if (pathname === "/calendar" || pathname.startsWith("/calendar/") || pathname === "/np-login") {
+        if (
+          pathname === "/calendar" ||
+          pathname.startsWith("/calendar/") ||
+          isPublicArticleRequest(pathname, req.method) ||
+          pathname === "/np-login"
+        ) {
           return true;
         }
         return Boolean(token);

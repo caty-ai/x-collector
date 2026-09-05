@@ -137,17 +137,18 @@ npm run collect
 管理画面（`/`、`/feed`、`/settings`、`/admin`）は常にallowlist済みのGoogleアカウントに限定されます。一方、新聞（`/calendar`）は読者に3通りの方法で開けます。1つ目が既定で、残り2つはopt-inです。
 
 1. **allowlist済みのGoogleアカウント** — `ADMIN_EMAIL_ALLOWLIST`に載っているアカウントはGoogleでサインインすれば、新聞を含むすべての画面を閲覧できます。
-2. **共有パスフレーズ** — `NEWSPAPER_SHARED_ID`と`NEWSPAPER_SHARED_PASSWORD`を設定すると、読者は`/np-login`からそのペアでサインインし、`/calendar`だけを開けるcookieを受け取れます。このcookieは`AUTH_SECRET`（または別名`NEXTAUTH_SECRET`）で署名されるため、secretをローテーションすると共有パスフレーズの読者は全員サインアウトされます。この2つの変数と実際のauth secretがそろわない限り、このモードは有効になりません。
+2. **共有パスフレーズ** — `NEWSPAPER_SHARED_ID`と`NEWSPAPER_SHARED_PASSWORD`を設定すると、読者は`/np-login`からそのペアでサインインし、読者パス（`/calendar`と条件に一致するGET/HEADの記事パス）を開けるcookieを受け取れます。このcookieは`AUTH_SECRET`（または別名`NEXTAUTH_SECRET`）で署名されるため、secretをローテーションすると共有パスフレーズの読者は全員サインアウトされます。この2つの変数と実際のauth secretがそろわない限り、このモードは有効になりません。
 3. **公開新聞** — `NEWSPAPER_PUBLIC=1`（または`true`）を設定すると、誰でもサインインせずに`/calendar`を閲覧できます。既定はoffです。
 
 `NEWSPAPER_PUBLIC=1`が開くものと、閉じたままのもの:
 
 - **開くもの** — `/calendar`とその静的アセット、newsletter BFF、og-image BFFを匿名の読者に開きます
+- **記事ランディングページ** — `/a/<YYYY-MM-DD>/<12-hex>`は、`NEWSPAPER_PUBLIC=1`（または`true`）かつパスが完全一致するGET/HEADリクエストの場合にのみ匿名で開きます（末尾のスラッシュは任意）。スイッチ未設定時はallowlist済みのログインまたは有効な共有cookieが必要です。匿名リクエストにはIPごとに60秒あたり240件のスロットルを適用し、超過時は`Retry-After: 60`付きの429を返します。これは乱用への抑止のみです。ページ本体は後のリリースで提供され、それまではミドルウェアを通過したリクエストにNextが404を返します。
 - **閉じたまま** — `/`、`/feed`、`/settings`、`/admin`、`/api/admin/*`、`/api/bff/feed`は引き続きallowlist済みのGoogleアカウントが必要です
 - **`/np-login` はそのまま** — 公開スイッチのon/offに関係なく共有ログインに使えます
 - **公開済みの号のみ** — 匿名向けnewsletter BFFは公開済みの号だけを返し、下書きや空の日付には404を返します。上流へ転送するのは検証済みの`date`・`format`・`includeContent`・`includeItems`パラメータのみです
 - **og-imageガード** — og-imageのリクエストは号を特定できる情報（`?date=`、`?date=`付きの同一オリジンReferer、または最新号に該当するURL）を必要とします。このガードはサインイン済みの読者にも適用されます
-- **スロットル** — 匿名リクエストはIPごとにレート制限されます（newsletter BFFは60秒あたり240件、og-image BFFは60秒あたり120件）。これは認可の仕組みではなく、乱用への抑止です
+- **スロットル** — 匿名リクエストはIPごとにレート制限されます（newsletter BFFは60秒あたり240件、og-image BFFは60秒あたり120件、記事ページは60秒あたり240件）。これは認可の仕組みではなく、乱用への抑止です
 - **リクエスト時に読み込み** — スイッチの切り替えは再起動後に反映されます（envをビルドに焼き込むホストでは再デプロイが必要）
 
 すべてのゲートのfail-close挙動を含む正式なルールは運用ガイドにあります。[公開モード](operations.md#公開モード-newspaper_public)、[Auth / API keyのfail-closeルール](operations.md#auth--api-key-fail-closed-rules)。
