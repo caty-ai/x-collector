@@ -2,6 +2,10 @@
 
 README から移設した改修履歴。最新の開発ステータスは [エンジニア向けドキュメントの開発状況](engineering.ja.md#development-status) を参照。
 
+## v0.4.4 — 2026-09-05
+
+- 記事ページに引用元サムネ・中央「記事を確認する」ボタン・X 公式フォローボタン（`NEWSPAPER_X_FOLLOW_HANDLE`・既定は非表示）を追加し、h1 をレスポンシブ 3 段（26/32/48px）・下部リンクをスマホで中央寄せ（#116）。
+
 ## v0.4.3 — 2026-09-05
 
 - 公開紙面 `/calendar` と記事ページ `/a/<date>/<id>` の footer に「Source: GitHub」リンクを追加（#113）。既定はこのリポジトリ。`NEWSPAPER_SOURCE_REPO_URL` で差し替え（http/https のみ・不正値は既定へ・`off` で非表示）。

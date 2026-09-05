@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getPoweredBy, getSourceRepoLink, getTagline } from "@/lib/masthead";
+import { getPoweredBy, getSourceRepoLink, getTagline, getXFollowHandle } from "@/lib/masthead";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -59,4 +59,23 @@ describe("source repo link", () => {
       });
     },
   );
+});
+
+describe("X follow handle", () => {
+  it("hides the follow button when unset", () => {
+    vi.stubEnv("NEWSPAPER_X_FOLLOW_HANDLE", undefined);
+    expect(getXFollowHandle()).toBeNull();
+  });
+  it.each(["example", "@example", "  @example  "])("normalizes %j", (value) => {
+    vi.stubEnv("NEWSPAPER_X_FOLLOW_HANDLE", value);
+    expect(getXFollowHandle()).toBe("example");
+  });
+  it.each(["", "  ", "a b", "abcdefghijklmnop", "-", "@@example"])("hides invalid handle %j", (value) => {
+    vi.stubEnv("NEWSPAPER_X_FOLLOW_HANDLE", value);
+    expect(getXFollowHandle()).toBeNull();
+  });
+  it("accepts a 15-character handle with digits and underscores", () => {
+    vi.stubEnv("NEWSPAPER_X_FOLLOW_HANDLE", "Example_1234567");
+    expect(getXFollowHandle()).toBe("Example_1234567");
+  });
 });
