@@ -59,7 +59,7 @@ const EXPECTED_DEPENDENCIES: Record<string, string> = {
   "ipaddr.js": "^2.4.0",
   "mcp-handler": "^1.1.0",
   next: "^14.2.0",
-  "next-auth": "^4.24.13",
+  "next-auth": "~4.24.13",
   "node-cron": "^3.0.3",
   react: "^18.3.0",
   "react-dom": "^18.3.0",

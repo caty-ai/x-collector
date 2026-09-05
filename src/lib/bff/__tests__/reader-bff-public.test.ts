@@ -44,6 +44,7 @@ function publishedMarkdown(markdown: string): Response {
 
 function authenticatedCaller(mode: "session" | "shared"): void {
   if (mode === "session") {
+    vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "allowed@example.com");
     mocks.getServerSession.mockResolvedValue({ user: { email: "allowed@example.com" } });
     return;
   }
@@ -102,6 +103,33 @@ describe("newsletter reader BFF", () => {
     expect(String(mocks.fetch.mock.calls[0]?.[0])).toContain("slug=draft-slug");
   });
 
+  it("rejects a non-allowlisted session when public and shared access are off", async () => {
+    vi.stubEnv("NEWSPAPER_PUBLIC", "0");
+    vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "allowed@example.com");
+    mocks.getServerSession.mockResolvedValue({ user: { email: "intruder@example.com" } });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    expect((await getNewsletter(req("/api/bff/newsletter-editions/latest"))).status).toBe(401);
+  });
+
+  it("keeps shared-cookie access for a non-allowlisted session", async () => {
+    vi.stubEnv("NEWSPAPER_PUBLIC", "0");
+    vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "allowed@example.com");
+    vi.stubEnv("RAILWAY_API_BASE_URL", "https://railway.example");
+    vi.stubEnv("NEWSLETTER_API_KEY", "short-key");
+    mocks.getServerSession.mockResolvedValue({ user: { email: "intruder@example.com" } });
+    mocks.verifySharedCookie.mockResolvedValue(true);
+    mocks.fetch.mockResolvedValue(new Response("shared markdown", { status: 200 }));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const response = await getNewsletter(req("/api/bff/newsletter-editions/latest?format=markdown"));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("shared markdown");
+    expect(console.warn).toHaveBeenCalledWith(
+      "[bff-auth] deny email=in***@example.com reason=allowlist_miss",
+    );
+  });
+
   it("forwards only validated anonymous parameters and drops slug/unknown keys", async () => {
     configurePublic();
     mocks.fetch.mockResolvedValue(
@@ -133,6 +161,7 @@ describe("newsletter reader BFF", () => {
 
   it("keeps session slug pass-through even when the switch is on", async () => {
     configurePublic();
+    vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "allowed@example.com");
     mocks.getServerSession.mockResolvedValue({ user: { email: "allowed@example.com" } });
     mocks.fetch.mockResolvedValue(new Response("draft unchanged", { status: 200 }));
     const response = await getNewsletter(
@@ -252,6 +281,15 @@ describe("newsletter reader BFF", () => {
     expect((await getFeed(req("/api/bff/feed"))).status).toBe(401);
   });
 
+  it("rejects a non-allowlisted session from the feed BFF", async () => {
+    vi.stubEnv("NEWSPAPER_PUBLIC", "0");
+    vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "allowed@example.com");
+    mocks.getServerSession.mockResolvedValue({ user: { email: "intruder@example.com" } });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    expect((await getFeed(req("/api/bff/feed"))).status).toBe(401);
+  });
+
   it("returns the documented 429 response on the 241st anonymous request", async () => {
     configurePublic();
     mocks.fetch.mockImplementation(async () =>
@@ -312,6 +350,34 @@ describe("og-image reader BFF", () => {
     expect(response.status).toBe(200);
     expect(mocks.fetch).not.toHaveBeenCalled();
     expect(mocks.resolveOgImage).toHaveBeenCalledWith("https://example.com/a/#raw");
+  });
+
+  it("rejects a non-allowlisted session when public and shared access are off", async () => {
+    vi.stubEnv("NEWSPAPER_PUBLIC", "0");
+    vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "allowed@example.com");
+    mocks.getServerSession.mockResolvedValue({ user: { email: "intruder@example.com" } });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    expect(
+      (await getOgImage(req("/api/bff/og-image?url=https%3A%2F%2Fexample.com%2Fa"))).status,
+    ).toBe(401);
+  });
+
+  it("keeps shared-cookie access for a non-allowlisted session", async () => {
+    vi.stubEnv("NEWSPAPER_PUBLIC", "0");
+    vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "allowed@example.com");
+    mocks.getServerSession.mockResolvedValue({ user: { email: "intruder@example.com" } });
+    mocks.verifySharedCookie.mockResolvedValue(true);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const response = await getOgImage(
+      req("/api/bff/og-image?url=https%3A%2F%2Fexample.com%2Fa"),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.resolveOgImage).toHaveBeenCalledWith("https://example.com/a");
+    expect(console.warn).toHaveBeenCalledWith(
+      "[bff-auth] deny email=in***@example.com reason=allowlist_miss",
+    );
   });
 
   it("allows an anonymous target found in any date/referer/latest union member", async () => {
@@ -396,6 +462,7 @@ describe("og-image reader BFF", () => {
 
   it("applies membership to session callers while public mode is enabled", async () => {
     configurePublic();
+    vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "allowed@example.com");
     mocks.getServerSession.mockResolvedValue({ user: { email: "allowed@example.com" } });
     mocks.fetch.mockResolvedValue(publishedMarkdown("https://example.com/other"));
     const response = await getOgImage(

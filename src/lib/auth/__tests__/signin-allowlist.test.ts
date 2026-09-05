@@ -193,6 +193,18 @@ describe("NextAuth wiring", () => {
     expect(await signIn(signInInput({ userEmail: "" }))).toBe(false);
   });
 
+  it("denies a missing account as unverified and logs the provider safely", async () => {
+    const signIn = getSignInCallback();
+    vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "admin@example.com");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    expect(await signIn(signInInput({ provider: null }))).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      "[auth-signin] deny provider=(none) email=ad***@example.com reason=email_unverified",
+    );
+  });
+
   it("binds verification to the same user address", async () => {
     const signIn = getSignInCallback();
     vi.stubEnv("ADMIN_EMAIL_ALLOWLIST", "profile@example.com");

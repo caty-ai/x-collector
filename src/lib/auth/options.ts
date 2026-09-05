@@ -134,6 +134,9 @@ export const authOptions: NextAuthOptions = {
 
       return decision.allowed;
     },
+    // The empty-session sentinel relies on next-auth's empty-body -> null guards at
+    // node_modules/next-auth/next/index.js:144-151 and node_modules/next-auth/client/_utils.js:62.
+    // next-auth is pinned to ~4.24.13; BFF callers re-check in src/lib/bff/session-auth.ts.
     session({ session, token }) {
       if (isAdminEmailAllowed(token.email)) return session;
 
