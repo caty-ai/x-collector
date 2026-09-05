@@ -144,7 +144,8 @@ async function main() {
   const prisma = new PrismaClient();
   try {
     const editionDate = toPipelineDateUtc(options.dateKeyJst);
-    // Refuse before repair too: it can scan, write, and send ops alerts.
+    // Status is intentionally read here and in publishPipelineItems: this once-daily CLI is the single writer for a date; a flip between reads is unsupported.
+    // This pre-check only keeps Step4 repair from scanning, writing, or alerting on a published day.
     const existingEdition = options.allowAppend
       ? null
       : await prisma.newsletterEdition.findUnique({

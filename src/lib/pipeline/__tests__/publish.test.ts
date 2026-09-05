@@ -15,19 +15,21 @@ import {
 function composeEditionStub() {
   const editionDate = new Date("2026-03-11T00:00:00.000Z");
   const editionUpdates: Array<Record<string, any>> = [];
+  const edition = {
+    id: "edition-1",
+    editionDate,
+    slug: "ai-daily-news-20260311",
+    title: "2026年03月11日 AI Daily News",
+    status: "draft",
+  };
 
   const prisma = {
     newsletterEdition: {
-      findUnique: async () => ({
-        id: "edition-1",
-        editionDate,
-        slug: "ai-daily-news-20260311",
-        title: "2026年03月11日 AI Daily News",
-        status: "draft",
-      }),
+      findUnique: async () => edition,
       update: async (args: Record<string, any>) => {
         editionUpdates.push(args);
-        return args;
+        Object.assign(edition, args.data);
+        return edition;
       },
     },
     newsletterBinding: {
@@ -77,7 +79,7 @@ function composeEditionStub() {
     },
   };
 
-  return { editionUpdates, prisma: prisma as any };
+  return { edition, editionUpdates, prisma: prisma as any };
 }
 
 describe("publish invariants", () => {
@@ -162,26 +164,52 @@ describe("publish invariants", () => {
 
   it("re-run after recompose keeps unchanged sources", async () => {
     const rows = [publishItem("stable-source-a"), publishItem("stable-source-b")];
-    const edition = { id: "draft-edition", slug: "existing-slug", title: "Existing title", status: "draft" };
+    const composed = composeEditionStub();
+    const { edition } = composed;
     const options = { editionDate: new Date("2026-03-11T00:00:00.000Z"), logger: quietLogger };
     const first = publishPrismaStub({ mainRows: rows, edition });
     await publishPipelineItems(first.prisma, options);
     expect(first.bindingWrites).toHaveLength(2);
-    const boundIds = new Set<string>(first.bindingWrites.map((write) => write.create.pipelineItemId));
-    const originalBindings = first.bindingWrites.map((write) => write.create);
+    const bindings = first.bindingWrites.map((write, index) => ({
+      id: index + 1,
+      ...write.create,
+      pipelineItem: rows.find((row) => row.id === write.create.pipelineItemId)!,
+      classification: classification(),
+    }));
+    composed.prisma.newsletterBinding.findMany = async () => bindings;
+    const originalBindings = bindings.map(({ pipelineItemId, position }) => ({ pipelineItemId, position }));
 
-    // Recompose keeps the source URLs and bindings; fresh classifications alone
-    // must not cause the same sources to be selected again.
-    const second = publishPrismaStub({ mainRows: rows, edition, boundIds, maxPosition: 2 });
+    await composeNewsletterEditionScript(composed.prisma, {
+      ...options,
+      dryRun: false,
+      editionId: edition.id,
+    });
+    expect(composed.editionUpdates).toHaveLength(1);
+    expect(edition.status).toBe("published");
+
+    const second = publishPrismaStub({ mainRows: [publishItem("new-unbound")], edition, maxPosition: 2 });
+    second.prisma.newsletterBinding.findMany = composed.prisma.newsletterBinding.findMany;
+    const transaction = second.prisma.$transaction;
+    second.prisma.$transaction = (callback: (tx: any) => Promise<unknown>) => transaction(async (tx: any) => {
+      const upsert = tx.newsletterBinding.upsert;
+      tx.newsletterBinding.upsert = async (args: Record<string, any>) => {
+        const existing = bindings.find((binding) => binding.pipelineItemId === args.create.pipelineItemId);
+        if (existing) Object.assign(existing, args.update);
+        else bindings.push({ id: bindings.length + 1, ...args.create });
+        return upsert(args);
+      };
+      return callback(tx);
+    });
     const result = await publishPipelineItems(second.prisma, options);
 
-    expect(result.refusedReason).toBeNull();
+    expect(result.refusedReason).toBe("edition_already_published");
     expect(result.counter.selected).toBe(0);
     expect(result.counter.bindingsCreated).toBe(0);
     expect(second.bindingWrites).toHaveLength(0);
-    expect(second.calls).toEqual({ findMany: 2, updateMany: 1, pipelineRunCreate: 0, transaction: 0 });
-    expect([...originalBindings, ...second.bindingWrites.map((write) => write.create)]).toEqual(originalBindings);
-    expect([...boundIds].sort()).toEqual(rows.map((row) => row.id).sort());
+    expect(second.calls).toEqual({ findMany: 0, updateMany: 0, pipelineRunCreate: 0, transaction: 0 });
+    const remainingBindings = await second.prisma.newsletterBinding.findMany();
+    expect(remainingBindings.map(({ pipelineItemId, position }: Record<string, any>) => ({ pipelineItemId, position })))
+      .toEqual(originalBindings);
   });
 
   it("rescues late ingests and delayed classifications with bounded queries", async () => {
@@ -508,6 +536,7 @@ describe("publish invariants", () => {
 describe("production publish re-runs", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     vi.doUnmock("@prisma/client");
     vi.doUnmock("../compose-edition");
     vi.doUnmock("../compose-edition-script");
@@ -525,11 +554,15 @@ describe("production publish re-runs", () => {
     { status: "published", flags: ["--compose-mode=llm"], refused: true },
     { status: "published", flags: ["--allow-append"], refused: false },
     { status: "published", flags: ["--allow-append", "--dry-run"], refused: false },
+    { status: "published", flags: ["--allow-append", "--compose-mode=llm"], refused: false },
     { status: "draft", flags: [], refused: false },
+    { status: "draft", flags: ["--compose-mode=llm"], refused: false },
   ])(
     "handles $status edition with $flags (refused=$refused)",
     async ({ status, flags, refused }) => {
       vi.resetModules();
+      // Environment validation is mocked; LLM routing must not depend on a local API key.
+      vi.stubEnv("OPENROUTER_API_KEY", undefined);
       const stub = publishPrismaStub({
         mainRows: [publishItem("unbound")],
         edition: { id: "published-edition", slug: "existing-slug", title: "Existing title", status },
@@ -561,6 +594,7 @@ describe("production publish re-runs", () => {
       ]);
       const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
       const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
       const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as any);
       vi.spyOn(process.stdout, "write").mockImplementation(((text: string, callback: () => void) => {
         callback();
@@ -568,7 +602,11 @@ describe("production publish re-runs", () => {
       }) as any);
 
       await import("../../../collector/run-prod-step5");
-      await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+      await vi.waitFor(() => expect(exit).toHaveBeenCalled(), { timeout: 5_000 });
+      const errorText = error.mock.calls.map((args) => args.map(String).join(" ")).join("\n");
+      expect(exit, errorText).not.toHaveBeenCalledWith(1);
+      expect(error, errorText).not.toHaveBeenCalled();
+      expect(exit).toHaveBeenCalledWith(0);
 
       expect(disconnect).toHaveBeenCalledTimes(1);
       const summary = JSON.parse(log.mock.calls.find(([message]) => String(message).startsWith("{"))![0]);
@@ -577,8 +615,12 @@ describe("production publish re-runs", () => {
         const writes = flags.includes("--dry-run") ? 0 : 1;
         expect(stub.calls).toEqual({ findMany: 2, updateMany: writes, pipelineRunCreate: writes, transaction: writes });
         expect(repair).toHaveBeenCalledTimes(writes);
-        expect(composeScript).toHaveBeenCalledTimes(1);
-        expect(compose).not.toHaveBeenCalled();
+        const llm = flags.includes("--compose-mode=llm");
+        expect(composeScript).toHaveBeenCalledTimes(llm ? 0 : 1);
+        expect(compose).toHaveBeenCalledTimes(llm ? 1 : 0);
+        expect(assertEnv.mock.calls).toEqual(llm
+          ? [[["DATABASE_URL"]], [["OPENROUTER_API_KEY"]]]
+          : [[["DATABASE_URL"]]]);
         expect(retention).toHaveBeenCalledTimes(1);
         expect(heartbeat).toHaveBeenCalledTimes(writes);
         expect(alert).not.toHaveBeenCalled();

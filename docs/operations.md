@@ -32,10 +32,10 @@ README から移設した、運用・チューニング系の詳細リファレ�
 - `npm run crosslink:pipeline`（既存ルールベース Step4）
 - `npm run crosslink:pipeline:llm` / `npm run step4:crosslink:llm`（LLM Step4 manual-run）
 - `npm run voicesignal:pipeline`
-- `npm run publish:pipeline`
+- `npm run publish:pipeline`（published 済みへ意図的に追記する場合は `-- --allow-append`）
 - `npm run retention:pipeline`（raw source rows + newsletter未採用の古い `PipelineItem` を整理。既定 dry-run）
 - `npm run collect:prod:cycle`（収集 + Step0→1-3→4→6 の統合ジョブ）
-- `npm run publish:prod:daily`（Step5 単独ジョブ）
+- `npm run publish:prod:daily`（Step5 単独ジョブ。published 済みへ意図的に追記する場合は `-- --allow-append`）
 - `npm run recompose:script -- --date-jst=YYYY-MM-DD --dry-run [--out content.md]`（既存 edition を script mode だけで再組版。確認後は `--dry-run` を外して反映）
 
 ## Step4 LLM manual-run
@@ -69,8 +69,8 @@ npm run publish:prod
 - `collect:prod` は `run-prod-collect-cycle` を実行し、Step4 対象日は JST 日付で自動解決。
   - 検証時は `npm run collect:prod -- --dry-run --skip-collect --date-jst=YYYY-MM-DD` を利用可能。
 - `publish:prod` は同じ JST 日付キーで Step5（binding 生成）+ contentMd 最終 LLM 組版まで実行。
-- 同じ JST 日付の edition が既に `published` の場合、`publish:prod` / `publish:pipeline` の再実行は **何も書かずに終了**（`refusedReason=edition_already_published`、compose・retention・heartbeat も skip）。`draft` のままなら再開として従来どおり追記。published 済みに意図的に追記したい時だけ `-- --allow-append` を付ける。
-- 確認方法: `npm run publish:prod:daily -- --dry-run` の summary で `refusedReason` と `publish.metrics.selected` を見る。
+- 同じ JST 日付の edition が既に `published` の場合、`publish:prod` / `publish:pipeline` の再実行は **何も書かずに終了**（`refusedReason=edition_already_published`、compose・retention・heartbeat も skip）。`draft` のままなら再開として従来どおり追記。published 済みに意図的に追記したい時だけ `-- --allow-append` を付ける。published 済みの日の遅延 voiceSignal orphan backfill も再実行では走らないので、必要なら `--allow-append` で明示する。
+- 確認方法: `npm run publish:prod:daily -- --dry-run --date-jst=YYYY-MM-DD`（既に `published` 済みの日付を指定）の summary が `status: "skipped_already_published"`、`refusedReason: "edition_already_published"`、`publish.metrics.selected: 0` / `scanned: 0`、`step4Repair: null`、`compose: null` になることを確認する。当日の edition がまだ `draft` の場合は `status: "ok"` になり、再実行として何も書かない（refusal の証明にはならない）。
   - compose では「候補が十分あるセクションは最低 N 件（既定3件）」をプロンプトで要求し、密度不足時は1回だけ再生成して薄い出力を緩和。
   - `--dry-run` で当日 edition 未作成の場合、compose は自動スキップされる（`composeSkippedReason` を出力）。
   - `RETENTION_MODE=dry-run|apply` を与えた場合のみ、Step5 後段で retention を追加実行する。未設定時は完全 skip。
