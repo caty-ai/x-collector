@@ -54,6 +54,7 @@ const ALLOWED_CATALOG_REFERENCES = new Set([
 
 const EXPECTED_DEPENDENCIES: Record<string, string> = {
   "@modelcontextprotocol/sdk": "1.26.0",
+  "@noble/hashes": "1.8.0",
   "@prisma/client": "^5.20.0",
   dotenv: "^17.4.2",
   "ipaddr.js": "^2.4.0",
