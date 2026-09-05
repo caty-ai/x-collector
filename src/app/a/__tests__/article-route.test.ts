@@ -3,9 +3,10 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { load, resolveOgImage } = vi.hoisted(() => ({ load: vi.fn(), resolveOgImage: vi.fn(async () => null) }));
+const { load, resolveOgImage } = vi.hoisted(() => ({ load: vi.fn(), resolveOgImage: vi.fn<() => Promise<string | null>>(async () => null) }));
 vi.mock("@/lib/reader/public-edition-loader", () => ({ loadPublicEdition: load }));
 vi.mock("@/lib/bff/og-image", () => ({ resolveArticleOgImage: resolveOgImage }));
+vi.mock("next/script", () => ({ default: ({ src }: { src: string }) => React.createElement("script", { "data-src": src }) }));
 vi.mock("next/navigation", () => ({ notFound: () => { throw Error("not-found"); }, redirect: (url: string) => { throw Error(`redirect:${url}`); } }));
 import Page, { generateMetadata } from "../[date]/[id]/page";
 import Layout, { generateMetadata as generateLayoutMetadata } from "../layout";
@@ -13,10 +14,52 @@ import ErrorPage from "../[date]/[id]/error";
 import NotFound, { generateMetadata as generateNotFoundMetadata } from "@/app/not-found";
 const params = { date: "2026-09-04", id: "abcdef012345" };
 
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-05T00:00:00Z")); load.mockReset(); });
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-05T00:00:00Z")); load.mockReset(); resolveOgImage.mockReset().mockResolvedValue(null); vi.stubEnv("NEWSPAPER_X_FOLLOW_HANDLE", ""); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
+function loadArticle(source = "https://example.org/story") {
+  load.mockResolvedValue({ index: { byId: new Map([[params.id, { sectionTitle: "News", article: { title: "Title", body: "Summary", source } }]]) }, articleCount: 3 });
+}
+const widgetSrc = "https://platform.x.com/" + "widgets" + ".js";
+
 describe("article route", () => {
+  it("resolves the source thumbnail with the metadata enrichment budget", async () => {
+    loadArticle();
+    resolveOgImage.mockResolvedValue("https://example.org/thumbnail.jpg");
+    const html = renderToStaticMarkup(await Page({ params }));
+    expect(html).toContain('<img src="https://example.org/thumbnail.jpg"');
+    expect(resolveOgImage).toHaveBeenCalledTimes(1);
+    expect(resolveOgImage).toHaveBeenCalledWith("https://example.org/story", { budgetMs: 1500 });
+  });
+  it("keeps the article readable when thumbnail enrichment fails", async () => {
+    loadArticle();
+    resolveOgImage.mockRejectedValue(Error("upstream unavailable"));
+    const html = renderToStaticMarkup(await Page({ params }));
+    expect(html).toContain("Summary");
+    expect(html).not.toContain("<img");
+  });
+  it("never resolves an unsafe source URL", async () => {
+    loadArticle("javascript:alert(1)");
+    const html = renderToStaticMarkup(await Page({ params }));
+    expect(resolveOgImage).not.toHaveBeenCalled();
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("記事を確認する");
+  });
+  it("passes the normalized env handle to the follow component", async () => {
+    loadArticle();
+    vi.stubEnv("NEWSPAPER_X_FOLLOW_HANDLE", " @example ");
+    const html = renderToStaticMarkup(await Page({ params }));
+    expect(html).toContain("@example をフォロー");
+    expect(html).toContain(`data-src="${widgetSrc}"`);
+  });
+  it.each(["", "a b", "abcdefghijklmnop", "-"])("omits the follow control and script for invalid env %j", async (handle) => {
+    loadArticle();
+    vi.stubEnv("NEWSPAPER_X_FOLLOW_HANDLE", handle);
+    const html = renderToStaticMarkup(await Page({ params }));
+    expect(html).not.toContain("twitter-follow-button");
+    expect(html).not.toContain(widgetSrc);
+    expect(html).not.toContain("<script");
+  });
   it.each([{ ...params, date: "2019-12-31" }, { ...params, date: "2026-02-30" }, { ...params, date: "2099-01-01" }, { ...params, id: "ABCDEF012345" }, { ...params, id: "abcdef012345/extra" }, { ...params, id: "%61bcdef01234" }])("rejects invalid params before loading: %j", async (invalid) => {
     await expect(Page({ params: invalid })).rejects.toThrow("not-found");
     await expect(generateMetadata({ params: invalid })).rejects.toThrow("not-found");

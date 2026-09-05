@@ -42,3 +42,8 @@ export function getSourceRepoLink(): SourceRepoLink | null {
     return { label: "GitHub", url: DEFAULT_SOURCE_REPO_URL };
   }
 }
+
+export function getXFollowHandle(): string | null {
+  const handle = process.env.NEWSPAPER_X_FOLLOW_HANDLE?.trim().replace(/^@/, "") ?? "";
+  return /^[A-Za-z0-9_]{1,15}$/.test(handle) ? handle : null;
+}
