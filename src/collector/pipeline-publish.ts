@@ -3,6 +3,7 @@ import { publishPipelineItems } from "../lib/pipeline/publish";
 
 interface CliOptions {
   dryRun: boolean;
+  allowAppend: boolean;
   limit?: number;
   platforms: string[];
   date?: Date;
@@ -40,11 +41,17 @@ function parseDate(raw: string | undefined): Date | undefined {
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     dryRun: false,
+    allowAppend: false,
     platforms: [],
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
+
+    if (token === "--allow-append") {
+      options.allowAppend = true;
+      continue;
+    }
 
     if (token === "--dry-run") {
       options.dryRun = true;
@@ -95,6 +102,7 @@ async function main() {
   try {
     const result = await publishPipelineItems(prisma, {
       dryRun: options.dryRun,
+      allowAppend: options.allowAppend,
       limit: options.limit,
       platforms: options.platforms.length > 0 ? options.platforms : undefined,
       editionDate: options.date,
