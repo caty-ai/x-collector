@@ -1312,8 +1312,16 @@ def selftest_scanners():
         "string-escape nested serialisation fixed point",
     )
     _selftest_check(
-        "-" not in scan_views("\\\\\\\\\\\\\\\\u002d"),
+        "-" in scan_views("\\u005cu005cu002d"),
+        "string-escape three rounds suffice",
+    )
+    _selftest_check(
+        "-" not in scan_views("\\u005cu005cu005cu002d"),
         "string-escape depth boundary",
+    )
+    _selftest_check(
+        scan_views("\\u005cu005cu005cu002d")[-1] == "\\u002d",
+        "string-escape depth boundary last view",
     )
     _selftest_check(
         scan_views("private%2Dmarker")[:2]
