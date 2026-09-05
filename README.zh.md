@@ -93,7 +93,7 @@ flowchart LR
 
 | 你想做什么 | 需要什么 |
 |---|---|
-| 登录网页界面 | Google OAuth 凭据（免费） |
+| 登录网页界面 | Google OAuth 凭据（免费）+ 允许登录的邮箱地址 |
 | 从 X、Instagram、Facebook、Reddit 收集 | 一个 [ScrapeCreators](https://scrapecreators.com/) 密钥 |
 | 用 AI 分类并编排报纸 | 一个 [OpenRouter](https://openrouter.ai/) 密钥 |
 | 给报道附上 YouTube 字幕文本 | 一个 [TranscriptAPI](https://transcriptapi.com/) 密钥（可选） |
@@ -129,7 +129,7 @@ npm install
 cp .env.example .env
 ```
 
-第 2 步 — 用任意文本编辑器打开 `.env`，填写必需的值。前 5 个用于数据库和登录；后 2 个让信息流和报纸页面正常工作：
+第 2 步 — 用任意文本编辑器打开 `.env`，填写必需的值。前 6 个用于数据库和登录；后 2 个让信息流和报纸页面正常工作：
 
 ```dotenv
 DATABASE_URL=postgresql://user:password@localhost:5432/x_collector
@@ -137,6 +137,10 @@ AUTH_SECRET=replace_with_a_long_random_secret
 AUTH_GOOGLE_ID=your_google_oauth_client_id
 AUTH_GOOGLE_SECRET=your_google_oauth_client_secret
 NEXTAUTH_URL=http://localhost:3000
+
+# 允许登录的 Google 账号（用逗号分隔）。
+# 留空则没有人能登录。
+ADMIN_EMAIL_ALLOWLIST=you@example.com
 
 # 单机本地安装时，让应用指向它自己，
 # 并自己编一个足够长的随机密钥
@@ -170,6 +174,10 @@ npm run dev
 
 Google OAuth 凭据可以在 [Google Cloud Console](https://console.cloud.google.com/) 免费创建（APIs & Services → Credentials → Create credentials → OAuth client ID）。请检查 `NEXTAUTH_URL` 是否与你在浏览器里打开的地址一致，以及在 Google Cloud 上登记的 OAuth 重定向 URI 是否为 `http://localhost:3000/api/auth/callback/google`。
 
+**Google 登录提示 `AccessDenied`**
+
+你的 Google 账号不在 `ADMIN_EMAIL_ALLOWLIST` 里。请添加 myaccount.google.com 上显示的主邮箱地址（Gmail 的点号或加号变体会被视为不同的地址），然后重启应用。
+
 </details>
 
 ---
@@ -184,6 +192,7 @@ X Collector 的设计原则是：绝不让自动化悄悄接管一切。
 - **手动添加的信息源永远不会被自动停用** — 自动退役只针对系统自己发现的信息源，而且必须连续两次通过每周检查才会执行
 - **信息源质量每天打分** — 可信度分数会影响报纸的排序，来自低可信或未经验证信息源的报道会带上警示标记，而不是被悄悄当成可靠信息处理
 - **智能体的访问是只读的** — MCP 服务器只能搜索和阅读，不能改动任何东西
+- **报纸默认是私密的** — 只有你允许的人才能阅读；向公众开放是一个需要你自己主动打开的明确开关
 - **你的数据始终属于你** — 它运行在你自己的服务器和数据库上，采用 MIT 许可证
 
 ## 项目状态

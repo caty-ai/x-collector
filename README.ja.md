@@ -93,7 +93,7 @@ flowchart LR
 
 | やりたいこと | 必要なもの |
 |---|---|
-| Web画面にログインする | Google OAuthの認証情報（無料） |
+| Web画面にログインする | Google OAuthの認証情報（無料）＋ログインを許可するメールアドレス |
 | X・Instagram・Facebook・Redditから集める | [ScrapeCreators](https://scrapecreators.com/)のキー |
 | AIで分類し、新聞を作る | [OpenRouter](https://openrouter.ai/)のキー |
 | YouTubeの文字起こしを記事に足す | [TranscriptAPI](https://transcriptapi.com/)のキー（任意） |
@@ -129,7 +129,7 @@ npm install
 cp .env.example .env
 ```
 
-手順2 — `.env` をテキストエディタで開き、必要な値を設定します。最初の5つはデータベースとログイン用、最後の2つはフィード・新聞画面を動かすための設定です。
+手順2 — `.env` をテキストエディタで開き、必要な値を設定します。最初の6つはデータベースとログイン用、最後の2つはフィード・新聞画面を動かすための設定です。
 
 ```dotenv
 DATABASE_URL=postgresql://user:password@localhost:5432/x_collector
@@ -137,6 +137,10 @@ AUTH_SECRET=replace_with_a_long_random_secret
 AUTH_GOOGLE_ID=your_google_oauth_client_id
 AUTH_GOOGLE_SECRET=your_google_oauth_client_secret
 NEXTAUTH_URL=http://localhost:3000
+
+# ログインを許可するGoogleアカウント（カンマ区切り）。
+# 空のままだと誰もログインできません。
+ADMIN_EMAIL_ALLOWLIST=you@example.com
 
 # 1台で動かす場合はアプリ自身を指定し、
 # キーは自分で決めた長いランダム文字列でOK
@@ -170,6 +174,10 @@ PostgreSQLが起動しているか、`DATABASE_URL` に書いたユーザー名�
 
 Google OAuthの認証情報は、[Google Cloud Console](https://console.cloud.google.com/)の「APIとサービス → 認証情報 → 認証情報を作成 → OAuthクライアントID」から無料で作成できます。`NEXTAUTH_URL` がブラウザで開いたアドレスと一致しているか、Google Cloud側に登録したリダイレクトURIが `http://localhost:3000/api/auth/callback/google` になっているかを確認してください。
 
+**Googleログインで `AccessDenied` と出る**
+
+あなたのGoogleアカウントが `ADMIN_EMAIL_ALLOWLIST` に登録されていません。myaccount.google.com に表示されている主アドレスを追加してください（Gmailのドットやプラス記号を使ったバリエーションは別アドレス扱いになります）。追加したらアプリを再起動してください。
+
 </details>
 
 ---
@@ -184,6 +192,7 @@ X Collector は「自動化が勝手に暴走しない」ことを設計の柱�
 - **手動で登録した情報源は自動停止されない** — 自動停止の対象はシステムが自動発見した情報源だけ。それも2週連続の判定を通った場合に限ります
 - **情報源の品質を毎日採点** — 信頼度スコアが紙面の順位に反映され、信頼度の低い・未検証の情報源の記事は黙って信頼扱いせず警告バッジで明示されます
 - **エージェントの窓口は読み取り専用** — MCPサーバーは検索と閲覧だけで、何も変更できません
+- **新聞はデフォルトで非公開** — 読めるのはあなたが許可した人だけ。一般公開はあなた自身がオンにする明示的な切り替えです
 - **データはあなたのもの** — 自分のサーバーと自分のデータベースで動き、ライセンスはMITです
 
 ## プロジェクトの状態

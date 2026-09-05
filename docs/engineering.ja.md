@@ -63,7 +63,7 @@ X Collector は、自分で選んだ情報源からAI・テクノロジーの最
 
 - Node.js 20以上
 - PostgreSQLデータベース
-- 管理画面へのログインに使うGoogle OAuthの認証情報
+- 管理画面へのログインに使うGoogle OAuthの認証情報＋ログインを許可するGoogleアカウントのアドレス
 - 収集・分類を始める際はScrapeCreatorsとOpenRouterのAPIキー
 - YouTube文字起こしの補強を使う場合のみTranscriptAPIのキー（任意）
 
@@ -89,11 +89,16 @@ AUTH_GOOGLE_ID=your_google_oauth_client_id
 AUTH_GOOGLE_SECRET=your_google_oauth_client_secret
 NEXTAUTH_URL=http://localhost:3000
 
+# ログインを許可するGoogleアカウント（カンマ区切り）。未設定＝誰もログインできません。
+ADMIN_EMAIL_ALLOWLIST=you@example.com
+
 # フィード/新聞UIは /api/bff/* プロキシ経由で読み込む。
 # 1台構成ならアプリ自身を指定し、キーは自分で発行（長いランダム文字列）
 RAILWAY_API_BASE_URL=http://localhost:3000
 FEED_API_KEY=any_long_random_string_you_issue_yourself
 ```
+
+`ADMIN_EMAIL_ALLOWLIST` はログインを許可するGoogleアカウントの一覧です。各アカウントはmyaccount.google.comに表示されるプライマリアドレスで指定してください（Gmailのドット・plus variant、`googlemail.com`、Workspace aliasは別アドレスとして扱われます）。ログインはfail-closeで、未設定・空の場合はすべてのGoogleアカウントが`AccessDenied`になり、サーバーは起動時にモジュールごとに1行（最大2行）の警告を出します。
 
 `RAILWAY_API_BASE_URL` と `FEED_API_KEY` が未設定の場合、ログインには成功しますが、フィード・エクスプローラー・新聞の各画面はBFFプロキシ経由で読み込むためエラーになります。
 
@@ -125,6 +130,28 @@ npm run dev
 npm run collect
 ```
 
+<a id="reader-access-modes"></a>
+
+### 読者アクセスの3モード
+
+管理画面（`/`、`/feed`、`/settings`、`/admin`）は常にallowlist済みのGoogleアカウントに限定されます。一方、新聞（`/calendar`）は読者に3通りの方法で開けます。1つ目が既定で、残り2つはopt-inです。
+
+1. **allowlist済みのGoogleアカウント** — `ADMIN_EMAIL_ALLOWLIST`に載っているアカウントはGoogleでサインインすれば、新聞を含むすべての画面を閲覧できます。
+2. **共有パスフレーズ** — `NEWSPAPER_SHARED_ID`と`NEWSPAPER_SHARED_PASSWORD`を設定すると、読者は`/np-login`からそのペアでサインインし、`/calendar`だけを開けるcookieを受け取れます。このcookieは`AUTH_SECRET`（または別名`NEXTAUTH_SECRET`）で署名されるため、secretをローテーションすると共有パスフレーズの読者は全員サインアウトされます。この2つの変数と実際のauth secretがそろわない限り、このモードは有効になりません。
+3. **公開新聞** — `NEWSPAPER_PUBLIC=1`（または`true`）を設定すると、誰でもサインインせずに`/calendar`を閲覧できます。既定はoffです。
+
+`NEWSPAPER_PUBLIC=1`が開くものと、閉じたままのもの:
+
+- **開くもの** — `/calendar`とその静的アセット、newsletter BFF、og-image BFFを匿名の読者に開きます
+- **閉じたまま** — `/`、`/feed`、`/settings`、`/admin`、`/api/admin/*`、`/api/bff/feed`は引き続きallowlist済みのGoogleアカウントが必要です
+- **`/np-login` はそのまま** — 公開スイッチのon/offに関係なく共有ログインに使えます
+- **公開済みの号のみ** — 匿名向けnewsletter BFFは公開済みの号だけを返し、下書きや空の日付には404を返します。上流へ転送するのは検証済みの`date`・`format`・`includeContent`・`includeItems`パラメータのみです
+- **og-imageガード** — og-imageのリクエストは号を特定できる情報（`?date=`、`?date=`付きの同一オリジンReferer、または最新号に該当するURL）を必要とします。このガードはサインイン済みの読者にも適用されます
+- **スロットル** — 匿名リクエストはIPごとにレート制限されます（newsletter BFFは60秒あたり240件、og-image BFFは60秒あたり120件）。これは認可の仕組みではなく、乱用への抑止です
+- **リクエスト時に読み込み** — スイッチの切り替えは再起動後に反映されます（envをビルドに焼き込むホストでは再デプロイが必要）
+
+すべてのゲートのfail-close挙動を含む正式なルールは運用ガイドにあります。[公開モード](operations.md#公開モード-newspaper_public)、[Auth / API keyのfail-closeルール](operations.md#auth--api-key-fail-closed-rules)。
+
 ---
 
 ## 設定
@@ -132,6 +159,8 @@ npm run collect
 | やりたいこと | 見る場所 |
 |---|---|
 | すべての環境変数を確認する | [環境変数リファレンス](operations.md#環境変数全リファレンス) |
+| 新聞を匿名読者に開く（`NEWSPAPER_PUBLIC=1`、既定はoff）、またはそのサブタイトルを変える（`NEWSPAPER_TAGLINE`、既定は日本語のタグライン） | 上記[読者アクセスの3モード](#reader-access-modes)、[公開モード](operations.md#公開モード-newspaper_public) |
+| 決定論的なscript modeで既存の号を再組版する | `npm run recompose:script -- --date-jst=YYYY-MM-DD --dry-run [--out content.md]`、確認後は`--dry-run`を外して反映 — [V2パイプライン補助CLI](operations.md#v2-パイプライン補助-cli) |
 | パイプラインの各処理を個別に実行する | [V2パイプライン補助CLI](operations.md#v2-パイプライン補助-cli) |
 | 本番の実行スケジュールを設定する | [本番cronガイド](operations.md#cron本番運用) |
 | 自分の収集元を追加する | [ソース追加方法](operations.md#ソース追加方法) |

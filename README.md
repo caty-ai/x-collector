@@ -93,7 +93,7 @@ Three things. The full compatibility table is in the [engineering guide](docs/en
 
 | What you want to do | What it needs |
 |---|---|
-| Sign in to the web interface | Google OAuth credentials (free) |
+| Sign in to the web interface | Google OAuth credentials (free) + the e-mail addresses allowed to sign in |
 | Collect from X, Instagram, Facebook, Reddit | A [ScrapeCreators](https://scrapecreators.com/) key |
 | Classify with AI and compose the newspaper | An [OpenRouter](https://openrouter.ai/) key |
 | Add YouTube transcripts to stories | A [TranscriptAPI](https://transcriptapi.com/) key (optional) |
@@ -129,7 +129,7 @@ npm install
 cp .env.example .env
 ```
 
-Step 2 — open `.env` in any text editor and fill in the required values. The first five are for the database and sign-in; the last two make the feed and newspaper screens work:
+Step 2 — open `.env` in any text editor and fill in the required values. The first six are for the database and sign-in; the last two make the feed and newspaper screens work:
 
 ```dotenv
 DATABASE_URL=postgresql://user:password@localhost:5432/x_collector
@@ -137,6 +137,10 @@ AUTH_SECRET=replace_with_a_long_random_secret
 AUTH_GOOGLE_ID=your_google_oauth_client_id
 AUTH_GOOGLE_SECRET=your_google_oauth_client_secret
 NEXTAUTH_URL=http://localhost:3000
+
+# Google accounts allowed to sign in (comma-separated).
+# If left empty, nobody can sign in.
+ADMIN_EMAIL_ALLOWLIST=you@example.com
 
 # For a single local install, point the app at itself
 # and make up your own long random key
@@ -170,6 +174,10 @@ Make sure PostgreSQL is running and that the `DATABASE_URL` user, password, and 
 
 Google OAuth credentials are created for free in the [Google Cloud Console](https://console.cloud.google.com/) (APIs & Services → Credentials → Create credentials → OAuth client ID). Check that `NEXTAUTH_URL` matches the address you opened in the browser, and that the OAuth redirect URI registered on Google Cloud is `http://localhost:3000/api/auth/callback/google`.
 
+**Google sign-in says `AccessDenied`**
+
+Your Google account is not on `ADMIN_EMAIL_ALLOWLIST`. Add the primary address shown on myaccount.google.com (a Gmail dot or plus variant counts as a different address), then restart the app.
+
 </details>
 
 ---
@@ -184,6 +192,7 @@ X Collector is designed so that automation never quietly takes over.
 - **Manually added sources are never auto-stopped** — automatic retirement only ever applies to sources the system itself discovered, and only after two consecutive weekly checks
 - **Source quality is scored every day** — trust scores shape the newspaper's ranking, and stories from low-trust or unverified sources carry a warning badge instead of being silently treated as reliable
 - **Agent access is read-only** — the MCP server can search and read, never change anything
+- **The newspaper is private by default** — only people you allow can read it; opening it to the public is an explicit switch you turn on yourself
 - **Your data stays yours** — it runs on your own server and your own database, under the MIT license
 
 ## Project status
