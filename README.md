@@ -139,7 +139,7 @@ AUTH_GOOGLE_SECRET=your_google_oauth_client_secret
 NEXTAUTH_URL=http://localhost:3000
 
 # Google accounts allowed to sign in (comma-separated).
-# Leave it empty and nobody can sign in.
+# If left empty, nobody can sign in.
 ADMIN_EMAIL_ALLOWLIST=you@example.com
 
 # For a single local install, point the app at itself

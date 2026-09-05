@@ -99,7 +99,7 @@ RAILWAY_API_BASE_URL=http://localhost:3000
 FEED_API_KEY=any_long_random_string_you_issue_yourself
 ```
 
-`ADMIN_EMAIL_ALLOWLIST` is the list of Google accounts that may sign in; use each account's primary address as shown on myaccount.google.com (Gmail dot and plus variants, `googlemail.com`, and Workspace aliases count as different addresses). Sign-in fails closed: when the variable is unset or empty, every Google account gets `AccessDenied`, and the server logs a one-line warning at startup.
+`ADMIN_EMAIL_ALLOWLIST` is the list of Google accounts that may sign in; use each account's primary address as shown on myaccount.google.com (Gmail dot and plus variants, `googlemail.com`, and Workspace aliases count as different addresses). Sign-in fails closed: when the variable is unset or empty, every Google account gets `AccessDenied`, and the server logs a one-line warning per module at startup (up to two lines).
 
 Without `RAILWAY_API_BASE_URL` and `FEED_API_KEY`, sign-in succeeds but the feed, explorer, and newspaper screens return errors, because they all read through the BFF proxy.
 
@@ -138,13 +138,14 @@ npm run collect
 The management interface (`/`, `/feed`, `/settings`, `/admin`) is always limited to allowlisted Google accounts. The newspaper at `/calendar` can be opened to readers in three ways; the first is the default, the other two are opt-in.
 
 1. **Allowlisted Google account** — anyone on `ADMIN_EMAIL_ALLOWLIST` signs in with Google and can read every screen, the newspaper included.
-2. **Shared passphrase** — set `NEWSPAPER_SHARED_ID` and `NEWSPAPER_SHARED_PASSWORD`, then readers sign in at `/np-login` with that pair and get a cookie that opens `/calendar` only. The cookie is signed with `AUTH_SECRET`, so rotating the secret signs every passphrase reader out. Both variables and a real auth secret must be set together, or the mode stays off.
+2. **Shared passphrase** — set `NEWSPAPER_SHARED_ID` and `NEWSPAPER_SHARED_PASSWORD`, then readers sign in at `/np-login` with that pair and get a cookie that opens `/calendar` only. The cookie is signed with `AUTH_SECRET` (or its alias `NEXTAUTH_SECRET`), so rotating the secret signs every passphrase reader out. Both variables and a real auth secret must be set together, or the mode stays off.
 3. **Public newspaper** — set `NEWSPAPER_PUBLIC=1` (or `true`) and anyone can read `/calendar` without signing in. The default is off.
 
 What `NEWSPAPER_PUBLIC=1` opens and what it keeps closed:
 
 - **Opens** — `/calendar`, its static assets, the newsletter BFF, and the og-image BFF, for anonymous readers
-- **Stays closed** — `/`, `/feed`, `/settings`, `/admin`, `/api/admin/*`, and `/api/bff/feed` still require an allowlisted Google account; `/np-login` keeps working as before
+- **Stays closed** — `/`, `/feed`, `/settings`, `/admin`, `/api/admin/*`, and `/api/bff/feed` still require an allowlisted Google account
+- **`/np-login` is unchanged** — the shared-passphrase sign-in keeps working whether the switch is on or off
 - **Published editions only** — the anonymous newsletter BFF returns published editions and answers 404 for drafts and empty dates; it forwards only validated `date`, `format`, `includeContent`, and `includeItems` parameters upstream
 - **og-image guard** — og-image requests must name an edition (`?date=`, a same-origin Referer carrying `?date=`, or a URL that belongs to the latest edition); the guard applies to signed-in readers too
 - **Throttle** — anonymous requests are rate-limited per IP (newsletter BFF 240 per 60 s, og-image BFF 120 per 60 s) as abuse friction, not as an authorization control

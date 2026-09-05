@@ -32,7 +32,7 @@
 - **Newsletter BFFのキー解決順** — サーバーサイドのルートは `NEWSLETTER_API_KEY` → `DIGEST_API_KEY` → `FEED_API_KEY` の順でAPIキーを解決します
 - **MCPのゲート** — `MCP_API_KEY` が未設定なら `FAMILY_FEED_API_KEY` にフォールバック。両方未設定のときはオープンな開発モードで動作します
 - **Googleログインと保護ルートはfail-close** — `ADMIN_EMAIL_ALLOWLIST` はGoogleログインとNextAuth保護ルートすべてを制限します。未設定・空なら誰もログインできず、allowlist外アカウントのトークンは拒否されます（ページは403、session必須APIは401。`/calendar` の共有パスワードcookieは従来どおり有効）
-- **紙面の公開はopt-in** — `NEWSPAPER_PUBLIC=1`（または `true`）のときだけ `/calendar`・その静的asset・newsletter BFF・og-image BFF を匿名読者に開きます。既定はoff。匿名向けnewsletter BFFはpublishedなeditionだけを返し（draft・空日は404）、og-image requestはedition指定（`?date=`、同一origin Refererの `?date=`、latest editionのURL）が必須で、匿名requestはIPごとにthrottleされます（newsletter 240/60秒、og-image 120/60秒）。それ以外のrouteは従来どおりallowlist済みGoogleアカウントが必要です
+- **紙面の公開はopt-in** — `NEWSPAPER_PUBLIC=1`（または `true`）のときだけ `/calendar`・その静的asset・newsletter BFF・og-image BFF を匿名読者に開きます。既定はoff。匿名向けnewsletter BFFはpublishedなeditionだけを返し（draft・空日は404）、og-image requestはedition指定（`?date=`、同一origin Refererの `?date=`、latest editionのURL）が必須で、匿名requestはIPごとにthrottleされます（newsletter 240/60秒、og-image 120/60秒）。それ以外のrouteは従来どおりallowlist済みGoogleアカウントが必要です（例外は `/np-login` で、スイッチのon/offに関係なく共有パスワードログインに使えます）
 - **再組版CLI** — `npm run recompose:script -- --date-jst=YYYY-MM-DD --dry-run [--out content.md]` で既存editionを決定論的なscript modeで再組版し、確認後に `--dry-run` を外して反映します。冪等で、dry-runは `PipelineRun` を作成・更新しません。当日版は夜間cronでも再生成されます（Railwayでは `recompose:script:prod`）
 - **既定のLLMモデル** — 分類・クロスリンク・紙面生成はいずれもOpenRouter経由の `google/gemini-3.1-flash-lite-preview` が既定です
 - **MCPエンドポイント** — `/api/mcp/mcp` のread-only Streamable HTTPで、`search_feed` と `get_daily_news` を提供します
