@@ -48,6 +48,14 @@ export function buildArticleUrl(
   return `${buildEditionUrl(origin, date)}#${buildArticleAnchorId(date, n)}`;
 }
 
+export function buildArticlePath(date: string, id: string): string {
+  return `/a/${date}/${id}`;
+}
+
+export function buildArticleCanonicalUrl(origin: string, date: string, id: string): string {
+  return `${origin.replace(/\/$/, "")}${buildArticlePath(date, id)}`;
+}
+
 export function formatDateLabelJa(date: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (!match) return date;
@@ -132,9 +140,10 @@ export function buildArticleQuestion({
   sourceUrl: string | null;
   summary: string;
 }): string {
-  const safeTitle = truncateText(plainTextFromMarkdown(title), 120);
+  const plainTitle = plainTextFromMarkdown(title);
+  const safeTitle = truncateText(plainTitle, 120);
   const safeSourceUrl = isSafeHttpUrl(sourceUrl) ? sourceUrl : "";
-  const safeSummary = truncateText(plainTextFromMarkdown(summary), 300);
+  const safeSummary = truncateText(dedupeLeadingTitleSentence(summary, plainTitle), 300);
   const sourceClause = safeSourceUrl
     ? `引用元 ${safeSourceUrl} を読んで、`
     : "";
@@ -142,6 +151,45 @@ export function buildArticleQuestion({
   const question = `「${safeTitle}」について、${sourceClause}要点と私にとっての意味を教えて${summaryClause}`;
 
   return fitToEncodedBudget(question, ARTICLE_QUESTION_BUDGET);
+}
+
+function dedupeLeadingTitleSentence(summary: string, title: string): string {
+  const plainSummary = plainTextFromMarkdown(summary);
+  const sentences = plainSummary.match(/[^。！？.!?]+[。！？.!?]*/g)?.map((part) => part.trim()).filter(Boolean) ?? [];
+  if (sentences.length < 2) return plainSummary;
+
+  const normalize = (text: string) => text.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+  const normalizedTitle = normalize(title);
+  const firstSentence = normalize(sentences[0].replace(/[。！？.!?]+$/, ""));
+  if (normalizedTitle && (firstSentence === normalizedTitle ||
+    (Array.from(normalizedTitle).length >= 12 && firstSentence.startsWith(normalizedTitle)))) {
+    return sentences.slice(1).join(" ");
+  }
+  return plainSummary;
+}
+
+export type ShareTargets = { x: string; facebook: string; copy: string; canonical: string };
+
+export function buildShareTargets({ canonicalUrl, title, masthead }: {
+  canonicalUrl: string;
+  title: string;
+  masthead: string;
+}): ShareTargets {
+  const canonical = new URL(canonicalUrl);
+  canonical.search = "";
+  canonical.hash = "";
+  const target = (source: string) => {
+    const url = new URL(canonical);
+    url.searchParams.set("utm_source", source);
+    url.searchParams.set("utm_medium", "share");
+    return url.toString();
+  };
+  return {
+    x: `https://x.com/intent/post?text=${encodeURIComponent(`${title} | ${masthead}`)}&url=${encodeURIComponent(target("x"))}`,
+    facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(target("facebook"))}`,
+    copy: target("copy"),
+    canonical: canonical.toString(),
+  };
 }
 
 export function buildShareUrls({

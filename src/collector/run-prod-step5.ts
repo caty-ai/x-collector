@@ -36,7 +36,7 @@ interface CliOptions {
 }
 
 function resolveComposeMode(raw: string | undefined): ComposeMode {
-  const normalized = (raw || "llm").trim().toLowerCase();
+  const normalized = (raw || "script").trim().toLowerCase();
   if (normalized === "script") return "script";
   return "llm";
 }

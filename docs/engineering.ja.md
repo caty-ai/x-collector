@@ -143,13 +143,19 @@ npm run collect
 `NEWSPAPER_PUBLIC=1`が開くものと、閉じたままのもの:
 
 - **開くもの** — `/calendar`とその静的アセット、newsletter BFF、og-image BFFを匿名の読者に開きます
-- **記事ランディングページ** — `/a/<YYYY-MM-DD>/<12-hex>`は、`NEWSPAPER_PUBLIC=1`（または`true`）かつパスが完全一致するGET/HEADリクエストの場合にのみ匿名で開きます（末尾のスラッシュは任意）。スイッチ未設定時はallowlist済みのログインまたは有効な共有cookieが必要です。匿名リクエストにはIPごとに60秒あたり240件のスロットルを適用し、超過時は`Retry-After: 60`付きの429を返します。これは乱用への抑止のみです。ページ本体は後のリリースで提供され、それまではミドルウェアを通過したリクエストにNextが404を返します。
+- **記事ランディングページ** — `/a/<YYYY-MM-DD>/<12-hex>`は、`NEWSPAPER_PUBLIC=1`（または`true`）かつパスが完全一致するGET/HEADリクエストの場合にのみ匿名で開きます（末尾のスラッシュは任意）。スイッチ未設定時はallowlist済みのログインまたは有効な共有cookieが必要です。匿名リクエストにはIPごとに60秒あたり240件のスロットルを適用し、超過時は`Retry-After: 60`付きの429を返します。これは乱用への抑止のみです。
 - **閉じたまま** — `/`、`/feed`、`/settings`、`/admin`、`/api/admin/*`、`/api/bff/feed`は引き続きallowlist済みのGoogleアカウントが必要です
 - **`/np-login` はそのまま** — 公開スイッチのon/offに関係なく共有ログインに使えます
 - **公開済みの号のみ** — 匿名向けnewsletter BFFは公開済みの号だけを返し、下書きや空の日付には404を返します。上流へ転送するのは検証済みの`date`・`format`・`includeContent`・`includeItems`パラメータのみです
 - **og-imageガード** — og-imageのリクエストは号を特定できる情報（`?date=`、`?date=`付きの同一オリジンReferer、または最新号に該当するURL）を必要とします。このガードはサインイン済みの読者にも適用されます
 - **スロットル** — 匿名リクエストはIPごとにレート制限されます（newsletter BFFは60秒あたり240件、og-image BFFは60秒あたり120件、記事ページは60秒あたり240件）。これは認可の仕組みではなく、乱用への抑止です
 - **リクエスト時に読み込み** — スイッチの切り替えは再起動後に反映されます（envをビルドに焼き込むホストでは再デプロイが必要）
+
+- **記事の公開条件** — 匿名・session・共有 cookie を含む全 caller に対し、存在しない号と非 published の号は Markdown 解析前に 404 とする。未知の ID は `/calendar?date=<date>&from=a` へ HTTP 307 で遷移し、警告は process ごと最大10回/分に制限する。概要・安全な引用元リンク・紙面への CTA は JavaScript なしで表示でき、AI メニューはその HTML に追加される機能である。
+- **取得の入場制御** — loader 専用の process 内 semaphore は同時取得4件・待機32件である。待機枠超過または3秒の待機予算超過は HTTP 500（load-shed）となる。App Router の page から 503 は返せないためである。取得 timeout は10秒であり、ページ遅延を抑える意図的な設定である（newsletter BFF は30秒のままである）。同日 miss は single-flight で共有する。FIFO cache は解析済み16件を60秒、status 4096件を保持する。不存在・非公開は60秒、上流エラーは10秒であり、busy は cache しない。
+- **記事 ID の凍結規則** — 解析済み source 欄の最初の HTTP(S) URL（Markdown link または裸 URL）のみを抽出し、本文は使用しない。userinfo は拒否し、scheme/host は小文字化、既定 port と fragment は除去する。query key の `utm_*`・`fbclid`・`gclid`・`mc_cid`・`mc_eid`・`igshid`・`ref_src` は大文字小文字を区別せず除去する。それ以外（`s` を含む）は維持し、key/value の code-unit 順に並べて URLSearchParams で再直列化する。path の percent octet は RFC 3986 unreserved 文字だけ復号し、残る percent triplet は大文字化する。root `/` 以外の末尾 slash は除去する。正規化 URL の SHA-256 先頭12桁の小文字 hex を ID とし、文書順の最初の出現を採用する。末尾 root-label dot・mobile host・redirect は統合せず、`)` で URL 抽出は終わる。source なしでは記事ページ・共有ボタンを持たず、copy は紙面 URL を使用する。旧 `#a-<date>-<n>` anchor は受信側で引き続き処理する。
+- **組版の保証範囲** — 全角 `引用元：` は source なしとして扱い、記事ランディングページを作らないという記録済みの決定である。parser 対応は follow-up issue とする。LLM 組版の号は ID 安定性の保証対象外である。`STEP5_COMPOSE_MODE` の既定は `script` であり、LLM 組版を維持する場合は `llm` を明示する。
+- **共有 origin** — 記事 canonical と `og:url` は `/a/<date>/<id>` の path のみであり、utm query を含めない。カードには `NEWSPAPER_SITE_URL`（fallback は `NEXTAUTH_URL`）を設定する。`Host` は信頼しない。origin が null のときは metadataBase・canonical・OG URL・全画像を省略し、noindex/nofollow と process ごと1回の警告を設定する。記事メタデータに絶対 URL は出さない。origin がある場合、OG 取得は待機込み1.5秒を予算とし、失敗時は `/og-default.png` を使う。
 
 すべてのゲートのfail-close挙動を含む正式なルールは運用ガイドにあります。[公開モード](operations.md#公開モード-newspaper_public)、[Auth / API keyのfail-closeルール](operations.md#auth--api-key-fail-closed-rules)。
 

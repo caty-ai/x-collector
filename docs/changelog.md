@@ -2,6 +2,16 @@
 
 README から移設した改修履歴。最新の開発ステータスは [エンジニア向けドキュメントの開発状況](engineering.ja.md#development-status) を参照。
 
+## v0.4.0 — 2026-09-05
+
+- 公開済み記事の `/a/<date>/<id>` ランディングページ、記事別共有リンク、AI メニュー、OG メタデータと既定画像を追加。
+- 公開記事は GET/HEAD のみ。IP ごと 240件/60秒を超えると `Retry-After: 60` 付き 429、取得待ちの容量・時間超過は 500（load-shed）となる。
+- 非公開の号は全 caller に 404、未知の記事 ID は当日の紙面へ 307。origin 未設定時は noindex とし、絶対 URL を出力しない。
+
+### Behaviour change
+
+- `STEP5_COMPOSE_MODE` 未設定時の既定を `llm` から `script` に変更。明示設定済みの環境には影響しない。
+
 ## 2026-07-21
 
 | 内容 |
