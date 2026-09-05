@@ -1,7 +1,9 @@
 import React from "react";
 import { getMasthead, getTagline } from "@/lib/masthead";
 
-export const metadata = { title: getMasthead(), description: getTagline() };
+export function generateMetadata() {
+  return { title: getMasthead(), description: getTagline() };
+}
 
 export default function NotFound() {
   return (

@@ -107,6 +107,7 @@ export function createPublicEditionLoader(deps: LoaderDeps = {}) {
         }
         if (!response.ok) throw new UpstreamTransientError();
         payload = await response.text();
+        // Upstream timeout counts as a transient upstream failure; admission/busy failures never reach here.
       } catch {
         rememberStatus(date, "error");
         throw new UpstreamTransientError();

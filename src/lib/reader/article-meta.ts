@@ -37,10 +37,10 @@ export async function buildArticleMetadata(input: {
     ...(origin ? { metadataBase: new URL(origin), alternates: { canonical } } : { robots: { index: false, follow: false } }),
     openGraph: {
       type: "article", locale: "ja_JP", siteName: input.masthead,
-      title, description, publishedTime: input.date,
+      title: input.title, description, publishedTime: input.date,
       ...(canonical ? { url: canonical } : {}),
       ...(image ? { images: [image] } : {}),
     },
-    twitter: { card: "summary_large_image", title, description, ...(image ? { images: [image] } : {}) },
+    twitter: { card: "summary_large_image", title: input.title, description, ...(image ? { images: [image] } : {}) },
   };
 }

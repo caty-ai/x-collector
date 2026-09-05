@@ -69,7 +69,10 @@ describe("public edition loader", () => {
     await expect(s.load(date)).rejects.toBeInstanceOf(UpstreamTransientError);
     expect(s.fetchImpl).toHaveBeenCalledTimes(2);
   });
-  it.each([new TypeError("network"), new DOMException("timeout", "TimeoutError")])("caches network/fetch timeout failures", async (error) => {
+  it.each([
+    ["a network failure", new TypeError("network")],
+    ["an upstream fetch timeout", new DOMException("timeout", "TimeoutError")],
+  ])("caches %s for 10 s (transient upstream failure)", async (_label, error) => {
     const s = setup(vi.fn<typeof fetch>().mockRejectedValue(error));
     await expect(s.load(date)).rejects.toBeInstanceOf(UpstreamTransientError);
     await expect(s.load(date)).rejects.toBeInstanceOf(UpstreamTransientError);

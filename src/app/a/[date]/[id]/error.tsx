@@ -1,13 +1,7 @@
 "use client";
 
-import React, { createContext, useContext } from "react";
-
-const ArticleBrandContext = createContext("");
-
-// The server layout supplies env-driven branding to the client error boundary.
-export function ArticleBrandProvider({ masthead, children }: { masthead: string; children: React.ReactNode }) {
-  return <ArticleBrandContext.Provider value={masthead}>{children}</ArticleBrandContext.Provider>;
-}
+import React, { useContext } from "react";
+import { ArticleBrandContext } from "@/components/reader/ArticleBrandProvider";
 
 // Transient upstream failures and busy admission both retain HTTP 500 (load-shed).
 export default function ArticleError() {

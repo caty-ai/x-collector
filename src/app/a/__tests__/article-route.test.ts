@@ -8,9 +8,9 @@ vi.mock("@/lib/reader/public-edition-loader", () => ({ loadPublicEdition: load }
 vi.mock("@/lib/bff/og-image", () => ({ resolveArticleOgImage: resolveOgImage }));
 vi.mock("next/navigation", () => ({ notFound: () => { throw Error("not-found"); }, redirect: (url: string) => { throw Error(`redirect:${url}`); } }));
 import Page, { generateMetadata } from "../[date]/[id]/page";
-import Layout from "../layout";
+import Layout, { generateMetadata as generateLayoutMetadata } from "../layout";
 import ErrorPage from "../[date]/[id]/error";
-import NotFound, { metadata as notFoundMetadata } from "@/app/not-found";
+import NotFound, { generateMetadata as generateNotFoundMetadata } from "@/app/not-found";
 const params = { date: "2026-09-04", id: "abcdef012345" };
 
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-05T00:00:00Z")); load.mockReset(); });
@@ -46,12 +46,22 @@ describe("article route", () => {
     expect(unmarked).toHaveProperty("alternates.canonical", `https://example.com/a/${params.date}/${params.id}`);
     expect(renderToStaticMarkup(await Page({ params }))).toContain("この日の紙面を読む（他 2 本）");
   });
+  it("reads layout and 404 metadata from env on every invocation without layout robots", () => {
+    for (const masthead of ["First Masthead", "Updated Masthead"]) {
+      vi.stubEnv("NEWSPAPER_MASTHEAD", masthead);
+      vi.stubEnv("NEWSPAPER_TAGLINE", `${masthead} tagline`);
+      const expected = { title: masthead, description: `${masthead} tagline` };
+      expect(generateLayoutMetadata()).toEqual(expected);
+      expect(generateLayoutMetadata()).not.toHaveProperty("robots");
+      expect(generateNotFoundMetadata()).toEqual(expected);
+    }
+  });
   it("brands error and root 404 from server env", () => {
     vi.stubEnv("NEWSPAPER_MASTHEAD", "Test Masthead");
     const html = renderToStaticMarkup(React.createElement(Layout, { children: React.createElement(ErrorPage) }));
     expect(html).toContain("Test Masthead");
     expect(html).toContain("一時的に表示できません");
-    expect(notFoundMetadata.title).toBe("AI Daily News");
+    expect(generateNotFoundMetadata().title).toBe("Test Masthead");
     expect(renderToStaticMarkup(React.createElement(NotFound))).toContain("Test Masthead");
   });
 });

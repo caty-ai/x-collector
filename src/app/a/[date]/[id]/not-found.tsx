@@ -1,1 +1,1 @@
-export { default, metadata } from "@/app/not-found";
+export { default, generateMetadata } from "@/app/not-found";

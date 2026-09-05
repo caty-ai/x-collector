@@ -80,18 +80,55 @@ describe("article OG admission and budgets", () => {
     await Promise.all(active);
     expect(fetch).toHaveBeenCalledTimes(5);
   });
-  it("does not let a replaced aborted flight overwrite a newer cached image", async () => {
-    const stale = deferred();
-    const fetch = vi.fn().mockReturnValueOnce(stale.promise).mockResolvedValue(found);
+  it("keeps a started flight joinable after its last caller aborts", async () => {
+    const gate = deferred();
+    const fetch = vi.fn(() => gate.promise);
     const resolver = createOgImageResolver({ fetchOgImage: fetch });
     const controller = new AbortController();
     const first = resolver.resolveOgImage("https://example.com/a", { signal: controller.signal });
     controller.abort();
+    expect(await first).toBeNull();
+    const retry = resolver.resolveOgImage("https://example.com/a");
+    gate.resolve(found);
+    expect(await retry).toBe(found.url);
     expect(await resolver.resolveOgImage("https://example.com/a")).toBe(found.url);
-    stale.resolve({ kind: "transient" });
-    await first;
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("caches the real found result after the sole caller's budget expires mid-fetch", async () => {
+    const gate = deferred();
+    const fetch = vi.fn((_url: string, options: { signal?: AbortSignal }) => {
+      options.signal?.addEventListener("abort", () => gate.resolve({ kind: "transient" }), { once: true });
+      return gate.promise;
+    });
+    const resolver = createOgImageResolver({ fetchOgImage: fetch });
+    const first = resolver.resolveArticleOgImage("https://example.com/slow", { budgetMs: 50 });
     await flush();
-    expect(await resolver.resolveOgImage("https://example.com/a")).toBe(found.url);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await first).toBeNull();
+    expect(fetch.mock.calls[0][1].signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(200);
+    gate.resolve(found);
+    await flush();
+    expect(await resolver.resolveArticleOgImage("https://example.com/slow")).toBe(found.url);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each(["bff", "article"] as const)("keeps a %s flight separate from the other mode for the same URL", async (firstMode) => {
+    const gate = deferred();
+    const fetch = vi.fn(() => gate.promise);
+    const resolver = createOgImageResolver({ fetchOgImage: fetch });
+    const resolveFirst = firstMode === "bff" ? resolver.resolveOgImage : resolver.resolveArticleOgImage;
+    const resolveSecond = firstMode === "bff" ? resolver.resolveArticleOgImage : resolver.resolveOgImage;
+    const first = resolveFirst("https://example.com/shared");
+    await flush();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const second = resolveSecond("https://example.com/shared");
+    await flush();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    gate.resolve(found);
+    expect(await Promise.all([first, second])).toEqual([found.url, found.url]);
+    expect(await resolver.resolveOgImage("https://example.com/shared")).toBe(found.url);
+    expect(await resolver.resolveArticleOgImage("https://example.com/shared")).toBe(found.url);
     expect(fetch).toHaveBeenCalledTimes(2);
   });
   it("honours external abort without cancelling another caller", async () => {
@@ -120,12 +157,12 @@ describe("OG cache", () => {
     await resolver.resolveOgImage("https://example.com/a");
     expect(fetch).toHaveBeenCalledTimes(2);
   });
-  it("retries transient failures after 60 seconds", async () => {
+  it("caches a real upstream transient for 60 seconds", async () => {
     const fetch = vi.fn(async (): Promise<OgImageResult> => ({ kind: "transient" }));
     const resolver = createOgImageResolver({ fetchOgImage: fetch });
-    await resolver.resolveOgImage("https://example.com/a");
+    expect(await resolver.resolveArticleOgImage("https://example.com/a")).toBeNull();
     await vi.advanceTimersByTimeAsync(59_999);
-    await resolver.resolveOgImage("https://example.com/a");
+    expect(await resolver.resolveArticleOgImage("https://example.com/a")).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
     await resolver.resolveOgImage("https://example.com/a");

@@ -3,7 +3,7 @@
 import { cloneElement, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { type Article, parseNewsletterMarkdown } from "@/lib/reader/newsletter-markdown";
-import { articleIdFromSource, extractSourceUrl } from "@/lib/reader/article-id";
+import { articleIdFromSource } from "@/lib/reader/article-id";
 import { renderMarkdown } from "@/lib/reader/markdown-render";
 
 import { ArticleActions } from "@/components/reader/ArticleActions";
@@ -13,6 +13,7 @@ import {
   buildArticlePath,
   buildEditionQuestion,
   buildEditionUrl,
+  extractFirstExternalUrl,
   formatDateLabelJa,
   isIsoDate,
   resolveDeepLinkAnchor,
@@ -742,7 +743,7 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
                               const trustBadgeLabel = trustBadgeLabelForArticle(article, state.edition?.items);
                               const articleNumber = ++articleCounter;
                               const anchorId = buildArticleAnchorId(appliedDate, articleNumber);
-                              const sourceUrl = extractSourceUrl(article.source);
+                              const sourceUrl = extractFirstExternalUrl(article.source, article.body);
                               const articleId = articleIdFromSource(article.source);
                               const articleUrl = articleId && !seenArticleIds.has(articleId)
                                 ? buildArticlePath(appliedDate, articleId) : null;

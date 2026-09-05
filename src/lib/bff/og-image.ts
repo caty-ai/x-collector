@@ -126,13 +126,14 @@ export function createOgImageResolver(deps: {
     controller: AbortController;
     callers: number;
     settled: boolean;
+    fetching: boolean;
     promise: Promise<string | null>;
   };
   const inFlight = new Map<string, Flight>();
 
-  function start(targetUrl: string, article: boolean): Flight {
+  function start(targetUrl: string, article: boolean, flightKey: string): Flight {
     const entry: Flight = {
-      controller: new AbortController(), callers: 0, settled: false,
+      controller: new AbortController(), callers: 0, settled: false, fetching: false,
       promise: Promise.resolve(null),
     };
     entry.promise = (async () => {
@@ -140,6 +141,7 @@ export function createOgImageResolver(deps: {
       try {
         if (article) release = await semaphore.acquire(entry.controller.signal);
         if (entry.controller.signal.aborted) return null;
+        entry.fetching = true;
         let result: OgImageResult;
         try {
           result = await fetchImage(targetUrl, { signal: entry.controller.signal });
@@ -147,7 +149,7 @@ export function createOgImageResolver(deps: {
           result = { kind: "transient" };
         }
         const imageUrl = result.kind === "found" ? result.url : null;
-        if (inFlight.get(targetUrl) !== entry) return imageUrl;
+        if (inFlight.get(flightKey) !== entry) return imageUrl;
         cache.delete(targetUrl);
         cache.set(targetUrl, {
           imageUrl,
@@ -162,10 +164,10 @@ export function createOgImageResolver(deps: {
         // An expired caller can return before the fetch settles; the permit cannot.
         release?.();
         entry.settled = true;
-        if (inFlight.get(targetUrl) === entry) inFlight.delete(targetUrl);
+        if (inFlight.get(flightKey) === entry) inFlight.delete(flightKey);
       }
     })();
-    inFlight.set(targetUrl, entry);
+    inFlight.set(flightKey, entry);
     return entry;
   }
 
@@ -178,10 +180,11 @@ export function createOgImageResolver(deps: {
       return cached.imageUrl;
     }
     cache.delete(targetUrl);
-    let entry = inFlight.get(targetUrl);
-    // Detaching the last caller aborts synchronously; do not join that cancelled work.
+    const flightKey = `${article ? "article" : "bff"}:${targetUrl}`;
+    let entry = inFlight.get(flightKey);
+    // Do not join queued work cancelled when its last caller detached.
     if (entry?.controller.signal.aborted) entry = undefined;
-    entry ??= start(targetUrl, article);
+    entry ??= start(targetUrl, article, flightKey);
     entry.callers += 1;
     let removeAbort = () => {};
     let attached = true;
@@ -189,7 +192,8 @@ export function createOgImageResolver(deps: {
       if (!attached) return;
       attached = false;
       entry.callers -= 1;
-      if (entry.callers === 0 && !entry.settled) entry.controller.abort();
+      // Once fetching, keep the permit and cache the real outcome within the upstream timeout.
+      if (entry.callers === 0 && !entry.settled && !entry.fetching) entry.controller.abort();
     };
     try {
       const aborted = new Promise<null>((resolveAbort) => {

@@ -6,7 +6,7 @@ const input = { siteUrl: "https://example.com", masthead: "Sample Daily", date: 
 describe("article metadata", () => {
   it("emits an article card with a clean origin-based canonical", async () => {
     const metadata = await buildArticleMetadata({ ...input, siteUrl: "https://example.com/path?utm_source=x" });
-    expect(metadata).toMatchObject({ title: "見出し | Sample Daily", description: "要約", alternates: { canonical: "https://example.com/a/2026-09-04/abcdef012345" }, openGraph: { type: "article", url: "https://example.com/a/2026-09-04/abcdef012345", locale: "ja_JP", siteName: "Sample Daily", publishedTime: input.date }, twitter: { card: "summary_large_image" } });
+    expect(metadata).toMatchObject({ title: "見出し | Sample Daily", description: "要約", alternates: { canonical: "https://example.com/a/2026-09-04/abcdef012345" }, openGraph: { title: "見出し", type: "article", url: "https://example.com/a/2026-09-04/abcdef012345", locale: "ja_JP", siteName: "Sample Daily", publishedTime: input.date }, twitter: { title: "見出し", card: "summary_large_image" } });
     expect(metadata).toEqual(await buildArticleMetadata(input));
   });
   it.each(["null", "throw"])("falls back to the default image on resolver %s", async (kind) => {

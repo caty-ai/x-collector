@@ -16,7 +16,14 @@ vi.mock("react", async (importOriginal) => {
     return actual.useState(value);
   } };
 });
-vi.mock("@/components/reader/ArticleActions", () => ({ ArticleActions: (props: { articleUrl: string | null; editionUrl: string }) => React.createElement("span", { "data-landing": props.articleUrl ?? "none", "data-edition": props.editionUrl }) }));
+vi.mock("@/components/reader/ArticleActions", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/reader/ArticleActions")>();
+  return { ArticleActions: (props: React.ComponentProps<typeof actual.ArticleActions>) => React.createElement(
+    "div",
+    { "data-landing": props.articleUrl ?? "none", "data-edition": props.editionUrl, "data-ai-source": props.sourceUrl },
+    React.createElement(actual.ArticleActions, props),
+  ) };
+});
 afterEach(() => vi.unstubAllGlobals());
 it("gives only the first source occurrence a landing URL across sections", () => {
   vi.stubGlobal("React", React);
@@ -27,4 +34,15 @@ it("gives only the first source occurrence a landing URL across sections", () =>
   expect(html.match(/data-landing="none"/g)).toHaveLength(2);
   expect(html.match(/data-edition="\/calendar\?date=2026-09-02"/g)).toHaveLength(3);
   expect(html).toContain('id="a-2026-09-02-3"');
+});
+
+it("keeps the body-only source URL for AI questions without an article share link", () => {
+  vi.stubGlobal("React", React);
+  const html = renderToStaticMarkup(React.createElement(NewsletterViewerPanel, { masthead: "テスト新聞" }));
+  const bodyOnlyArticle = html.split('id="a-2026-09-02-2"')[1].split('id="a-2026-09-02-3"')[0];
+  expect(bodyOnlyArticle).toContain('data-ai-source="https://example.org/body-only"');
+  expect(bodyOnlyArticle).toContain("AIに聞く");
+  expect(bodyOnlyArticle).toContain('data-landing="none"');
+  expect(bodyOnlyArticle).not.toContain("でシェア");
+  expect(bodyOnlyArticle).not.toContain('href="/a/');
 });
