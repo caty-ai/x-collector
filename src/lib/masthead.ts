@@ -1,7 +1,9 @@
 const DEFAULT_MASTHEAD = "AI Daily News";
 const DEFAULT_TAGLINE = "AIの最新ニュースを、毎日ひとつの紙面に。";
+const DEFAULT_SOURCE_REPO_URL = "https://github.com/caty-ai/x-collector";
 
 export type PoweredBy = { label: string; url: string };
+export type SourceRepoLink = { label: string; url: string };
 
 export function getMasthead(): string {
   return process.env.NEWSPAPER_MASTHEAD?.trim() || DEFAULT_MASTHEAD;
@@ -22,5 +24,21 @@ export function getPoweredBy(): PoweredBy | null {
     return { label, url: url.toString() };
   } catch {
     return null;
+  }
+}
+
+export function getSourceRepoLink(): SourceRepoLink | null {
+  const raw = process.env.NEWSPAPER_SOURCE_REPO_URL?.trim() ?? "";
+  if (raw.toLowerCase() === "off") return null;
+  if (raw === "") return { label: "GitHub", url: DEFAULT_SOURCE_REPO_URL };
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return { label: "GitHub", url: DEFAULT_SOURCE_REPO_URL };
+    }
+    return { label: "GitHub", url: url.toString() };
+  } catch {
+    return { label: "GitHub", url: DEFAULT_SOURCE_REPO_URL };
   }
 }

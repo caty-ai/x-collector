@@ -2,7 +2,7 @@ import React from "react";
 import { notFound, redirect } from "next/navigation";
 import { PUBLIC_ARTICLE_PATH_RE } from "@/lib/auth/public-paths";
 import { resolveArticleOgImage } from "@/lib/bff/og-image";
-import { getMasthead, getPoweredBy } from "@/lib/masthead";
+import { getMasthead, getPoweredBy, getSourceRepoLink } from "@/lib/masthead";
 import { ARTICLE_ID_RE, extractSourceUrl } from "@/lib/reader/article-id";
 import { buildArticleMetadata } from "@/lib/reader/article-meta";
 import { ArticlePage } from "@/lib/reader/article-page";
@@ -49,7 +49,7 @@ export default async function ArticleLandingPage({ params }: ArticleRouteProps) 
     warnUnknownId(params.date);
     redirect(`/calendar?date=${params.date}&from=a`);
   }
-  return <ArticlePage masthead={getMasthead()} poweredBy={getPoweredBy()} date={params.date} id={params.id}
+  return <ArticlePage masthead={getMasthead()} poweredBy={getPoweredBy()} sourceRepo={getSourceRepoLink()} date={params.date} id={params.id}
     sectionTitle={selected.sectionTitle} title={selected.article.title} summary={selected.article.body}
     sourceUrl={extractSourceUrl(selected.article.source)} articleCount={loaded.articleCount} />;
 }

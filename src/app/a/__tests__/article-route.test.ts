@@ -46,6 +46,16 @@ describe("article route", () => {
     expect(unmarked).toHaveProperty("alternates.canonical", `https://example.com/a/${params.date}/${params.id}`);
     expect(renderToStaticMarkup(await Page({ params }))).toContain("この日の紙面を読む（他 2 本）");
   });
+  it("wires the configured source repository into the article footer", async () => {
+    load.mockResolvedValue({ index: { byId: new Map([[params.id, { sectionTitle: "News", article: { title: "Title", body: "Summary", source: "https://example.org/story" } }]]) }, articleCount: 3 });
+    vi.stubEnv("NEWSPAPER_SOURCE_REPO_URL", "");
+    const visible = renderToStaticMarkup(await Page({ params }));
+    expect(visible).toContain('href="https://github.com/caty-ai/x-collector"');
+    expect(visible).toContain("Source:");
+
+    vi.stubEnv("NEWSPAPER_SOURCE_REPO_URL", "off");
+    expect(renderToStaticMarkup(await Page({ params }))).not.toContain("Source:");
+  });
   it("reads layout and 404 metadata from env on every invocation without layout robots", () => {
     for (const masthead of ["First Masthead", "Updated Masthead"]) {
       vi.stubEnv("NEWSPAPER_MASTHEAD", masthead);
