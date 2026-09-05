@@ -150,6 +150,8 @@ export function createOgImageResolver(deps: {
         }
         const imageUrl = result.kind === "found" ? result.url : null;
         if (inFlight.get(flightKey) !== entry) return imageUrl;
+        const cached = cache.get(targetUrl);
+        if (result.kind === "transient" && cached && cached.expiresAt > now()) return imageUrl;
         cache.delete(targetUrl);
         cache.set(targetUrl, {
           imageUrl,

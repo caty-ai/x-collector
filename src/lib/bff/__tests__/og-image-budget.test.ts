@@ -146,6 +146,44 @@ describe("article OG admission and budgets", () => {
   });
 });
 describe("OG cache", () => {
+  it.each([
+    { kind: "found", transientFirst: false },
+    { kind: "found", transientFirst: true },
+    { kind: "none", transientFirst: false },
+    { kind: "none", transientFirst: true },
+  ] as const)("preserves $kind across concurrent modes (transient first: $transientFirst)", async ({ kind, transientFirst }) => {
+    const articleGate = deferred();
+    const bffGate = deferred();
+    const fetch = vi.fn()
+      .mockReturnValueOnce(articleGate.promise)
+      .mockReturnValueOnce(bffGate.promise);
+    const resolver = createOgImageResolver({ fetchOgImage: fetch });
+    const url = "https://example.com/shared";
+    const imageUrl = kind === "found" ? found.url : null;
+    const article = resolver.resolveArticleOgImage(url);
+    await flush();
+    const bff = resolver.resolveOgImage(url);
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    if (transientFirst) {
+      bffGate.resolve({ kind: "transient" });
+      expect(await bff).toBeNull();
+      articleGate.resolve(kind === "found" ? found : { kind });
+      expect(await article).toBe(imageUrl);
+    } else {
+      articleGate.resolve(kind === "found" ? found : { kind });
+      expect(await article).toBe(imageUrl);
+      bffGate.resolve({ kind: "transient" });
+      expect(await bff).toBeNull();
+    }
+
+    expect(await resolver.resolveOgImage(url)).toBe(imageUrl);
+    expect(await resolver.resolveArticleOgImage(url)).toBe(imageUrl);
+    // A transient must not shorten a permanent entry's TTL to 60 seconds.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await resolver.resolveOgImage(url)).toBe(imageUrl);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it.each(["none", "found"] as const)("caches %s for 24 hours", async (kind) => {
     const fetch = vi.fn(async (): Promise<OgImageResult> => kind === "found" ? found : { kind });
     const resolver = createOgImageResolver({ fetchOgImage: fetch });
