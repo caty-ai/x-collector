@@ -7,10 +7,12 @@ export type ParsedNewsletter = {
   sections: Section[];
 };
 
+/** Accepts both 引用元: and 引用元： as source markers. */
 export function extractArticleBodyAndSource(lines: string[]): Pick<Article, "body" | "source"> {
+  const sourceMarker = /^\s*引用元[:：]\s*(.+)\s*$/;
   let sourceLineIndex = -1;
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    if (/^\s*引用元:\s*(.+)\s*$/.test(lines[index])) {
+    if (sourceMarker.test(lines[index])) {
       sourceLineIndex = index;
       break;
     }
@@ -20,7 +22,7 @@ export function extractArticleBodyAndSource(lines: string[]): Pick<Article, "bod
     return { body: lines.join("\n").trim(), source: "" };
   }
 
-  const source = lines[sourceLineIndex].replace(/^\s*引用元:\s*/, "").trim();
+  const source = lines[sourceLineIndex].replace(sourceMarker, "$1").trim();
   const body = lines
     .filter((_, index) => index !== sourceLineIndex)
     .join("\n")

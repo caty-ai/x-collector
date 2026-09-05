@@ -78,7 +78,7 @@ export function buildEditionQuestion({
 export function plainTextFromMarkdown(markdown: string): string {
   return markdown
     .split(/\r?\n/)
-    .filter((line) => !/^\s*(?:Why it matters:|引用元:)/i.test(line))
+    .filter((line) => !/^\s*(?:Why it matters:|引用元[:：])/i.test(line))
     .join("\n")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/<[^>]*>/g, " ")

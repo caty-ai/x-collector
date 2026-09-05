@@ -63,7 +63,7 @@ describe("source-only IDs", () => {
   it("never obtains an ID from body-only URLs or unusable sources", () => {
     const articles = parse("synthetic-a").sections[0].articles;
     expect(articles[4].body).toContain("https://example.net/body-only");
-    for (const i of [3, 4, 5]) expect(articleIdFromSource(articles[i].source)).toBeNull();
+    for (const i of [4, 5]) expect(articleIdFromSource(articles[i].source)).toBeNull();
     expect(articleIdFromSource("https://user:pass@example.com/private")).toBeNull();
   });
   it.each(["synthetic-a", "synthetic-b"])("matches independently authored ID map: %s", (name) => {
@@ -71,15 +71,21 @@ describe("source-only IDs", () => {
     const positions = Object.fromEntries(Array.from(indexed.byId, ([id, { sectionIndex, articleIndex }]) => [id, { sectionIndex, articleIndex }]));
     expect(positions).toEqual(JSON.parse(read(name, "ids.json")));
   });
+  it("preserves half-width IDs and gives the full-width article its source ID", () => {
+    const articles = parse("synthetic-a").sections[0].articles;
+    expect(articles.slice(0, 4).map((article) => articleIdFromSource(article.source))).toEqual([
+      "19e0bd97ba47", "94617bde3383", "2575c483be96", "a001bd27664e",
+    ]);
+  });
   it("uses the first duplicate, skips missing IDs, and counts every article", () => {
     const parsed = parse("synthetic-a");
     const indexed = indexArticles(parsed);
     const id = articleIdFromSource(parsed.sections[0].articles[0].source)!;
     expect(indexed.total).toBe(7);
-    expect(indexed.byId.size).toBe(3);
+    expect(indexed.byId.size).toBe(4);
     expect(indexed.byId.get(id)).toEqual({ sectionIndex: 0, articleIndex: 0, article: parsed.sections[0].articles[0], sectionTitle: "Experiments" });
     expect(indexed.byId.get(id)?.article).toBe(parsed.sections[0].articles[0]);
-    expect(Array.from(indexed.byId.values()).map((entry) => entry.articleIndex)).toEqual([0, 1, 2]);
+    expect(Array.from(indexed.byId.values()).map((entry) => entry.articleIndex)).toEqual([0, 1, 2, 3]);
     expect(id).toBe(articleIdFromSource(parse("synthetic-b").sections[0].articles[0].source));
   });
   it("counts all sections and keeps the first occurrence across sections", () => {
@@ -87,7 +93,7 @@ describe("source-only IDs", () => {
     const b = parse("synthetic-b");
     const result = indexArticles({ ...a, sections: [...a.sections, ...b.sections] });
     expect(result.total).toBe(12);
-    expect(result.byId.size).toBe(6);
+    expect(result.byId.size).toBe(7);
     expect(result.byId.get(articleIdFromSource(b.sections[0].articles[1].source)!)?.sectionIndex).toBe(2);
     expect(result.byId.get(articleIdFromSource(b.sections[0].articles[0].source)!)?.sectionIndex).toBe(0);
   });

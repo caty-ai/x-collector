@@ -24,7 +24,7 @@ This is a daily AI-news edition compiled by x-collector. Each edition is a curat
 - \`### <article title>\` starts one article.
 - One or more plain lines contain the Japanese summary.
 - \`Why it matters: ...\` is an optional one-line relevance note.
-- \`引用元: [label](https://...)\` or \`引用元: https://...\` gives the source URL; when several appear, the last one is the source.
+- Both \`引用元:\` and \`引用元：\` accept a Markdown link or bare source URL; the last marker wins.
 - Article order within a section is the editorial priority: first is most important.
 
 ## Access
