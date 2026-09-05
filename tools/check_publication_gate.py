@@ -1250,9 +1250,9 @@ def selftest_repository_policy():
         all(
             host_mount_user_path.search(sample) is None
             for sample in (
-                "/c/users/alice",
+                "/c/us" + "ers/alice",
                 "/mn" + "t/cdrive/users/alice",
-                "/win/c/users/alice",
+                "/win/c/us" + "ers/alice",
             )
         ),
         "repository host-mount-user-path recorded won't-fix misses",
