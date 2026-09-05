@@ -9,6 +9,9 @@ import {
   buildEditionQuestion,
   buildEditionUrl,
   buildShareUrls,
+  buildShareTargets,
+  buildArticlePath,
+  buildArticleCanonicalUrl,
   extractFirstExternalUrl,
   fitToEncodedBudget,
   formatDateLabelJa,
@@ -219,5 +222,39 @@ describe("reader links", () => {
     expect(extractFirstExternalUrl("[label](https://example.com/x。)")).toBe(
       "https://example.com/x。",
     );
+  });
+});
+
+
+describe("article landing links", () => {
+  it("uses clean paths and channel-specific share attribution", () => {
+    const path = buildArticlePath("2026-09-02", "abcdef012345");
+    expect(path).toBe("/a/2026-09-02/abcdef012345");
+    const canonicalUrl = buildArticleCanonicalUrl("https://example.com", "2026-09-02", "abcdef012345");
+    const targets = buildShareTargets({ canonicalUrl: canonicalUrl + "?utm_source=old#old", title: "見出し", masthead: "テスト新聞" });
+    expect(targets.canonical).toBe(canonicalUrl);
+    expect(new URL(targets.x).searchParams.get("text")).toBe("見出し | テスト新聞");
+    for (const [channel, value] of Object.entries({
+      x: new URL(targets.x).searchParams.get("url")!,
+      facebook: new URL(targets.facebook).searchParams.get("u")!,
+      copy: targets.copy,
+    })) {
+      const url = new URL(value);
+      expect(url.pathname).toBe(path);
+      expect(url.searchParams.get("utm_source")).toBe(channel);
+      expect(url.searchParams.get("utm_medium")).toBe("share");
+      expect(url.hash).toBe("");
+    }
+  });
+
+  it.each([
+    ["ＡＩ News", "ai   news。Details remain。", "Details remain。"],
+    ["Long enough headline", "LONG ENOUGH HEADLINE is here. Details remain.", "Details remain."],
+    ["AI", "AI is here. Details remain.", "AI is here. Details remain."],
+    ["Title", "Title.", "Title."],
+    ["Title", "Unrelated first. Details remain.", "Unrelated first. Details remain."],
+  ])("deduplicates only the qualifying first sentence: %s", (title, summary, expected) => {
+    const question = buildArticleQuestion({ title, summary, sourceUrl: null });
+    expect(question.split("紙面の要約: ")[1]).toBe(expected);
   });
 });

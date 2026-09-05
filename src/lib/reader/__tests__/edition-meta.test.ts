@@ -15,6 +15,7 @@ describe("edition metadata", () => {
     expect(metadata.metadataBase?.toString()).toBe("https://paper.example/");
     expect(metadata.openGraph).toMatchObject({
       title: "夕刊AI 2026-08-02",
+      images: ["https://paper.example/og-default.png"],
       url: "https://paper.example/calendar?date=2026-08-02",
     });
   });
@@ -28,6 +29,8 @@ describe("edition metadata", () => {
     });
     expect(metadata.metadataBase).toBeUndefined();
     expect(metadata.openGraph).not.toHaveProperty("url");
+    expect(metadata.openGraph).not.toHaveProperty("images");
+    expect(metadata.twitter).not.toHaveProperty("images");
   });
 
   it("uses the site URL first and returns only its origin", () => {

@@ -3,16 +3,16 @@
 import { cloneElement, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { type Article, parseNewsletterMarkdown } from "@/lib/reader/newsletter-markdown";
+import { articleIdFromSource, extractSourceUrl } from "@/lib/reader/article-id";
 import { renderMarkdown } from "@/lib/reader/markdown-render";
 
 import { ArticleActions } from "@/components/reader/ArticleActions";
 import { AskAiBanner } from "@/components/reader/AskAiBanner";
 import {
   buildArticleAnchorId,
-  buildArticleUrl,
+  buildArticlePath,
   buildEditionQuestion,
   buildEditionUrl,
-  extractFirstExternalUrl,
   formatDateLabelJa,
   isIsoDate,
   resolveDeepLinkAnchor,
@@ -295,7 +295,6 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
   const [ogImages, setOgImages] = useState<Record<string, OgImageState>>({});
   const [origin, setOrigin] = useState("");
   const [locationHash, setLocationHash] = useState("");
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const monthIndicatorCache = useRef<Record<string, Record<string, DayIndicator>>>({});
   const indicatorRequestSeq = useRef(0);
@@ -488,7 +487,6 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
     }
 
     setLocationHash(nextHash);
-    setOpenMenuId(null);
   }, [appliedDate]);
 
   useEffect(() => {
@@ -552,6 +550,7 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
   }, [appliedDate, locationHash, parsedNewsletter, state.markdown]);
 
   let articleCounter = 0;
+  const seenArticleIds = new Set<string>();
 
   return (
     <div className="flex flex-col gap-8 pb-28 lg:flex-row lg:items-start">
@@ -743,7 +742,11 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
                               const trustBadgeLabel = trustBadgeLabelForArticle(article, state.edition?.items);
                               const articleNumber = ++articleCounter;
                               const anchorId = buildArticleAnchorId(appliedDate, articleNumber);
-                              const sourceUrl = extractFirstExternalUrl(article.source, article.body);
+                              const sourceUrl = extractSourceUrl(article.source);
+                              const articleId = articleIdFromSource(article.source);
+                              const articleUrl = articleId && !seenArticleIds.has(articleId)
+                                ? buildArticlePath(appliedDate, articleId) : null;
+                              if (articleId) seenArticleIds.add(articleId);
 
                               return (
                                 <div
@@ -809,14 +812,12 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
 
                                   <ArticleActions
                                     anchorId={anchorId}
-                                    articleUrl={buildArticleUrl(origin, appliedDate, articleNumber)}
+                                    articleUrl={articleUrl}
+                                    editionUrl={buildEditionUrl(origin, appliedDate)}
+                                    masthead={masthead}
                                     title={article.title}
                                     sourceUrl={sourceUrl}
                                     summary={article.body}
-                                    isOpen={openMenuId === anchorId}
-                                    onToggle={() =>
-                                      setOpenMenuId((current) => (current === anchorId ? null : anchorId))
-                                    }
                                   />
                                 </div>
                               );

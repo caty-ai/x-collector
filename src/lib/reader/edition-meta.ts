@@ -39,9 +39,11 @@ export function buildEditionMetadata(input: {
       title: editionTitle,
       description: input.tagline,
       ...(absoluteEditionUrl ? { url: absoluteEditionUrl } : {}),
+      ...(input.siteUrl ? { images: [new URL("/og-default.png", input.siteUrl).toString()] } : {}),
     },
     twitter: {
       card: "summary",
+      ...(input.siteUrl ? { images: [new URL("/og-default.png", input.siteUrl).toString()] } : {}),
       title: editionTitle,
       description: input.tagline,
     },

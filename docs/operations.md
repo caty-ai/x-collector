@@ -75,7 +75,7 @@ npm run publish:prod
 - script mode の再組版は冪等で、当日版は夜間 cron でも再生成される。ローカル `.env` には `DATABASE_URL` と cron service と同じ `STEP_LOCALIZE_JA`（本番は `true`）を設定する。
   - Railway では `railway run --service <step5 service> npm run recompose:script:prod -- --date-jst=YYYY-MM-DD --dry-run [--out content.md]` を使い、確認後に `--dry-run` を外す。
   - script mode は `Why it matters` を出力せず、body / blurb fallback から HTML、front-matter、fence、heading marker を除去する。dry-run は `PipelineRun` を作成・更新しない。
-  - `Why it matters` は script mode では設計上出さない（決定論的な抽出であり「なぜ重要か」を合成すると創作になるため）。llm mode（`STEP5_COMPOSE_MODE` 未設定時の既定）は編集的な体裁として引き続き出力する。両形式とも同梱リーダーは読める（`Why it matters:` 行はプレーンテキスト化時に除外される）。
+  - `Why it matters` は script mode では設計上出さない（決定論的な抽出であり「なぜ重要か」を合成すると創作になるため）。llm mode（`STEP5_COMPOSE_MODE=llm` の明示設定）は編集的な体裁として引き続き出力する。両形式とも同梱リーダーは読める（`Why it matters:` 行はプレーンテキスト化時に除外される）。
 - 旧コマンド（収集のみ）が必要な場合は `npm run collect:prod:legacy` を使用。
 
 ### script mode のサニタイザー契約（plain-text contract）
@@ -213,7 +213,7 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 | `CROSSLINK_PUBLISHED_LOOKBACK_DAYS` | 任意 | ルールベース Step4 が既刊 binding を参照する期間（日数、既定: `90`） |
 | `STEP6_VOICESIGNAL_LIMIT` | 任意 | `collect:prod` 実行時の Step6 処理上限（既定: `400`） |
 | `STEP5_PUBLISH_LIMIT` | 任意 | `publish:prod` 実行時の Step5 処理上限（既定: `120`） |
-| `STEP5_COMPOSE_MODE` | 任意 | Step5 組版方式。`script` のみ script mode、それ以外は `llm`（既定: `llm`） |
+| `STEP5_COMPOSE_MODE` | 任意 | Step5 組版方式。未設定時は `script`。明示値 `script` のみ script mode、それ以外は `llm`（既定: `script`） |
 | `STEP5_COMPOSE_MODEL` | 任意 | `publish:prod` 後段の contentMd 組版モデル（既定: `google/gemini-3.1-flash-lite-preview`） |
 | `STEP5_COMPOSE_MIN_ITEMS_PER_DENSE_SECTION` | 任意 | Step5 compose で「候補が十分あるセクション」に要求する最小掲載件数（既定: `3`） |
 | `STEP5_COMPOSE_DENSE_SECTION_MIN_CANDIDATES` | 任意 | 高密度セクション扱いする候補件数の閾値（既定: `3`） |
@@ -244,7 +244,13 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 #### 公開モード (`NEWSPAPER_PUBLIC`)
 
 - `NEWSPAPER_PUBLIC=1` または `true` のとき、匿名利用者へ `/calendar`、`/calendar/*` の静的 asset、newsletter BFF、og-image BFF を開く。`/`、`/feed`、`/settings`、`/admin`、`/api/admin/*`、`/api/bff/feed` を含む管理用 route は従来どおり allowlist 済み Google account が必要。`/np-login` は変更せず、switch off 時の共有ログインにも引き続き使える。
-- 記事ランディングページ `/a/<YYYY-MM-DD>/<12-hex>` は、`NEWSPAPER_PUBLIC=1`（または `true`）かつ path が完全一致する GET/HEAD request のときだけ匿名に開く（末尾 `/` は任意）。switch 未設定時は allowlist 済みログインか有効な共有 cookie が必要。匿名 request には IP ごと 240 requests/60秒の throttle を適用し、超過時は `Retry-After: 60` 付きの 429 を返す（abuse friction であり認可 control ではない）。ページ本体は後続 release で提供し、それまで middleware を通過した request には Next が 404 を返す。
+- 記事ランディングページ `/a/<YYYY-MM-DD>/<12-hex>` は、`NEWSPAPER_PUBLIC=1`（または `true`）かつ path が完全一致する GET/HEAD request のときだけ匿名に開く（末尾 `/` は任意）。switch 未設定時は allowlist 済みログインか有効な共有 cookie が必要。匿名 request には IP ごと 240 requests/60秒の throttle を適用し、超過時は `Retry-After: 60` 付きの 429 を返す（abuse friction であり認可 control ではない）。
+- **記事の公開条件** — 匿名・session・共有 cookie を含む全 caller に対し、存在しない号と非 published の号は Markdown 解析前に 404 とする。未知の ID は `/calendar?date=<date>&from=a` へ HTTP 307 で遷移し、警告は process ごと最大10回/分に制限する。概要・安全な引用元リンク・紙面への CTA は JavaScript なしで表示でき、AI メニューはその HTML に追加される機能である。
+- **取得の入場制御** — loader 専用の process 内 semaphore は同時取得4件・待機32件である。待機枠超過または3秒の待機予算超過は HTTP 500（load-shed）となる。App Router の page から 503 は返せないためである。取得 timeout は10秒であり、ページ遅延を抑える意図的な設定である（newsletter BFF は30秒のままである）。同日 miss は single-flight で共有する。FIFO cache は解析済み16件を60秒、status 4096件を保持する。不存在・非公開は60秒、上流エラーは10秒であり、busy は cache しない。
+- **記事 ID の凍結規則** — 解析済み source 欄の最初の HTTP(S) URL（Markdown link または裸 URL）のみを抽出し、本文は使用しない。userinfo は拒否し、scheme/host は小文字化、既定 port と fragment は除去する。query key の `utm_*`・`fbclid`・`gclid`・`mc_cid`・`mc_eid`・`igshid`・`ref_src` は大文字小文字を区別せず除去する。それ以外（`s` を含む）は維持し、key/value の code-unit 順に並べて URLSearchParams で再直列化する。path の percent octet は RFC 3986 unreserved 文字だけ復号し、残る percent triplet は大文字化する。root `/` 以外の末尾 slash は除去する。正規化 URL の SHA-256 先頭12桁の小文字 hex を ID とし、文書順の最初の出現を採用する。末尾 root-label dot・mobile host・redirect は統合せず、`)` で URL 抽出は終わる。source なしでは記事ページ・共有ボタンを持たず、copy は紙面 URL を使用する。旧 `#a-<date>-<n>` anchor は受信側で引き続き処理する。
+- **組版の保証範囲** — 全角 `引用元：` は source なしとして扱い、記事ランディングページを作らないという記録済みの決定である。parser 対応は follow-up issue とする。LLM 組版の号は ID 安定性の保証対象外である。`STEP5_COMPOSE_MODE` の既定は `script` であり、LLM 組版を維持する場合は `llm` を明示する。
+- **共有 origin** — 記事 canonical と `og:url` は `/a/<date>/<id>` の path のみであり、utm query を含めない。カードには `NEWSPAPER_SITE_URL`（fallback は `NEXTAUTH_URL`）を設定する。`Host` は信頼しない。origin が null のときは metadataBase・canonical・OG URL・全画像を省略し、noindex/nofollow と process ごと1回の警告を設定する。記事メタデータに絶対 URL は出さない。origin がある場合、OG 取得は待機込み1.5秒を予算とし、失敗時は `/og-default.png` を使う。
+
 - 公開モードの匿名 newsletter BFF は、検証済みの `date`、`format`、`includeContent`、`includeItems` だけを upstream へ転送し、`slug` その他の parameter を破棄する。さらに BFF で published edition だけを返し、draft と空日は同じ 404 にする。upstream route 自体には status filter がないため、その filter と JSON の public projection は follow-up 対応とする。
 - JSON edition payload は現状 `slug`、`status`、`model`、`id`、timestamps、および `items[].sourceRef` / `trustLabel` / `pipelineItemId` を含む。公開用途に絞った response projection は follow-up で扱う。
 - 公開モードでは session / shared-cookie 利用者を含む全 caller の og-image request に edition membership guard を適用する。guard は有効な `?date=`、同一 origin Referer の有効な `?date=`、latest edition の URL 集合の union だけを許可する。運用 script は明示的に `?date=` を渡せる。
