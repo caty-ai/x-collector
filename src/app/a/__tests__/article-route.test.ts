@@ -20,7 +20,7 @@ afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); 
 function loadArticle(source = "https://example.org/story") {
   load.mockResolvedValue({ index: { byId: new Map([[params.id, { sectionTitle: "News", article: { title: "Title", body: "Summary", source } }]]) }, articleCount: 3 });
 }
-const widgetSrc = "https://platform.x.com/" + "widgets" + ".js";
+const widgetSrc = "https://platform.x.com/widgets.js";
 
 describe("article route", () => {
   it("resolves the source thumbnail with the metadata enrichment budget", async () => {

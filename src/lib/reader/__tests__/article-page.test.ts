@@ -7,7 +7,7 @@ import { ArticlePage } from "../article-page";
 
 const props = { masthead: "Sample Daily", poweredBy: null, sourceRepo: null, date: "2026-09-04", id: "abcdef012345", sectionTitle: "ニュース", title: "見出し", summary: "要約本文", sourceUrl: "https://example.org/story", imageUrl: null, xFollowHandle: null, articleCount: 4 };
 
-const widgetSrc = "https://platform.x.com/" + "widgets" + ".js";
+const widgetSrc = "https://platform.x.com/widgets.js";
 
 describe("article server page", () => {
   it("renders the labelled follow fallback and official enhancement before the source action", () => {

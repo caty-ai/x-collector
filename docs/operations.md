@@ -247,7 +247,7 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 
 #### 公開モード (`NEWSPAPER_PUBLIC`)
 
-`/a/` は `https://platform.x.com/widgets.js` を唯一の外部スクリプトとして読み込みます（フォローボタン用・env が空なら script ごと消える・`/calendar` には載らない）。将来 CSP を導入する場合は `script-src` と `frame-src` に `platform.x.com` と `platform.twitter.com` の両方が必要です。
+`/a/` は `https://platform.x.com/widgets.js` を唯一の外部スクリプトとして読み込みます（フォローボタン用・env が空なら script ごと消える・`/calendar` には載らない）。将来 CSP を導入する場合は `script-src` と `frame-src` に `platform.x.com` と `platform.twitter.com` の両方が必要です。あわせて、記事ページのサムネは引用元サイトの OG 画像を proxy せず直接読み込むため（`referrerPolicy="no-referrer"`・閲覧者のブラウザが引用元の画像ホストへ接続する）、CSP では `img-src https:` 相当の許可も必要になります。
 
 - `NEWSPAPER_PUBLIC=1` または `true` のとき、匿名利用者へ `/calendar`、`/calendar/*` の静的 asset、newsletter BFF、og-image BFF を開く。`/`、`/feed`、`/settings`、`/admin`、`/api/admin/*`、`/api/bff/feed` を含む管理用 route は従来どおり allowlist 済み Google account が必要。`/np-login` は変更せず、switch off 時の共有ログインにも引き続き使える。
 - 記事ランディングページ `/a/<YYYY-MM-DD>/<12-hex>` は、`NEWSPAPER_PUBLIC=1`（または `true`）かつ path が完全一致する GET/HEAD request のときだけ匿名に開く（末尾 `/` は任意）。switch 未設定時は allowlist 済みログインか有効な共有 cookie が必要。匿名 request には IP ごと 240 requests/60秒の throttle を適用し、超過時は `Retry-After: 60` 付きの 429 を返す（abuse friction であり認可 control ではない）。
