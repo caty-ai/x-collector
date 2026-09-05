@@ -1,10 +1,10 @@
 # Supporter Reward Loop — contract (v1) — FROZEN INTERFACES
 
-Status: **freeze candidate v1.0** for caty-ai/x-collector#120 (child #0 of EPIC caty-ai/x-collector#119). Once the design review (five heterogeneous seats, E-6①) reaches GO and this file is merged into `epic/119`, every section marked **[frozen]** may change only through a new contract issue that bumps `contract_version` (and, where noted, the ledger `schema`). Changing a frozen section is a *contract-level deviation* and stops the Epic at human checkpoint #7 (EPIC #119, E-3).
+Status: **freeze candidate v1.1** (v1.0 → v1.1: design-review round 1 folded in; see the changelog) for caty-ai/x-collector#120 (child #0 of EPIC caty-ai/x-collector#119). Once the design review (five heterogeneous seats, E-6①) reaches GO and this file is merged into `epic/119`, every section marked **[frozen]** may change only through a new contract issue that bumps `contract_version` (and, where noted, the ledger `schema`). Changing a frozen section is a *contract-level deviation* and stops the Epic at human checkpoint #7 (EPIC #119, E-3).
 
 Companions: EPIC caty-ai/x-collector#119 (why, tiers at a glance, human checkpoints) · child #1 caty-ai/ask-ai-widget#9 (reward repo) · child #2 caty-ai/.github#75 (central workflow) · child #3 caty-ai/x-collector#121 (caller + README) · child #4 caty-ai/x-collector#122 (awesome lists). Entry page: [README.md](README.md).
 
-Wording: MUST / MUST NOT / SHOULD / MAY as in RFC 2119. "Source repo" = the public repo whose activity is rewarded (v1: `caty-ai/x-collector`). "Reward repo" = the private repo supporters are invited to (v1: `caty-ai/ask-ai-widget`). "Central workflow" = the reusable workflow in `caty-ai/.github`. "Caller" = the thin workflow in the source repo. "Actor" = the GitHub login that performed the triggering event.
+Wording: MUST / MUST NOT / SHOULD / MAY as in RFC 2119. "Source repo" = the public repo whose activity is rewarded (v1: `caty-ai/x-collector`). "Reward repo" = the private repo supporters are invited to (v1: `caty-ai/ask-ai-widget`). "Central workflow" = the reusable workflow in `caty-ai/.github`. "Caller" = the thin workflow in the source repo. "Actor" = the person being thanked: for `watch` the `sender`, for `issues` the Issue author (`issue.user`), for `discussion` the Discussion author (`discussion.user`), and for `pull_request_target` the **PR author** (`pull_request.user`) — never the merger. `github.actor` / `sender` MUST NOT be used for `pull_request_target`. Actor identity is the numeric `user.id` (`actor_id`); the login is display data.
 
 ---
 
@@ -13,7 +13,7 @@ Wording: MUST / MUST NOT / SHOULD / MAY as in RFC 2119. "Source repo" = the publ
 1. **Thanks, not solicitation.** Every message and artifact is a thank-you for something already done. Nothing asks for a Star, a share, or a follow. Copy that violates this is a contract violation, not a style issue.
 2. **GitHub-native delivery only.** The only outbound channels are (a) a repository collaborator invitation to the reward repo and (b) a comment on the actor's own Issue / PR in the source repo. No e-mail, no DM, no third-party API is ever called with the actor as recipient. (Telegram is an *owner-side* notification, §9, never a supporter-facing channel.)
 3. **Record-only first.** The central workflow ships and runs in `mode: record-only` (§5). Switching to `live` is human checkpoint #4 of EPIC #119 and requires an owner approval comment; the switch is a one-word change in the caller (§4.3) and nothing else.
-4. **Least privilege, one boundary.** Exactly one long-lived credential exists (§8). It can act on the reward repo only. It never touches the source repo. Supporter-facing comments use the caller's `GITHUB_TOKEN`.
+4. **Least privilege, two single-purpose credentials.** Exactly two long-lived credentials exist (§8), both scoped to the reward repo only and never used against the source repo: `SUPPORTER_LEDGER_TOKEN` (Contents only — ledger and `SUPPORTERS.md`) and `SUPPORTER_LOOP_TOKEN` (Administration — invitations and revokes). The Administration-capable token is loaded **only** by the `act` job, which does not run in `record-only` (§4.4). Supporter-facing comments use the caller's `GITHUB_TOKEN`.
 5. **Ledger is the source of truth.** Every decision — including "did nothing" — is one NDJSON line (§6). `SUPPORTERS.md` and every report are derived from the ledger, never the other way round.
 6. **Idempotent by construction.** A supporter receives each reward at most once per generation (§7). Re-delivered webhooks, re-runs, and duplicate events are safe.
 7. **Family and bots are excluded.** Accounts in the family roster (§3.2) and bot accounts never receive rewards and never appear in `SUPPORTERS.md`.
@@ -35,8 +35,8 @@ Tiers are **cumulative** in *entitlement*: reaching tier N grants everything fro
 
 | Tier | Trigger event (source repo) | Qualifying condition | Delivered | Decided in v1 |
 |---|---|---|---|---|
-| **1** | `watch` (`action: started`) | Actor not excluded (§3) | **Invitation to the reward repo** (collaborator, permission `read`) + **`SUPPORTERS.md` entry** (login + tier + date) + the **Supporter badge** (an image in the reward repo the supporter may embed; delivered implicitly by repo access) | yes |
-| **2** | `issues` (`action: opened`) or `discussion` (`action: created`) | Actor not excluded; Issue/Discussion is not closed as spam within the run (no such check in v1 — spam handling is the weekly sweep, §11) | Tier 1 + **one thank-you comment** on that Issue / Discussion (§10) + `SUPPORTERS.md` tier updated to 2 | yes |
+| **1** | `watch` (`action: started`) | Actor not excluded (§3) | **Invitation to the reward repo** (collaborator with permission **`pull`** — the REST enum value; `act` MUST send `{"permission":"pull"}` on every `PUT`, because the platform default when the field is omitted is `push`) + **`SUPPORTERS.md` entry** (login + tier + date) + the **Supporter badge** (an image in the reward repo the supporter may embed; delivered implicitly by repo access) | yes |
+| **2** | `issues` (`action: opened`) or `discussion` (`action: created`) | Actor not excluded (v1 has **no spam check**: a spam Issue earns tier 2 like any other; spam handling is an explicit non-goal of the sweep, §11, and is the owner's manual job — block the user, which also makes future invitations fail) | Tier 1 + **one thank-you comment** on that Issue / Discussion (§10) + `SUPPORTERS.md` tier updated to 2 | yes |
 | **3** | `pull_request_target` (`action: closed`, `merged == true`) | Actor = PR author, not excluded | Tier 1 + 2 (comment goes on the merged PR) + `SUPPORTERS.md` tier updated to 3 + listing in the source repo's **Contributors wall** and **release notes** (both produced by child #3's `release.yml` from git history, not by the central workflow) | yes |
 | Fork | `fork` | — | **Nothing.** Not even a ledger line (the caller does not subscribe to `fork`). | yes (no reward) |
 
@@ -46,7 +46,7 @@ The strategy note (alpha-wiki `supporter-reward-loop-strategy.md` §7) listed "o
 
 - Why: the owner decided on 2026-09-05 that no new repository is created for this Epic and that the reward repo is `caty-ai/ask-ai-widget` only. A second private repo does not exist, so a second invitation has nothing to point at. Defining it now would freeze an interface to an artifact nobody owns.
 - Exit trigger (re-opens this item as a contract bump, not silently): the owner names a second reward repo *or* the first early-access item rotates out (§12) and a second private repo becomes the natural place for the next one. Until then tier 2 and 3 add **recognition** (comment, tier label, wall, release notes), not further access.
-- Consequence for §8: the token's repository access stays a single repo. If the deferral is lifted, §8 is bumped and human checkpoint #2 (token issuance) is repeated for the new scope.
+- Consequence for §8: both tokens' repository access stays a single repo. If the deferral is lifted, §8 is bumped and human checkpoint #2 (token issuance) is repeated for the new scope.
 
 ### 2.2 Downgrade
 
@@ -64,10 +64,11 @@ Tiers never decrease. Unstarring after tier 2 or 3 is reached does not revoke an
 
 | Reason code | Rule |
 |---|---|
-| `excluded-family` | Login is in the **family roster**. The roster is the single string already maintained in `caty-ai/.github` `external-input-watch.yml` (`fam_roster`, measured 2026-08-29). Child #2 MUST read the same list (copy is acceptable in v1 provided a comment in both files names the other as the twin; a shared file is preferred if it exists by then). |
+| `excluded-family` | `ascii-lower(login)` equals one of the tokens of the **family roster** (GitHub logins are case-insensitive; the compare is case-insensitive exactly as `external-input-watch.yml` does it). The roster is the single string already maintained in `caty-ai/.github` `external-input-watch.yml` (`fam_roster`, measured 2026-08-29). Child #2 MUST use the identical token set **and** the identical compare rule (copy is acceptable in v1 provided a comment in both files names the other as the twin and says "case-insensitive; identical token set"; a shared file is preferred if it exists by then). |
 | `excluded-bot` | `type == "Bot"` or login ends with `[bot]`. |
 | `excluded-self` | Actor equals the repository owner org's login or the workflow's own identity. |
 | `excluded-org` | `type == "Organization"`. |
+| `excluded-member` | On events that carry `author_association` (`issues`, `discussion`, `pull_request_target`) the value is `OWNER` or `MEMBER` — the same first-line check `external-input-watch.yml` applies; the roster stays as defense in depth. `watch` carries no association, so for `watch` the roster is the only check (the sweep MAY additionally drop roster members it finds in the ledger). |
 
 ### 3.3 Not an exclusion
 
@@ -112,9 +113,24 @@ on:
         required: false
         type: boolean
         default: false
+    secrets:
+      SUPPORTER_LEDGER_TOKEN:
+        description: "Fine-grained PAT, reward_repo only, Contents R/W (§8). Used by decide (ledger) and act (SUPPORTERS.md). Required in both modes."
+        required: true
+      SUPPORTER_LOOP_TOKEN:
+        description: "Fine-grained PAT, reward_repo only, Administration R/W (§8). Loaded only by the act job; may be left unset until checkpoint #4. act fails loud if empty in live."
+        required: false
+      TELEGRAM_BOT_TOKEN:
+        description: "Owner notification bot (§9)."
+        required: true
+      TELEGRAM_CHAT_ID:
+        description: "Owner notification chat (§9)."
+        required: true
 ```
 
 Rules:
+
+- The three secrets above are the complete list (naming rule: `UPPER_SNAKE`, declared with `required`, exactly as `external-input-watch.yml` does). A caller passing any other secret fails validation; `secrets: inherit` is forbidden (§4.3).
 
 - `mode` MUST be validated as the **first** step. Any value other than the two literals fails the job with `::error::` and exit 1 before any `gh`/`curl` call.
 - `inputs.*` are caller-controlled constants, never actor-controlled; they MAY be used in `${{ }}` expressions. Actor-controlled strings (login, title, body) MUST enter `run:` scripts only through `env:` or `$GITHUB_EVENT_PATH`, never inline via `${{ }}` (same invariant as `external-input-watch.yml`).
@@ -137,9 +153,15 @@ on:
     - cron: "17 3 * * 1"   # weekly sweep, Monday 03:17 UTC
 permissions:
   contents: none
+  actions: read          # sweep precondition: "no failed supporter-loop runs since last sweep" (§11)
   issues: write
   pull-requests: write
   discussions: write
+# Load-bearing: serializes runs per source repo so two deliveries of the same
+# event cannot both miss the comment marker (§7). Do not delete.
+concurrency:
+  group: supporter-loop-${{ github.repository }}
+  cancel-in-progress: false
 jobs:
   loop:
     uses: caty-ai/.github/.github/workflows/supporter-loop-reusable.yml@main
@@ -147,10 +169,13 @@ jobs:
       mode: record-only          # <- the ONLY line that changes at checkpoint #4
       sweep: ${{ github.event_name == 'schedule' }}
     secrets:
+      SUPPORTER_LEDGER_TOKEN: ${{ secrets.SUPPORTER_LEDGER_TOKEN }}
       SUPPORTER_LOOP_TOKEN: ${{ secrets.SUPPORTER_LOOP_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 ```
+
+This block is the **single copy** of the caller shape; §4.4 refers to it and does not restate the `concurrency` block.
 
 - `secrets: inherit` is **forbidden** in the caller (same rule as `external-input-caller.yml`).
 - `contents: none` is load-bearing under `pull_request_target` and MUST NOT be removed. The caller never checks out code.
@@ -163,14 +188,25 @@ The central workflow MUST be split into two jobs so that *record-only cannot sen
 
 | Job | Runs when | `permissions` | May use |
 |---|---|---|---|
-| `decide` | always | `contents: none`, `issues: read`, `pull-requests: read`, `discussions: read` | `GITHUB_TOKEN` (read) · `SUPPORTER_LOOP_TOKEN` **only** for reading the ledger and, in both modes, appending to it (§6) · Telegram secrets (§9) |
-| `act` | `needs: decide` **and** `inputs.mode == 'live'` **and** `decide` produced at least one live action | `contents: none`, `issues: write`, `pull-requests: write`, `discussions: write` | `GITHUB_TOKEN` (write, source repo comments) · `SUPPORTER_LOOP_TOKEN` (reward repo invitations, `SUPPORTERS.md`) |
+| `decide` | always | `contents: none`, `actions: read`, `issues: read`, `pull-requests: read`, `discussions: read` | `GITHUB_TOKEN` (read) · `SUPPORTER_LEDGER_TOKEN` (Contents only) in the steps that read/append the ledger (§6) · **never** `SUPPORTER_LOOP_TOKEN` (the secret is not referenced anywhere in this job) · **no** Telegram secrets (§9 is live-only) |
+| `act` | `needs: decide` **and** `inputs.mode == 'live'` **and** `decide` produced at least one live action | `contents: none`, `issues: write`, `pull-requests: write`, `discussions: write` | `GITHUB_TOKEN` (write, source repo comments) · `SUPPORTER_LOOP_TOKEN` (reward repo invitations / revokes) · `SUPPORTER_LEDGER_TOKEN` (`SUPPORTERS.md` and the ledger lines for the actions it executed) · Telegram secrets (§9) |
 
-- In `record-only`, the `act` job is **skipped by its `if:`**; the run log therefore shows `act` as skipped for every record-only run. That log line plus the ledger (§5.3) is the proof required by EPIC #119 Done-when.
-- `SUPPORTER_LOOP_TOKEN` MUST NOT be exported as a job-level or workflow-level `env:`. It is passed to exactly the steps that call the reward repo, as a step-level `env:`.
+- The Administration-capable credential (`SUPPORTER_LOOP_TOKEN`) is referenced **only** inside `act`. A job-level `permissions` map restricts `GITHUB_TOKEN`, not a PAT — which is exactly why the PAT that can invite is kept out of the job that runs in `record-only`. Child #2's static check (below) MUST also fail if the string `SUPPORTER_LOOP_TOKEN` appears anywhere in the `decide` job.
+
+**Who writes which ledger line** (§6):
+
+| Line | Written by | When |
+|---|---|---|
+| every `would-*` line (record-only) | `decide` | after the decision, before the job ends |
+| every `skip` line (both modes) | `decide` | same |
+| every live-vocabulary line (`invite`, `comment`, `supporters-append`, `revoke`, `cancel-invite`) | `act` | **after** the corresponding API call returned (never before; §5.2) |
+
+- In `record-only`, the `act` job is **skipped by its `if:`**; the run log therefore shows `act` as skipped for every record-only run. That log line, the ledger check, and the GitHub-side audit (§5.3) together are the proof required by EPIC #119 Done-when.
+- `decide` never calls any endpoint under `/collaborators`, `/invitations`, `/comments`, `/contents/SUPPORTERS.md`, or the GraphQL mutation `addDiscussionComment`. Child #2's CI MUST enforce this statically: a script that extracts the `decide` job's `run:` blocks from the workflow file and fails if any of those strings appear (fixture-tested: one clean workflow, one violating).
+- Neither PAT may be exported as a job-level or workflow-level `env:`. Each is passed to exactly the steps that call the reward repo, as a step-level `env:`.
 - No `actions/checkout`, no third-party actions, in either job. Only `gh`, `jq`, `curl`, `git` preinstalled on `ubuntu-latest`.
 - `timeout-minutes` MUST be set on both jobs (≤ 10).
-- `concurrency: { group: supporter-loop-${{ github.repository }}, cancel-in-progress: false }` MUST be declared on the caller job so ledger appends from one source repo serialize. (Cross-repo races are handled by §6.4.)
+- Run serialization per source repo is the caller's `concurrency` block (§4.3, single copy). Cross-repo ledger races are handled by §6.4; a **second source repo is a contract bump** that must define cross-repo delivery serialization (§7) before it is added.
 
 ---
 
@@ -178,7 +214,7 @@ The central workflow MUST be split into two jobs so that *record-only cannot sen
 
 ### 5.1 `record-only`
 
-The workflow performs the full decision (§2, §3, §7) and writes one ledger line per event with the **would-** vocabulary. It MUST NOT: create an invitation, post a comment, edit `SUPPORTERS.md`, remove a collaborator, or cancel an invitation. It MAY: read the reward repo (collaborators, invitations, stargazers), append to the ledger, send the owner Telegram notice.
+The workflow performs the full decision (§2, §3, §7) and writes one ledger line per **would-be action** (§6.2 cardinality) with the **would-** vocabulary. It MUST NOT: create an invitation, post a comment, edit `SUPPORTERS.md`, remove a collaborator, cancel an invitation, or send Telegram. It MAY: read the reward repo (collaborators, invitations, stargazers) and the source repo, and append to the ledger. The only network writes in `record-only` are Contents API appends to the ledger in the family's own private repo with a Contents-only token (§4.4, §8); nothing reaches any person. Failures surface as red runs (GitHub notifies the owner of failed runs natively).
 
 ### 5.2 `live`
 
@@ -200,6 +236,13 @@ jq -c 'select(.mode=="record-only" and (.action|IN("invite","comment","supporter
 
 and, symmetrically, `mode=="live"` lines MUST NOT carry a `would-*` action. Child #2 MUST ship this check as a script in `caty-ai/.github` and run it in its own CI against fixture ledgers (one clean, one violating, expected 0 and non-0).
 
+The ledger check proves the ledger is honest and `act` was idle; it does not by itself prove GitHub's state. The proof therefore has a **third, GitHub-side clause**, produced by the same script at checkpoint #4 and at every sweep:
+
+1. **Baseline**: at the moment the caller first runs in `record-only` (child #3's PR), the owner records `GET /repos/{reward_repo}/collaborators` and `GET /repos/{reward_repo}/invitations` (logins + ids) as `ledger/baseline-<YYYY-MM-DD>.json` in the reward repo.
+2. **Audit**: the collaborator and pending-invitation sets of the reward repo equal the baseline (no additions), **and** a search of the source repo for comments containing the marker prefix `<!-- supporter-loop:` (Issues/PRs via REST, paginated to the end; Discussions via GraphQL) returns 0 for the period.
+
+All three clauses = proof. Any one failing = contract violation → stop at checkpoint #7.
+
 ### 5.4 Switching
 
 `record-only → live` = human checkpoint #4 (EPIC #119). Preconditions the requester MUST show: the §5.3 check = 0 over the whole record-only period; the full ledger; the exact comment text (§10); the list of logins that would be invited. The switch is the one-line change in §4.3 merged via PR to the source repo's default branch. `live → record-only` (rollback) is the same one-line change and needs no checkpoint.
@@ -212,10 +255,12 @@ and, symmetrically, `mode=="live"` lines MUST NOT carry a `would-*` action. Chil
 
 - Repo: the **reward repo** (`inputs.reward_repo`, v1 `caty-ai/ask-ai-widget`), default branch.
 - Path: `ledger/<source_owner>--<source_repo>.ndjson` (v1: `ledger/caty-ai--x-collector.ndjson`). One file per source repo.
-- Written only via the GitHub Contents API (`PUT /repos/{reward_repo}/contents/{path}` with `sha` of the previous blob) using `SUPPORTER_LOOP_TOKEN`; commit message `supporter-loop: <event> <actor> <action>`; committer identity `supporter-loop[bot] <supporter-loop@caty-ai.noreply>` (a label; not an account).
+- Written only via the GitHub Contents API (`PUT /repos/{reward_repo}/contents/{path}` with `sha` of the previous blob) using `SUPPORTER_LEDGER_TOKEN`; commit message `supporter-loop: <event> <actor> <action>`; committer identity `supporter-loop[bot] <supporter-loop@caty-ai.noreply>` (a label; not an account).
 - The ledger lives in a private repo. It is **not** published; derived artifacts (`SUPPORTERS.md`) are.
 
 ### 6.2 Line schema
+
+**Cardinality: one line per action attempt** (not per event). A first-contact tier-2 event produces up to three lines (`invite`, `comment`, `supporters-append`) plus, in the same run, any `skip` lines; all lines of one event share `run_id`. ISSUE-120's phrase "1事象1行" is read as "one *action attempt* per line" — the unit a ledger reader can recover from individually; this reading is recorded here rather than by editing the Issue.
 
 One JSON object per line, keys in this order, no other keys in v1:
 
@@ -240,7 +285,7 @@ Forbidden content: Issue/PR/Discussion titles or bodies, e-mail addresses, displ
 
 ### 6.3 Append-only
 
-Lines are only ever appended. Corrections are new lines (e.g. a later `revoke`). Rewriting history of the ledger file is a contract violation. The weekly sweep MAY rotate the file when it exceeds 5 MB: rename to `ledger/<name>.<YYYY-MM>.ndjson` and start a new file; readers MUST glob `ledger/<name>*.ndjson`.
+Lines are only ever appended. Corrections are new lines (e.g. a later `revoke`). Rewriting history of the ledger file is a contract violation. The Contents API refuses writes to files larger than 1 MB, so the weekly sweep MUST rotate the file when it exceeds **900 KB**: rename to `ledger/<name>.<YYYY-MM-DD>.ndjson` (a `PUT` of the new name + a `DELETE` of the old, both via the Contents API — the *only* permitted deletion in this system, and the content is preserved under the new name) and start a new file; readers MUST glob `ledger/<name>*.ndjson` and concatenate in file-name order. If an append fails with the size error before rotation happened, the run fails loud (§14) and the next sweep rotates.
 
 ### 6.4 Concurrency
 
@@ -248,58 +293,74 @@ Appends use the Contents API compare-and-swap (`sha`). On `409` / `422 sha misma
 
 ### 6.5 `SUPPORTERS.md` (derived; format owned by child #1)
 
-`SUPPORTERS.md` in the reward repo is regenerated (whole file) from the ledger by the `act` job after every live `invite` / tier upgrade / `revoke`. Contract-level rules only: one line per login; content = login (as `@login`), highest tier, first-seen date; sorted by first-seen date; family/bot logins never appear; regeneration is a normal commit on the default branch. The header text, badge markup, and translations are child #1's.
+`SUPPORTERS.md` in the reward repo is regenerated (whole file) from the ledger by the `act` job after every live `invite` / tier upgrade / `revoke`. Contract-level rules only: one line per `actor_id` (a renamed account stays one line); content = the most recently ledgered login for that id (as `@login`), highest tier, first-seen date; sorted by first-seen date; ids whose current generation is closed (§7) are omitted; family/bot logins never appear; regeneration is a normal commit on the default branch. The header text, badge markup, and translations are child #1's. Ledger semantics of regeneration: a regeneration caused by a tier event emits exactly **one** `supporters-append` (or `would-supporters-append`) line for that actor and `dedup_key`; a regeneration caused by `revoke` / `cancel-invite` emits **no** `supporters-append` line (the revoke line is the record).
 
 ---
 
 ## 7. Deduplication and idempotency [frozen]
 
-- `dedup_key` = `"<repo>:<tier>:<actor_id>"` for tier events (e.g. `caty-ai/x-collector:1:184229851`); `"<repo>:sweep:<actor_id>"` for sweep lines.
-- A tier-N reward is **delivered** (or would-be-delivered) only if no earlier ledger line exists with the same `dedup_key` and an action in {`invite`,`comment`,`supporters-append`,`would-invite`,`would-comment`,`would-supporters-append`} whose `gen` equals the current generation.
-- Current generation for a key = 1 + the number of earlier `revoke` / `would-revoke` lines for `<repo>:1:<actor_id>` (a revoke closes the generation; a re-star opens the next one and is rewarded again). Tier 2 and 3 keys share the generation of tier 1 for the same actor.
-- Record-only and live lines count **equally** for dedup. Consequence, stated on purpose: a supporter who was `would-invite`d during record-only is **not** invited automatically at the switch to live. Checkpoint #4 MUST include the list of such logins; the owner decides whether child #2 runs a one-off *backfill* (a `sweep` variant that re-emits tier-1 for keys whose only lines are `would-*`, ledgered as `invite` with `result: ok` and `gen` unchanged). The backfill is opt-in, ledgered, and idempotent like everything else.
-- Comment idempotency is additionally guarded on the GitHub side: before posting, `act` MUST search the target Issue/PR/Discussion for a comment containing the marker `<!-- supporter-loop:tier<N>:<actor_id> -->` (§10) and skip with `result: already-<tier>` if found. This covers a ledger append that failed after a comment was posted.
-- Invitation idempotency on the GitHub side: `PUT /repos/{reward_repo}/collaborators/{login}` is itself idempotent (204 if already a collaborator / 201 with a pending invitation). `act` MUST treat 201 and 204 as `ok`.
+- `dedup_key` = `"<repo>:<tier>:<actor_id>"` for tier events (e.g. `caty-ai/x-collector:1:184229851`); `"<repo>:sweep:<actor_id>"` for sweep lines (`revoke`, `cancel-invite`, their `would-*` forms, and sweep `skip`s).
+- **Generation** (per actor per source repo, shared by tiers 1–3): `gen(repo, actor_id)` = 1 + the number of earlier ledger lines with `.repo == repo`, `.actor_id == actor_id`, and `.action` in {`revoke`, `would-revoke`, `cancel-invite`, `would-cancel-invite`} — **regardless of those lines' `dedup_key`**. A revoke or invitation cancellation closes the generation; the actor's next tier-1 event opens the next one and is rewarded again.
+- A tier-N reward is **delivered** (or would-be-delivered) only if no earlier ledger line exists with the same `dedup_key`, `gen` equal to the current generation, `.action` in {`invite`, `comment`, `supporters-append`, `would-invite`, `would-comment`, `would-supporters-append`}, **and** `.result` equal to `ok`, starting with `ok-`, or starting with `already-`. Lines whose `result` starts with `error-` **never** count as delivered (a failed attempt is retried on the actor's next event of that tier). The only exception to the blocking rule is the authorized backfill below.
+- **Transition table** (the normative summary of this section; prose above and below must agree with it):
 
+  | Existing line for (`dedup_key`, current `gen`) | Next event of the same tier | Result |
+  |---|---|---|
+  | none | any | deliver (`invite`/`comment`/… or `would-*`) |
+  | `result: ok*` or `already-*` | any | `skip`, `result: already-<tier>` |
+  | `result: error-*` only | any | deliver again (retry) |
+  | `would-*` (record-only) | live event | `skip`, `result: already-<tier>` (see backfill) |
+  | `would-invite` in an open generation, actor still a stargazer | authorized backfill run | `invite`, `result: ok-backfill` |
+  | generation closed by `revoke` / `cancel-invite` / `would-*` forms | any tier-1 event | new generation, deliver |
+- Record-only and live lines count **equally** for dedup. Consequence, stated on purpose: a supporter who was `would-invite`d during record-only is **not** invited automatically at the switch to live. Checkpoint #4 MUST include the list of such logins; the owner decides whether child #2 runs a one-off **backfill**: a `sweep` variant, enabled by a caller input that exists only for that run, which for every `actor_id` whose **current (open) generation contains a `would-invite` line and no live `invite` line** — a generation closed by `would-revoke` / `would-cancel-invite` is not current and is never backfilled — and who is **still a stargazer at backfill time** executes a live `invite` (ledgered `invite`, `result: ok-backfill`, `gen` = the current generation at backfill time). The backfill is the only case in which a `would-invite` line does not block an `invite` for the same key and generation. **Tier-2/3 `would-comment` / `would-supporters-append` lines from the record-only period are never backfilled** — the moment has passed; the supporter's next Issue/PR is treated as a fresh tier event.
+- Comment idempotency is additionally guarded on the GitHub side: before posting, `act` MUST search the target thread for a comment **authored by the workflow identity (`github-actions[bot]`)** containing the marker `<!-- supporter-loop:tier<N>:<actor_id> -->` — Issues/PRs via `GET /repos/{source}/issues/{n}/comments` **paginated to exhaustion** (`Link` header), Discussions via GraphQL `repository.discussion.comments` **and their `replies`** paginated to exhaustion (`pageInfo.hasNextPage`); the Issues comments API MUST NOT be used for `event=discussion`. Any fetch/parse error or truncation MUST abort **before** posting (fail closed). If the marker is found, ledger `action: comment`, `result: already-<tier>` (counts as delivered) without posting. This covers a ledger append that failed after a comment was posted.
+- Invitation idempotency is **not** assumed from the API. Before every `PUT /repos/{reward_repo}/collaborators/{login}`, `act` MUST (a) check `GET /repos/{reward_repo}/collaborators/{login}` (204 = already a collaborator → ledger `invite`, `result: already-1`, no PUT) and (b) list `GET /repos/{reward_repo}/invitations` to exhaustion and match `invitee.id == actor_id` (match → ledger `invite`, `result: already-1`, no PUT). Only then PUT with `{"permission":"pull"}`; 201 and 204 are `ok`. GitHub invitations **expire after 7 days**; an expired invitation is handled by the sweep (§11 step 3), not by re-inviting on the next event.
+- Same-run re-delivery: a re-run of a workflow (`run_attempt > 1`) re-evaluates against the ledger like any other run; because live lines are written only after the API returned (§4.4), a crash between the API call and the append is recovered by the GitHub-side checks above (marker search; idempotent `PUT`).
 ---
 
 ## 8. Token and permission boundary [frozen]
 
-### 8.1 The credential
+### 8.1 The credentials (two, single-purpose)
 
-| | |
-|---|---|
-| Secret name | `SUPPORTER_LOOP_TOKEN` |
-| Kind | GitHub **fine-grained personal access token** issued by the owner (`shojikumaru`), *or* an installation token of a GitHub App the family owns with the identical permission set. v1 expects the PAT. |
-| Resource owner | `caty-ai` |
-| Repository access | **Only selected repositories: `caty-ai/ask-ai-widget`.** Nothing else. Adding a repo is a §8 bump + checkpoint #2 again. |
-| Repository permissions | **Administration: Read and write** (needed for `PUT/DELETE /repos/{r}/collaborators/{login}` and `DELETE /repos/{r}/invitations/{id}`) · **Contents: Read and write** (ledger, `SUPPORTERS.md`) · **Metadata: Read** (mandatory, implied) |
-| Organization permissions | **none** |
-| Account permissions | **none** |
-| Expiry | ≤ 366 days; the owner records the expiry date on EPIC #119 checkpoint #2; child #2's sweep posts a Telegram reminder 14 days before (`gh api /user` with the token exposes no expiry, so the date is a config constant `SUPPORTER_LOOP_TOKEN_EXPIRES=YYYY-MM-DD` set as a *variable*, not a secret, on the caller repo). |
+| | `SUPPORTER_LEDGER_TOKEN` | `SUPPORTER_LOOP_TOKEN` |
+|---|---|---|
+| Purpose | ledger read/append, `SUPPORTERS.md` regeneration, ledger rotation | collaborator invitations, revokes, invitation cancellation |
+| Used by | `decide` (both modes) and `act` | `act` **only** (never present in `record-only` runs) |
+| Kind | GitHub **fine-grained personal access token** issued by the owner (`shojikumaru`), *or* an installation token of a GitHub App the family owns with the identical permission set. v1 expects PATs. | same |
+| Resource owner | `caty-ai` | `caty-ai` |
+| Repository access | **Only selected repositories: `caty-ai/ask-ai-widget`.** Nothing else. Adding a repo is a §8 bump + checkpoint #2 again. | same |
+| Repository permissions | **Contents: Read and write** · **Metadata: Read** (implied) — nothing else | **Administration: Read and write** (`PUT/DELETE /repos/{r}/collaborators/{login}`, `GET/DELETE /repos/{r}/invitations`) · **Metadata: Read** (implied) — **no Contents write** |
+| Organization / account permissions | none | none |
+| Expiry | ≤ 366 days; dates recorded at checkpoint #2 as caller-repo *variables* (not secrets) `SUPPORTER_LEDGER_TOKEN_EXPIRES` / `SUPPORTER_LOOP_TOKEN_EXPIRES` = `YYYY-MM-DD`; the sweep warns (`::warning::` and, in live, Telegram) 14 days before either date. | same |
+| When registered | checkpoint #2 (needed for the first record-only run) | may be issued at checkpoint #2 and registered then, or deferred to checkpoint #4; `act` fails loud in `live` if it is empty |
 
-### 8.2 Where it is stored
+### 8.2 Where they are stored
 
-Reusable workflows receive secrets only from their caller. The token is therefore an **Actions secret of the caller repo `caty-ai/x-collector`** (Settings → Secrets and variables → Actions), exactly like `TELEGRAM_BOT_TOKEN` there today. It is *not* stored on `caty-ai/.github` (a secret there would be invisible to the caller). If a second source repo is added later, the secret is registered on that repo too, or promoted to an org secret restricted to the source repos — either way the permission set in §8.1 is unchanged.
+Reusable workflows receive secrets only from their caller. Both tokens are therefore an **Actions secret of the caller repo `caty-ai/x-collector`** (Settings → Secrets and variables → Actions), exactly like `TELEGRAM_BOT_TOKEN` there today. It is *not* stored on `caty-ai/.github` (a secret there would be invisible to the caller). If a second source repo is added later, the secret is registered on that repo too, or promoted to an org secret restricted to the source repos — either way the permission set in §8.1 is unchanged.
 
 > Note for EPIC #119 Done-when: the line "招待トークンは `caty-ai/.github` の Actions secret にのみ存在し" is not technically achievable for a reusable workflow. This contract fixes the storage as the caller repo's Actions secret; the EPIC wording is to be amended by the owner at checkpoint #2 (contract-level wording change → recorded, not silently edited).
 
-### 8.3 What the token is never used for
+### 8.3 What the tokens are never used for
 
 - Never called against the source repo (`caty-ai/x-collector`) — comments, labels, and reads there use `GITHUB_TOKEN`.
+- `SUPPORTER_LOOP_TOKEN` is never referenced in the `decide` job (§4.4 static check) and therefore never materializes in a `record-only` run.
 - Never passed to Telegram, never written to the ledger, never printed. GitHub masks it in logs automatically; child #2 MUST additionally ensure no step echoes request bodies or headers (`curl -sS` without `-v`, `gh api` without `--verbose`).
-- Never present in the `decide` job except for the two ledger operations (read, append), each with step-level `env:`.
+- `SUPPORTER_LEDGER_TOKEN` is present in `decide` only for the ledger operations (read, append), each with step-level `env:`; it cannot invite (no Administration permission) even if misused.
 
 ### 8.4 Positive self-check (child #2, run at every `sweep`)
 
-`GET /repos/{reward_repo}` (expects 200) · `GET /repos/{reward_repo}/collaborators?per_page=1` (expects 200 — proves Administration read) · `GET /repos/{reward_repo}/contents/ledger` (expects 200). Over-scope probe: `GET /repos/{source_repo}/collaborators?per_page=1` with the token MUST return 401/403/404; a 200 is reported as `::error:: token over-scoped` and Telegram'd. As in errmeter §8, a 403/404 is consistent with least privilege but not proof; the authoritative check is the owner looking at the token's permission page at checkpoint #2.
+Ledger token: `GET /repos/{reward_repo}` (200) · `GET /repos/{reward_repo}/contents/ledger` (200) · `GET /repos/{reward_repo}/invitations` MUST be 403 (proves it has **no** Administration). Loop token (live runs only, inside `act`): `GET /repos/{reward_repo}/invitations` (200 — the endpoint that actually requires Administration read) · `GET /repos/{reward_repo}/contents/ledger` MUST be 403/404 (proves no Contents access). Over-scope probe for both tokens (read-shaped, so the probe itself can never change anything): `GET /repos/{source_repo}/invitations` (needs Administration on the source repo) MUST return 403/404, and `GET /repos/{reward_repo}` with the loop token MUST NOT expose `permissions.push == true`; any unexpected success is reported as `::error:: token over-scoped` (and, in live, Telegram'd) and the sweep performs no destructive action in that run. Implicit read access to public repos is a platform property of fine-grained PATs and is out of scope for the probe. As in the errmeter contract §8 (https://github.com/caty-ai/errmeter/blob/epic/1/docs/contract.md), a 403/404 is consistent with least privilege but not proof; the authoritative check is the owner looking at the token's permission page at checkpoint #2.
+
+### 8.5 Residual blast radius (acknowledged)
+
+`Administration: Read and write` is the platform minimum for collaborator and invitation management on a fine-grained PAT, and it also permits renaming, archiving, or deleting the reward repo. This is accepted for v1 because the repo is a low-stakes early-access shelf, the ledger and `SUPPORTERS.md` are small and reconstructible from GitHub's own stargazer/collaborator state, and no alternative permission exists. Mitigations the owner SHOULD apply at checkpoint #2: token expiry ≤ 366 days; the reward repo's default branch protected by a ruleset (the token's Contents write still passes through it for `ledger/` and `SUPPORTERS.md` because the ruleset targets force-push/deletion only); and a note in the token description naming this contract.
 
 ---
 
 ## 9. Owner notification (Telegram) [frozen]
 
 - Secrets: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — the existing names, passed explicitly by the caller (already present on `caty-ai/x-collector`).
-- Sent from the `decide` job for every ledgered line except `result: already-*` and `result: tier-disabled` (those are noise). Message = `supporter-loop [<mode>] <repo> · <event> · @<actor> · tier <tier> · <action> · <result>` + `subject` URL if any. No titles/bodies, no token, no e-mail.
+- **Live only.** Sent from the `act` job, after its actions, one message per live ledger line except `result: already-*` and `result: tier-disabled` (those are noise). In `record-only` no Telegram is sent at all — the ledger is the owner's window, and failed runs reach the owner through GitHub's own workflow-failure notifications. Message = `supporter-loop [<mode>] <repo> · <event> · @<actor> · tier <tier> · <action> · <result>` + `subject` URL if any. No titles/bodies, no token, no e-mail.
 - Independent leg: Telegram failure never suppresses the ledger append, and a ledger failure never suppresses Telegram (`if: ${{ !cancelled() }}` pattern from `external-input-watch.yml`).
 - Telegram secrets go only to `api.telegram.org` via `curl`.
 
@@ -317,11 +378,13 @@ Reusable workflows receive secrets only from their caller. The token is therefor
 
 ## 11. Weekly sweep [frozen]
 
-Triggered by the caller's `schedule` (§4.3) with `sweep: true`. In order:
+Triggered by the caller's `schedule` (§4.3) with `sweep: true`.
+
+**Fail-closed preconditions for any destructive step (2 and 3).** Before revoking or cancelling anything the sweep MUST establish, and fail loud + skip all destructive steps if any is false: (a) `GET /repos/{source_repo}/actions/runs?status=failure&created=>=<last successful sweep ts>` filtered to the supporter-loop workflow returns **zero** runs (a red run may have delivered a reward whose ledger line is missing; a human reconciles it first); (b) the stargazer list was paged to exhaustion; (c) the self-check (§8.4) passed; (d) **marker reconciliation** ran: for every actor about to be revoked, the sweep searched the source repo for the workflow's own `supporter-loop:tier2/3` markers (paginated, §7) and, if one exists without a ledger line, appended the missing `comment` line first — an actor with any tier-2/3 evidence is then out of scope for step 2 by definition. In order:
 
 1. §8.4 self-check.
-2. **Unstar cleanup** (tier-1 only, §2.2): for every actor whose highest ledgered tier is 1 and whose current generation is open, if the actor is no longer in `GET /repos/{source_repo}/stargazers` → `revoke` (`DELETE /repos/{reward_repo}/collaborators/{login}`) and, if a pending invitation exists, `cancel-invite` (`DELETE /repos/{reward_repo}/invitations/{id}`). Record-only → `would-revoke` / `would-cancel-invite`. Each is one ledger line.
-3. **Stale invitation cleanup**: pending invitations older than 30 days for tier-1 actors → `cancel-invite` (they can re-star to get a fresh one; the generation is closed by this line exactly like a revoke).
+2. **Unstar cleanup** (tier-1 only, §2.2): for every `actor_id` whose highest ledgered tier is 1 and whose current generation is open, if that **numeric id** is absent from the full `GET /repos/{source_repo}/stargazers` list (matched on `.id`, never on login) → `revoke` (`DELETE /repos/{reward_repo}/collaborators/{current_login}`, where `current_login` is resolved from the id via `GET /user/{id}`) and, if a pending invitation for that id exists, `cancel-invite` (`DELETE /repos/{reward_repo}/invitations/{id}`). Record-only → `would-revoke` / `would-cancel-invite`. Each is one ledger line. A `revoke` whose `DELETE` finds neither a collaborator nor a pending invitation (the normal case after an invitation lapsed) is **still ledgered** (`result: noop`) and still closes the generation (§7 counts lines, not successes). "Tier-1 actors" throughout this section = actors whose highest ledgered tier is 1.
+3. **Expired / stale invitation cleanup**: GitHub repository invitations expire **7 days** after creation. For every tier-1 `actor_id` whose current generation is open and whose `invite` line is older than 7 days and who is neither a collaborator nor in the pending-invitation list → ledger `cancel-invite` (`result: expired`; no API call is needed because GitHub already removed it) — this closes the generation (§7) so the supporter's next star produces a fresh invitation. Pending invitations that are still listed but older than 7 days (should not happen; defensive) → `cancel-invite` via the API. Record-only → `would-cancel-invite` in both cases (and in record-only nothing was ever invited, so the case is normally empty).
 4. **Ledger rotation** (§6.3) if needed.
 5. **`SUPPORTERS.md` regeneration** (live only) if anything changed.
 6. Token-expiry reminder (§8.1) if within 14 days.
@@ -345,9 +408,9 @@ The reward repo is an **early-access** shelf, not a permanent private product.
 
 1. NEVER `actions/checkout` (or any code execution from the triggering ref) in the central workflow or the caller. `pull_request_target` runs with secrets and a write token; that is safe only because untrusted code is never checked out or executed.
 2. Actor-controlled strings enter `run:` scripts only via `env:` or `$GITHUB_EVENT_PATH`.
-3. Secrets are limited to the three declared in §4.3; no `secrets: inherit`; `SUPPORTER_LOOP_TOKEN` at step-level `env:` only, and only in steps that call the reward repo.
-4. `SUPPORTER_LOOP_TOKEN` goes only to `api.github.com` for `{reward_repo}`; Telegram secrets go only to `api.telegram.org`. Secrets are never echoed, never ledgered, never in a Telegram body.
-5. `record-only` cannot send: the `act` job is gated by `if: inputs.mode == 'live'` (§4.4) *and* every outbound call in `act` is additionally guarded by an explicit `[ "$MODE" = live ]` test in the script (defense in depth: two independent checks must both fail for a record-only send).
+3. Secrets are limited to the four declared in §4.2/§4.3; no `secrets: inherit`; each PAT at step-level `env:` only, and only in steps that call the reward repo. `SUPPORTER_LOOP_TOKEN` (Administration) is referenced **only in the `act` job** — enforced by child #2's static check (§4.4).
+4. Both PATs go only to `api.github.com` for `{reward_repo}`; Telegram secrets go only to `api.telegram.org`. Secrets are never echoed, never ledgered, never in a Telegram body.
+5. `record-only` cannot send: (i) the only credential loaded in a record-only run cannot invite (Contents-only, §8.1); (ii) the `act` job is gated by `if: inputs.mode == 'live'` (§4.4); (iii) every outbound call in `act` is additionally guarded by an explicit `[ "$MODE" = live ]` test in the script; (iv) Telegram is live-only (§9). Three independent checks must all fail for a supporter-facing record-only send, and (i) makes an invitation impossible regardless of the other three.
 6. No third-party actions.
 7. Supporter-facing output is limited to: one collaborator invitation to `{reward_repo}`, one comment on the actor's own thread per tier, `SUPPORTERS.md`. Anything else (e-mail, DM, mentions of third parties, comments on other people's threads) is out of contract.
 8. Comment bodies are fixed templates with two substitutions (§10).
@@ -361,9 +424,11 @@ The reward repo is an **early-access** shelf, not a permanent private product.
 | `mode` invalid | fail before any network call |
 | Reward repo unreachable (token revoked/expired, repo renamed) | `decide` fails loud; Telegram sent; nothing is retried by the workflow (GitHub re-delivers nothing; the sweep will not backfill missed events — the ledger simply lacks the line, and the actor's next event of the same tier is a fresh chance) |
 | Ledger CAS conflict | retry ×5 then fail loud (§6.4) |
-| Invitation API 403/422 (e.g. user blocked the org, invitation limit) | ledger `result: error-<status>`, continue with the remaining actions, job ends red |
-| Comment posted but ledger append failed | next run finds the marker (§7) → `skip already-<tier>`; ledger gets its line then |
-| Telegram down | ledger still written; job stays green if all GitHub legs succeeded (Telegram failure is `::warning::`) |
+| Invitation API 403/422 (e.g. user blocked the org, invitation limit) | ledger `result: error-<status>`; the tier-2/3 **comment of that run is skipped** (`action: skip`, `result: error-<status>` — the template asserts access that does not exist); other actors' actions continue; job ends red. The comment is delivered on the actor's next tier event once an invitation stands (the `error-*` line does not count as delivered, §7) |
+| Comment posted but ledger append failed | next run finds the marker (§7, paginated) → ledgers `action: comment`, `result: already-<tier>` without posting; that line counts as delivered for every later event of the same key and generation |
+| Ledger file reaches the Contents API 1 MB limit before rotation | append fails loud; next sweep rotates (§6.3) |
+| Telegram down (live only) | ledger still written; job stays green if all GitHub legs succeeded (Telegram failure is `::warning::`) |
+| A red supporter-loop run exists since the last successful sweep | sweep runs steps 1, 4, 6 only; steps 2/3/5 are skipped with `::error::`; the owner reconciles (re-run the red job or append the missing line by hand via PR) |
 | Stargazers list truncated | no revokes (§11) |
 
 ---
@@ -380,4 +445,5 @@ The reward repo is an **early-access** shelf, not a permanent private product.
 
 ## Changelog
 
+- v1.1 (2026-09-06, alpha) — design review r1 folded in (5 seats, all NO-GO in r1; every CRITICAL/MAJOR addressed): **two single-purpose credentials** — `SUPPORTER_LEDGER_TOKEN` (Contents only, used in record-only) and `SUPPORTER_LOOP_TOKEN` (Administration, `act` only) — replacing the one-token invariant (§0-4, §4.2, §4.4, §8); Telegram is live-only (§5.1, §9); invitation permission is the REST enum `pull` and MUST be sent explicitly (§2); roster compare is case-insensitive (§3.2); caller YAML carries the `concurrency` block and is the single copy (§4.3); ledger cardinality = one line per action attempt (§6.2); §7 gained a normative transition table, `error-*` never counts as delivered, invitation preflight (collaborator + pending-invitation list by `invitee.id`), marker search restricted to the workflow identity and Discussion `replies`; sweep gained fail-closed preconditions (no red runs since last sweep, marker reconciliation) (§11); self-check proves Administration via `/invitations` and probes are read-shaped (§8.4); further: Actor = PR author on `pull_request_target` (§0); `excluded-member` via `author_association` (§3.2); `secrets:` block added to the frozen `workflow_call` interface (§4.2); ledger-line authorship table + static no-outbound check for `decide` (§4.4); GitHub-side audit clause added to the zero-send proof (§5.3); rotation at 900 KB because of the Contents API 1 MB limit (§6.3); `SUPPORTERS.md` keyed by `actor_id` (§6.5); generation formula keyed by `(repo, actor_id)` and counting `cancel-invite`, backfill exception made explicit, `already-*` counts as delivered, marker search paginated + GraphQL for Discussions (§7); residual blast radius note (§8.5); sweep matches stargazers by numeric id and invitation expiry is 7 days with record-only mapping (§11); recovery row fixed (§14).
 - v1.0 (2026-09-06, alpha) — freeze candidate for design review (5 seats, E-6①).

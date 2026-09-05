@@ -5,7 +5,7 @@ This folder holds the design documents for the loop that thanks and rewards x-co
 
 | 文書 / document | 中身 / what it is |
 |---|---|
-| [CONTRACT.md](CONTRACT.md) | **凍結済みの契約** — 3段の定義・再利用ワークフローの入力と secret 名・NDJSON 元帳スキーマ・トークンの最小権限・record-only の証明条件。ここに書いてある面は契約 Issue を立てずに変えない / the frozen interfaces every implementation child depends on |
+| [CONTRACT.md](CONTRACT.md) | **契約（`epic/119` へのマージをもって凍結・それまでは freeze candidate）** — 3段の定義・再利用ワークフローの入力と secret 名・NDJSON 元帳スキーマ・トークンの最小権限・record-only の証明条件。ここに書いてある面は契約 Issue を立てずに変えない / the frozen interfaces every implementation child depends on |
 | EPIC caty-ai/x-collector#119 | なぜやるか・人間チェックポイント表・子 Issue 一覧 / why, human checkpoints, child issues |
 
 ## 3行で / in three lines
