@@ -12,7 +12,7 @@ export function buildRobots({ isPublic, siteUrl }: {
     return { rules: [{ userAgent: "*", disallow: ["/"] }] };
   }
   return {
-    rules: [{ userAgent: "*", allow: ["/a/"], disallow: ["/"] }],
+    rules: [{ userAgent: "*", allow: ["/a/", "/calendar", "/sitemap.xml", "/og-default.png"], disallow: ["/"] }],
     sitemap: new URL("/sitemap.xml", siteUrl).toString(),
   };
 }

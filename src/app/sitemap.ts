@@ -6,19 +6,27 @@ import { loadPublicEdition } from "@/lib/reader/public-edition-loader";
 
 export const dynamic = "force-dynamic";
 
-// Must stay <= the loader's positive cache size (16) to fit one cache generation.
+// Kept small (≤ the loader's positive cache, 16 today) so one sitemap request fits
+// one cache generation; if either number changes, revisit both.
 export const SITEMAP_DAYS = 7;
+export const SITEMAP_BUDGET_MS = 5_000;
 
-export async function buildSitemapEntries({ isPublic, siteUrl, dates, load }: {
+export async function buildSitemapEntries({ isPublic, siteUrl, dates, load, now = Date.now }: {
   isPublic: boolean;
   siteUrl: string | null;
   dates: readonly string[];
   load: typeof loadPublicEdition;
+  now?: () => number;
 }): Promise<MetadataRoute.Sitemap> {
   if (!isPublic || !siteUrl) return [];
   const entries: MetadataRoute.Sitemap = [];
-  let warned = false;
-  for (const date of dates) {
+  let skipped = 0;
+  const startedAt = now();
+  for (const [index, date] of dates.entries()) {
+    if (now() - startedAt >= SITEMAP_BUDGET_MS) {
+      skipped += dates.length - index;
+      break;
+    }
     try {
       const loaded = await load(date);
       if (!loaded) continue;
@@ -28,11 +36,11 @@ export async function buildSitemapEntries({ isPublic, siteUrl, dates, load }: {
       }));
       entries.push(...dailyEntries);
     } catch {
-      if (!warned) {
-        warned = true;
-        console.warn("[sitemap] skipped unavailable edition");
-      }
+      skipped++;
     }
+  }
+  if (skipped > 0) {
+    console.warn("[sitemap] skipped %d of %d editions", skipped, dates.length);
   }
   return entries;
 }

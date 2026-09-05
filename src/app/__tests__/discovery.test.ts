@@ -5,7 +5,7 @@ import type { LoadedEdition } from "@/lib/reader/public-edition-loader";
 const { load } = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("@/lib/reader/public-edition-loader", () => ({ loadPublicEdition: load }));
 import robots, { buildRobots, dynamic as robotsDynamic } from "../robots";
-import sitemap, { buildSitemapEntries, dynamic as sitemapDynamic, SITEMAP_DAYS } from "../sitemap";
+import sitemap, { buildSitemapEntries, dynamic as sitemapDynamic, SITEMAP_BUDGET_MS, SITEMAP_DAYS } from "../sitemap";
 
 const dates = ["2026-09-05", "2026-09-04", "2026-09-03", "2026-09-02", "2026-09-01", "2026-08-31", "2026-08-30"];
 const ids = ["ffffffffffff", "000000000001"];
@@ -43,9 +43,14 @@ describe("robots", () => {
   it.each(["1", "true", "TRUE"])("publishes article discovery for %s", (value) => {
     vi.stubEnv("NEWSPAPER_PUBLIC", value);
     expect(robots()).toEqual({
-      rules: [{ userAgent: "*", allow: ["/a/"], disallow: ["/"] }],
+      rules: [{ userAgent: "*", allow: ["/a/", "/calendar", "/sitemap.xml", "/og-default.png"], disallow: ["/"] }],
       sitemap: "https://example.com/sitemap.xml",
     });
+  });
+  it("allows the advertised sitemap and fallback image", () => {
+    expect(robots().rules).toEqual(expect.arrayContaining([
+      expect.objectContaining({ allow: expect.arrayContaining(["/sitemap.xml", "/og-default.png"]) }),
+    ]));
   });
   it("uses the fallback origin", () => {
     vi.stubEnv("NEWSPAPER_SITE_URL", undefined);
@@ -121,9 +126,51 @@ describe("sitemap", () => {
       lastModified: new Date(`${date}T00:00:00+09:00`),
     })));
     expect(load).toHaveBeenCalledTimes(7);
-    expect(warn.mock.calls).toEqual([["[sitemap] skipped unavailable edition"]]);
+    expect(warn.mock.calls).toEqual([["[sitemap] skipped %d of %d editions", 3, 7]]);
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/https?:|private|Error|2026-/);
     await sitemap();
     expect(warn).toHaveBeenCalledTimes(2);
+  });
+  it.each([SITEMAP_BUDGET_MS, SITEMAP_BUDGET_MS + 1])("returns two loaded dates when the budget reaches %d ms", async (elapsed) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const now = vi.fn()
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(101)
+      .mockReturnValue(100 + elapsed);
+    load.mockImplementation(async (date: string) => edition(date));
+    expect(await buildSitemapEntries({ isPublic: true, siteUrl: "https://example.com", dates, load, now }))
+      .toEqual(dates.slice(0, 2).flatMap((date) => ids.map((id) => ({
+        url: `https://example.com/a/${date}/${id}`,
+        lastModified: new Date(`${date}T00:00:00+09:00`),
+      }))));
+    expect(load.mock.calls).toEqual(dates.slice(0, 2).map((date) => [date]));
+    expect(warn.mock.calls).toEqual([["[sitemap] skipped %d of %d editions", 5, 7]]);
+  });
+  it("preserves both URLs when an article id appears on two dates", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    load.mockImplementation(async (date: string) =>
+      dates.slice(0, 2).includes(date) ? edition(date, [ids[0]]) : null);
+    expect((await sitemap()).map(({ url }) => url)).toEqual(
+      dates.slice(0, 2).map((date) => `https://example.com/a/${date}/${ids[0]}`),
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
+  it("finishes an in-flight load after the budget expires before skipping the remaining dates", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let release!: (value: LoadedEdition) => void;
+    load.mockImplementation(() => new Promise<LoadedEdition>((resolve) => { release = resolve; }));
+    const pending = sitemap();
+    vi.advanceTimersByTime(SITEMAP_BUDGET_MS + 1);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+    release(edition(dates[0], [ids[0]]));
+    await expect(pending).resolves.toEqual([{
+      url: `https://example.com/a/${dates[0]}/${ids[0]}`,
+      lastModified: new Date(`${dates[0]}T00:00:00+09:00`),
+    }]);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls).toEqual([["[sitemap] skipped %d of %d editions", 6, 7]]);
   });
   it("waits for each load to resolve before starting the next date", async () => {
     const releases: Array<(value: LoadedEdition | null) => void> = [];
