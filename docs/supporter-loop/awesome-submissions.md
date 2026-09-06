@@ -11,7 +11,7 @@
 - Sending is checkpoint ⑤, owner only, from the owner's own GitHub account after an approval comment on EPIC #119; put that approval URL in EPIC table row 5.
 - One target and one item per PR. No automated sending, bot submissions, or contact in this preparation lane.
 - [CONTRACT §0](CONTRACT.md#0-design-invariants-frozen): thank, never ask for stars, shares, or follows. PR text must contain no personal-account URLs, e-mail addresses, or maintainer mentions.
-- Mentions/marketing do not create new reward exclusions; preserve CONTRACT §3.3 and §15. This file changes no reward, detection, credential, or workflow contract.
+- Listing x-collector elsewhere changes nothing in the reward loop (CONTRACT §15 keeps marketing out of scope). This file changes no reward, detection, credential, or workflow contract.
 - Do not add `🤖🤖🤖` unless the owner explicitly opts into punkpeye's agent-authored fast-track; no such marker or generated-by footer is included in the paste blocks.
 - Awesome-selfhosted's exact rule is: “Machine/LLM-generated contributions, that do not respect project guidelines are not allowed and will result in a ban.” (`S/CONTRIBUTING.md`, Other guidelines.) This is conditional, not a blanket ban; the owner must personally verify compliance before sending.
 
@@ -42,7 +42,7 @@ Paste bodies link the dedicated MCP document (`docs/mcp-server.md`); `docs/refer
 
 ### 3.1 punkpeye/awesome-mcp-servers
 
-Destination: `README.md`, **Search & Data Extraction** (`#search`). News search belongs here (`P/category-index.txt`, `P/sample-search-section.md`); Aggregators integrates many apps/tools (`P/sample-aggregators-section.md`). Sort by owner/repository, key `caty-ai/x-collector`, among the C owners; `P/example-pr-13054.md` and `.diff` establish owner order. Exact neighbors require the full current section (packet excerpt is partial and not fully sorted).
+Destination: `README.md`, **Search & Data Extraction** (`#search`). News search belongs here (`P/category-index.txt`, `P/sample-search-section.md`); Aggregators integrates many apps/tools (`P/sample-aggregators-section.md`). Sort by owner/repository, key `caty-ai/x-collector`, among the C owners; `P/example-pr-13054.md` and `.diff` establish owner order. Live check 2026-09-06 (reviewer seats, read-only): the section is not strictly sorted; `caty-ai/x-collector` goes after `capad-xyz/searchts` and before `cevatkerim/unsplash-mcp`. Re-check neighbors at send time.
 
 | Written rule (`P/CONTRIBUTING.md`) | Status | Evidence / application |
 |---|---|---|
@@ -54,16 +54,16 @@ Destination: `README.md`, **Search & Data Extraction** (`#search`). News search 
 | Clear commit message; push fork; open titled/described PR | N/A | Owner actions, §4; title/body below; `P/CONTRIBUTING.md` steps 4–6. |
 | Maintainer review / clarification | N/A | Post-send owner action; `P/CONTRIBUTING.md` step 7. |
 | Consistent formatting/capitalization/punctuation | PASS | Single-line format below matches `P/example-pr-13054.diff`. |
-| Alphabetical order within category | PASS | Owner/repo insertion rule above follows `P/example-pr-13054.md`; owner checks neighbors at send time. |
+| Alphabetical order within category | FAIL (verify at send time) | Sort key and live neighbors above; the exact line position is only decidable against the section as it stands when the owner edits it. |
 | Accurate, current information; double-check links | PASS | Functionality verified in `docs/reference.md:38`, environment in `F`; live link check remains checkpoint ⑤. |
 | One server per line | PASS | One entry below, per `P/CONTRIBUTING.md`, Guidelines. |
 | Concise, informative key features | PASS | Search and daily news only; `docs/reference.md:38`. |
 | Agent fast-track opt-in | N/A | Optional in `P/CONTRIBUTING.md`; owner has not opted in. |
 
-Legend (`P/legend.md`): 📇 TypeScript (`F`, MCP `.ts` source paths); 🏠 locally hosted collected-data service (`F`, own computer/server); 🍎 macOS and 🐧 Linux (README CI environment evidence in `F`). No Windows claim or official-implementation badge.
+Legend (`P/legend.md`): 📇 TypeScript (`F`, MCP `.ts` source paths); ☁️ because clients reach the MCP server over Streamable HTTP as a remote endpoint (`docs/mcp-server.md`); 🏠 because that endpoint runs on your own computer or server (`F`). No OS emoji: the legend's 🍎/🪟/🐧 mean OS-specific servers, and a web service tested on macOS/Linux CI is not one. No official-implementation badge.
 Exact entry:
 ```markdown
-- [caty-ai/x-collector](https://github.com/caty-ai/x-collector) 📇 🏠 🍎 🐧 - Read-only MCP server for searching collected AI and tech updates and retrieving daily news editions.
+- [caty-ai/x-collector](https://github.com/caty-ai/x-collector) 📇 ☁️ 🏠 - Read-only MCP server for searching collected AI and tech updates and retrieving daily news editions.
 ```
 PR title:
 ```text
@@ -86,18 +86,18 @@ Ready to send: **YES** (blocker: none for preparation; owner approval and send-t
 ### 3.2 awesome-selfhosted/awesome-selfhosted-data
 
 Destination: **`software/x-collector.yml` in the data repo**, category **Feed Readers**. No Markdown insertion: filename sorts under `x`; generated category ordering is upstream's responsibility (`S/README.md`, `S/CONTRIBUTING.md`).
-First-release input **v0.1.0 published 2026-08-08** comes from the Issue #122 implementation brief; `F` contains only latest five releases, so this historical date is **not packet-verified**. Four calendar months gives **2026-12-08**; verify the original publication timestamp and that more than four months have elapsed before opening.
+First Release **v0.1.0 was published 2026-08-08T01:31:01Z** (verified live from the Releases API by two reviewer seats on 2026-09-06; `F` holds only the latest five releases). Four calendar months gives **2026-12-08**; re-confirm that more than four months have elapsed before opening.
 
 | Written rule (`S/CONTRIBUTING.md`, PR template, `addition.md`) | Status | Evidence / application |
 |---|---|---|
 | One item per PR | PASS | One YAML entry below; `S/PULL_REQUEST_TEMPLATE.md`. |
 | Search relevant issues and PRs, including closed | FAIL | `S/merged-prs.tsv` is a sample, not an exhaustive duplicate search; verify at send time. |
 | Not already in awesome-sysadmin / staticgen / staticsitegenerators / dbdb | FAIL | Those catalogs are absent from packet; `S/PULL_REQUEST_TEMPLATE.md` requires checking them. |
-| Required YAML fields / schema | FAIL | Structure follows `S/addition.md`; PostgreSQL platform identifier not verified in packet. |
+| Required YAML fields / schema | PASS | Structure follows `S/addition.md`; `Nodejs` platform, `MIT` license and `Feed Readers` tag all exist upstream (live check 2026-09-06). |
 | Interactive demo and direct credentials if needed | N/A | No demo field supplied; optional in `S/addition.md`. |
 | Remove comments / unused optional fields | PASS | YAML below follows `S/addition.md`; only needed third-party flag retained. |
 | Kebab-case file under software | PASS | `software/x-collector.yml`, per `S/CONTRIBUTING.md`. |
-| Platforms match runtime | FAIL | `F`: Node >=20.3 + PostgreSQL; `S/addition.md` names Nodejs, but no PostgreSQL platform file in packet. Verify at send time. |
+| Platforms match runtime | PASS | `F`: Node >=20.3 + PostgreSQL. Upstream has `platforms/nodejs.yml` and no PostgreSQL platform (live check 2026-09-06), so `Nodejs` is the only valid value; the database is named in the PR body. |
 | Actively maintained | PASS | `F`: 232 commits in last 30 days; v0.4.4 published 2026-09-05. |
 | First released more than four months ago | FAIL | Until 2026-12-08 at earliest, computed above; original release absent from `F`. |
 | Working installation instructions | FAIL | Instructions exist (`README.md:108`); packet `F` supplies requirements, not a reproduced installation. Owner must test. |
@@ -122,7 +122,7 @@ First-release input **v0.1.0 published 2026-08-08** comes from the Issue #122 im
 | Curation: no persistent serious security issues | FAIL | Security issue history absent from packet; `S/CONTRIBUTING.md` requires this. |
 | New tag/license/platform; removal/rename rules | N/A | Existing values intended; no metadata additions/removals planned (`S/addition.md`); verify MIT catalog identifier at send time. |
 
-Complete candidate YAML; **hold** until `PostgreSQL` is verified against upstream platform files (do not substitute Docker or silently omit the database). `Nodejs` is evidenced by `S/addition.md`; MIT is the project license (`F`), upstream license catalog still needs verification.
+Complete candidate YAML. Live check 2026-09-06 (reviewer seats, read-only): upstream `platforms/` has `nodejs.yml` and **no PostgreSQL platform file**, so `platforms` lists `Nodejs` only and the database requirement is stated in the PR body; `licenses.yml` contains `MIT`. Do not add a platform file and do not substitute Docker.
 `depends_3rdparty: true` is required because Google OAuth sign-in and OpenRouter AI processing depend on external services (`F`); it does not waive the cloud-provider exclusion.
 ```yaml
 name: X Collector
@@ -133,7 +133,6 @@ licenses:
   - MIT
 platforms:
   - Nodejs
-  - PostgreSQL
 tags:
   - Feed Readers
 depends_3rdparty: true
@@ -148,8 +147,7 @@ Adds software/x-collector.yml under Feed Readers.
 X Collector collects AI and tech updates into a searchable feed and daily newspaper. Its MCP endpoint is read-only, exposing search_feed and get_daily_news.
 - Repository: https://github.com/caty-ai/x-collector
 - MCP documentation: https://github.com/caty-ai/x-collector/blob/main/docs/mcp-server.md
-Requires Node.js >=20.3 and PostgreSQL; MIT licensed; no Docker distribution. Google OAuth sign-in and OpenRouter AI steps require third-party services.
-Open only on/after 2026-12-08, once the original release timestamp confirms more than four months and all outstanding eligibility checks are resolved. This date alone does not resolve the cloud-provider exclusion.
+Requires Node.js >=20.3 and a PostgreSQL database; MIT licensed; no Docker distribution. Google OAuth sign-in and OpenRouter AI steps require third-party services.
 
 Thanks for taking the time to suggest an addition to awesome-selfhosted!
 
@@ -167,7 +165,7 @@ To ensure your Pull Request is dealt with swiftly, please check the following (c
 - [ ] Any software project you are adding has working installation instructions.
 - [ ] You understand that your Pull Request will be merged at least ~1 week after approval, depending on maintainers time.
 ```
-Ready to send: **NO** (blocker: release age until 2026-12-08; cloud-provider exclusion, platform/provenance/security/duplicate/install checks). Priority: **2**.
+Ready to send: **NO** (blocker: open only on/after 2026-12-08 — v0.1.0 was published 2026-08-08T01:31:01Z, verified live by a reviewer seat on 2026-09-06; the cloud-provider exclusion, provenance, security, duplicate and install checks must be resolved first, and the date alone resolves none of them). Priority: **2**. The template boxes left unchecked above are ticked by the owner at send time only once each check has actually been done.
 
 ### 3.3 wong2/awesome-mcp-servers
 
@@ -201,11 +199,11 @@ Evidence: `W/recent-commits.tsv` shows only sponsor changes Jun 13–Jul 13; `W/
 
 ## 4. Checkpoint ⑤ procedure
 
-1. Owner reads this file, the current target rules and CONTRACT §0, §3.3, §15; use only targets whose blockers are resolved.
+1. Owner reads this file, the current target rules and CONTRACT §0 and §15; use only targets whose blockers are resolved.
 2. Owner refreshes duplicate searches (entries, open/closed PRs and issues), link validity, alphabetical neighbors, and factual checks; test installation where required. Resolve deferred checks and update this preparation document before approval; leave N/A boxes unchecked.
 3. Owner posts an approval comment on EPIC #119 naming the target and prepared revision; put its URL into EPIC table row 5. No approval URL is fabricated here.
 4. From the owner's own GitHub account, fork the target, create a descriptive branch, and edit only its specified file/section with the exact entry; use a clear commit message. Never target the generated selfhosted Markdown repo.
-5. Owner opens one PR per target, pasting the approved title and body from §3 verbatim. No automated sending; fast-track requires separate explicit owner opt-in.
+5. Owner opens one PR per target, pasting the approved title and body from §3 verbatim, then ticks any template checkbox whose check the owner has actually completed. No automated sending; fast-track requires separate explicit owner opt-in.
 6. Owner pastes each PR URL and sent date into §5; mark pending, then accepted/rejected when known.
 7. On rejection, record the reason verbatim, do not argue; resubmit only after a stated blocker is cleared. Redact prohibited personal data from the public log, noting the redaction; retain the exact reason in the owner's private record.
 8. Record outcomes in this lane's follow-up PR to `epic/119` or `main`; include the approval reference in EPIC row 5. An empty log means nothing has been sent.
