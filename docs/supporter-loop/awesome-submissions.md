@@ -11,7 +11,7 @@
 - Sending is checkpoint ⑤, owner only, from the owner's own GitHub account after an approval comment on EPIC #119; put that approval URL in EPIC table row 5.
 - One target and one item per PR. No automated sending, bot submissions, or contact in this preparation lane.
 - [CONTRACT §0](CONTRACT.md#0-design-invariants-frozen): thank, never ask for stars, shares, or follows. PR text must contain no personal-account URLs, e-mail addresses, or maintainer mentions.
-- Listing x-collector elsewhere changes nothing in the reward loop (CONTRACT §15 keeps marketing out of scope). This file changes no reward, detection, credential, or workflow contract.
+- Listing x-collector elsewhere changes nothing in the reward loop. This file changes no reward, detection, credential, or workflow contract (CONTRACT §0 invariants untouched).
 - Do not add `🤖🤖🤖` unless the owner explicitly opts into punkpeye's agent-authored fast-track; no such marker or generated-by footer is included in the paste blocks.
 - Awesome-selfhosted's exact rule is: “Machine/LLM-generated contributions, that do not respect project guidelines are not allowed and will result in a ban.” (`S/CONTRIBUTING.md`, Other guidelines.) This is conditional, not a blanket ban; the owner must personally verify compliance before sending.
 
@@ -60,7 +60,7 @@ Destination: `README.md`, **Search & Data Extraction** (`#search`). News search 
 | Concise, informative key features | PASS | Search and daily news only; `docs/reference.md:38`. |
 | Agent fast-track opt-in | N/A | Optional in `P/CONTRIBUTING.md`; owner has not opted in. |
 
-Legend (`P/legend.md`): 📇 TypeScript (`F`, MCP `.ts` source paths); ☁️ because clients reach the MCP server over Streamable HTTP as a remote endpoint (`docs/mcp-server.md`); 🏠 because that endpoint runs on your own computer or server (`F`). No OS emoji: the legend's 🍎/🪟/🐧 mean OS-specific servers, and a web service tested on macOS/Linux CI is not one. No official-implementation badge.
+Legend (`P/legend.md`): 📇 TypeScript (`F`, MCP `.ts` source paths); ☁️ because the maintained public instance is hosted (Railway badge in `README.md`) and its MCP endpoint is reached as a remote Streamable HTTP service (`docs/mcp-server.md`); 🏠 because the same server can run on your own computer or server against a local database (`F`). Both badges together are common practice in this list (attested peers in the Search section). No OS emoji: the legend's 🍎/🪟/🐧 mean OS-specific servers, and a web service tested on macOS/Linux CI is not one. No official-implementation badge.
 Exact entry:
 ```markdown
 - [caty-ai/x-collector](https://github.com/caty-ai/x-collector) 📇 ☁️ 🏠 - Read-only MCP server for searching collected AI and tech updates and retrieving daily news editions.
@@ -81,7 +81,7 @@ The read-only Streamable HTTP MCP server exposes search_feed and get_daily_news 
 
 Thank you for reviewing this addition.
 ```
-Ready to send: **YES** (blocker: none for preparation; owner approval and send-time checks still required). Priority: **1**.
+Ready to send: **YES** (blocker: none for preparation; the line position is fixed at edit time per §4 step 2, and owner approval plus the send-time checks are still required). Priority: **1**.
 
 ### 3.2 awesome-selfhosted/awesome-selfhosted-data
 
@@ -165,7 +165,7 @@ To ensure your Pull Request is dealt with swiftly, please check the following (c
 - [ ] Any software project you are adding has working installation instructions.
 - [ ] You understand that your Pull Request will be merged at least ~1 week after approval, depending on maintainers time.
 ```
-Ready to send: **NO** (blocker: open only on/after 2026-12-08 — v0.1.0 was published 2026-08-08T01:31:01Z, verified live by a reviewer seat on 2026-09-06; the cloud-provider exclusion, provenance, security, duplicate and install checks must be resolved first, and the date alone resolves none of them). Priority: **2**. The template boxes left unchecked above are ticked by the owner at send time only once each check has actually been done.
+Ready to send: **NO** (blocker: open only on/after 2026-12-08 — v0.1.0 was published 2026-08-08T01:31:01Z, verified live by two reviewer seats on 2026-09-06; the cloud-provider exclusion, provenance, security, duplicate and install checks must be resolved first, and the date alone resolves none of them). Priority: **2**. The template boxes left unchecked above are ticked by the owner at send time only once each check has actually been done.
 
 ### 3.3 wong2/awesome-mcp-servers
 
