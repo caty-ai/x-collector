@@ -30,7 +30,7 @@ jobs:
   loop:
     uses: caty-ai/.github/.github/workflows/supporter-loop-reusable.yml@main
     with:
-      mode: record-only          # <- the ONLY line that changes at checkpoint #4
+      mode: live                 # <- the ONLY line that changes at checkpoint #4
       sweep: ${{ github.event_name == 'schedule' }}
     secrets:
       SUPPORTER_LEDGER_TOKEN: ${{ secrets.SUPPORTER_LEDGER_TOKEN }}
