@@ -262,7 +262,7 @@ Star、Issue・Discussion、マージされたPRでの応援、ありがとう�
 ![X Collectorのリーダーで使える操作](assets/reader-actions-1024.png)
 <!-- /supporter-loop:demo-gif slot -->
 
-[応援者一覧](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md)は、応援者の方に公開しています。
+[応援者一覧](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md)は、招待された応援者の方に公開しています。
 
 ---
 

@@ -262,7 +262,7 @@ X Collector 的设计原则是：绝不让自动化悄悄接管一切。
 ![X Collector 阅读器中的操作功能](assets/reader-actions-1024.png)
 <!-- /supporter-loop:demo-gif slot -->
 
-[支持者名单](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md)仅对支持者可见。
+[支持者名单](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md)仅对受邀支持者可见。
 
 ---
 
