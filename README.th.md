@@ -262,7 +262,7 @@ X Collector ถูกออกแบบมาไม่ให้ระบบอ�
 ![การใช้งานปุ่มต่าง ๆ ในหน้าอ่านของ X Collector](assets/reader-actions-1024.png)
 <!-- /supporter-loop:demo-gif slot -->
 
-[รายชื่อผู้สนับสนุน](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md)มองเห็นได้เฉพาะผู้สนับสนุน
+[รายชื่อผู้สนับสนุน](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md)มองเห็นได้เฉพาะผู้สนับสนุนที่ได้รับเชิญ
 
 ---
 

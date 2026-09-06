@@ -262,7 +262,7 @@ Thank you for your Stars, Issues, Discussions, and merged PRs: the supporter loo
 ![X Collector reader actions in use](assets/reader-actions-1024.png)
 <!-- /supporter-loop:demo-gif slot -->
 
-The [supporters list](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md) is visible to supporters.
+The [supporters list](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md) is visible only to invited supporters.
 
 ---
 

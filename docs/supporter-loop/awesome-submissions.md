@@ -15,7 +15,7 @@
 - Do not add `🤖🤖🤖` unless the owner explicitly opts into punkpeye's agent-authored fast-track; no such marker or generated-by footer is included in the paste blocks.
 - Awesome-selfhosted's exact rule is: “Machine/LLM-generated contributions, that do not respect project guidelines are not allowed and will result in a ban.” (`S/CONTRIBUTING.md`, Other guidelines.) This is conditional, not a blanket ban; the owner must personally verify compliance before sending.
 
-Evidence snapshot: Alpha's read-only packet dated **2026-09-06**, rooted at `.omc-brief/research/` (local review evidence, not published with this document). Aliases: `F` = `x-collector-facts/facts.md`; `P` = `punkpeye_awesome-mcp-servers`; `S` = `awesome-selfhosted_awesome-selfhosted-data`; `W` = `wong2_awesome-mcp-servers`; `M` = `modelcontextprotocol_servers`; `A` = `appcypher_awesome-mcp-servers`; `E` = `e2b-dev_awesome-ai-agents`; `G` = `awesome-selfhosted_awesome-selfhosted`.
+Evidence snapshot: Alpha's read-only packet dated **2026-09-06** (local review evidence, not published with this document). Aliases: `F` = `x-collector-facts/facts.md`; `P` = `punkpeye_awesome-mcp-servers`; `S` = `awesome-selfhosted_awesome-selfhosted-data`; `W` = `wong2_awesome-mcp-servers`; `M` = `modelcontextprotocol_servers`; `A` = `appcypher_awesome-mcp-servers`; `E` = `e2b-dev_awesome-ai-agents`; `G` = `awesome-selfhosted_awesome-selfhosted`.
 `PASS` means evidenced now; `FAIL` includes unverified required conditions (not a claim of proven noncompliance); `N/A` means inapplicable. “Ready” is preparation readiness, always subject to checkpoint ⑤ and refreshed duplicate/link checks.
 
 ## 2. Survey
@@ -152,15 +152,15 @@ Requires Node.js >=20.3 and a PostgreSQL database; MIT licensed; no Docker distr
 Thanks for taking the time to suggest an addition to awesome-selfhosted!
 
 To ensure your Pull Request is dealt with swiftly, please check the following (check the boxes `[x]`):
-- [x] Submit one item per pull request. This eases reviewing and speeds up inclusion.
+- [ ] Submit one item per pull request. This eases reviewing and speeds up inclusion.
 - [ ] You have searched the repository for any relevant [issues](https://github.com/awesome-selfhosted/awesome-selfhosted-data/issues) or [PRs](https://github.com/awesome-selfhosted/awesome-selfhosted-data/pulls), including closed ones.
 - [ ] Any software you are adding is not already listed at any of awesome-sysadmin, [staticgen.com](https://www.staticgen.com/), [staticsitegenerators.bevry.me](https://staticsitegenerators.bevry.me/), [dbdb.io](https://dbdb.io/browse).
 - [ ] The file you are adding is formatted as described in [addition.md](https://github.com/awesome-selfhosted/awesome-selfhosted-data/blob/master/.github/ISSUE_TEMPLATE/addition.md).
 - [ ] `Demo` links should only be used for interactive demos, i.e. not video demonstrations. If login credentials are required to access the demo, please link to the credentials directly.
-- [x] Comments and unused optional fields have been removed.
-- [x] The file you are adding uses [kebab-case](https://en.wikipedia.org/wiki/Letter_case#Kebab_case) file naming, for example `my-awesome-software.yml`.
+- [ ] Comments and unused optional fields have been removed.
+- [ ] The file you are adding uses [kebab-case](https://en.wikipedia.org/wiki/Letter_case#Kebab_case) file naming, for example `my-awesome-software.yml`.
 - [ ] Values for `platform` should match the platforms required to install and run the software.
-- [x] Any software project you are adding to the list is actively maintained.
+- [ ] Any software project you are adding to the list is actively maintained.
 - [ ] Any software project you are adding was first released more than 4 months ago.
 - [ ] Any software project you are adding has working installation instructions.
 - [ ] You understand that your Pull Request will be merged at least ~1 week after approval, depending on maintainers time.
@@ -203,7 +203,7 @@ Evidence: `W/recent-commits.tsv` shows only sponsor changes Jun 13–Jul 13; `W/
 2. Owner refreshes duplicate searches (entries, open/closed PRs and issues), link validity, alphabetical neighbors, and factual checks; test installation where required. Resolve deferred checks and update this preparation document before approval; leave N/A boxes unchecked.
 3. Owner posts an approval comment on EPIC #119 naming the target and prepared revision; put its URL into EPIC table row 5. No approval URL is fabricated here.
 4. From the owner's own GitHub account, fork the target, create a descriptive branch, and edit only its specified file/section with the exact entry; use a clear commit message. Never target the generated selfhosted Markdown repo.
-5. Owner opens one PR per target, pasting the approved title and body from §3 verbatim, then ticks any template checkbox whose check the owner has actually completed. No automated sending; fast-track requires separate explicit owner opt-in.
+5. Owner opens one PR per target, pasting the approved title and body from §3 verbatim, then ticks any template checkbox whose check the owner has actually completed — every box in the §3 paste blocks is left unticked on purpose; ticking happens only in this step, by the owner, at sending time. No automated sending; fast-track requires separate explicit owner opt-in.
 6. Owner pastes each PR URL and sent date into §5; mark pending, then accepted/rejected when known.
 7. On rejection, record the reason verbatim, do not argue; resubmit only after a stated blocker is cleared. Redact prohibited personal data from the public log, noting the redaction; retain the exact reason in the owner's private record.
 8. Record outcomes in this lane's follow-up PR to `epic/119` or `main`; include the approval reference in EPIC row 5. An empty log means nothing has been sent.
