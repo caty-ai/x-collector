@@ -28,7 +28,7 @@ X Collector รวบรวมข่าวสารจากแหล่งข�
 
 </div>
 <!-- repo-state:begin (generated; do not edit) -->
-<p align="center"><sub>generation: <code>56bc273</code> (2026-09-06T14:14:04Z) · verify: <a href="https://api.github.com/repos/caty-ai/x-collector/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
+<p align="center"><sub>generation: <code>6167797</code> (2026-09-06T15:23:52Z) · verify: <a href="https://api.github.com/repos/caty-ai/x-collector/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
 <!-- repo-state:end -->
 
 ---
