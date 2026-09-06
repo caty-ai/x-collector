@@ -52,13 +52,25 @@ jobs:
             exit 0
           fi
 
-          # Previous published release tag; the first release credits all history.
+          # Greatest published plain vX.Y.Z tag below RELEASE_TAG by numeric semver; none credits all history.
           published_at=$(jq -r '.published_at' <<< "$release")
           releases=$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100")
           previous_tag=$(jq -r --arg date "$published_at" --arg tag "$RELEASE_TAG" '
-            [ .[][] | select(.draft == false and .published_at != null)
-              | select(.published_at < $date and .tag_name != $tag) ]
-            | sort_by(.published_at) | last | .tag_name // empty
+            def plain_semver: test("^v[0-9]+\\.[0-9]+\\.[0-9]+$");
+            def version: ltrimstr("v") | split(".") | map(tonumber);
+            if ($tag | plain_semver) then
+              ($tag | version) as $current
+              | [ .[][] | select(.draft == false and .published_at != null)
+                  | select(.tag_name != $tag and (.tag_name | plain_semver))
+                  | . + {version: (.tag_name | version)}
+                  | select(.version < $current) ]
+              | sort_by(.version) | last | .tag_name // empty
+            else
+              # Non-semver release tags retain the published_at fallback.
+              [ .[][] | select(.draft == false and .published_at != null)
+                | select(.published_at < $date and .tag_name != $tag) ]
+              | sort_by(.published_at) | last | .tag_name // empty
+            end
           ' <<< "$releases")
           tag_uri=$(jq -rn --arg tag "$RELEASE_TAG" '$tag | @uri')
           if [[ -n "$previous_tag" ]]; then
