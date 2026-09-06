@@ -15,7 +15,7 @@ vi.mock("@/lib/bff/public-throttle", () => ({ consumePublicThrottle: mocks.allow
 vi.mock("@/lib/bff/reader-auth", () => ({ resolveBffReaderAuth: mocks.auth }));
 vi.mock("@/lib/bff/og-image", () => ({ fetchOgImage: mocks.fetch }));
 
-import { dynamic, GET, HEAD } from "@/app/api/bff/projects/route";
+import { dynamic, runtime, GET, HEAD } from "@/app/api/bff/projects/route";
 
 const cacheControl = "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 type Source = {
@@ -93,6 +93,7 @@ afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.useRealTimers(); 
 describe("public projects BFF", () => {
   it("is dynamic and returns 404 without querying when disabled", async () => {
     expect(dynamic).toBe("force-dynamic");
+    expect(runtime).toBe("nodejs");
     const response = await GET(new NextRequest("https://example.com/api/bff/projects"));
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "not found" });
@@ -135,6 +136,29 @@ describe("public projects BFF", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ title: "Projects", items: [] });
     expect(mocks.allow).not.toHaveBeenCalled();
+  });
+
+  describe.each(["sources", "featured"])("%s response caching", (shelfMode) => {
+    it.each([
+      ["public", "GET"], ["public", "HEAD"],
+      ["shared", "GET"], ["shared", "HEAD"],
+      ["session", "GET"], ["session", "HEAD"],
+    ])("sets the cache policy for %s %s", async (mode, method) => {
+      vi.stubEnv("NEWSPAPER_PROJECTS_SHELF", "1");
+      if (shelfMode === "featured") {
+        vi.stubEnv("NEWSPAPER_PROJECTS_FEATURED", JSON.stringify([
+          { title: "Card", url: "https://example.com/project", image: "https://images.example/preview.png" },
+        ]));
+      }
+      mocks.auth.mockResolvedValue({ mode });
+      const response = await (method === "HEAD" ? HEAD : GET)(
+        new NextRequest("https://example.com/api/bff/projects", { method }),
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe(mode === "public" ? cacheControl : "private, no-store");
+      if (method === "HEAD") expect(await response.text()).toBe("");
+      else expect((await response.json()).items).toHaveLength(shelfMode === "featured" ? 1 : 0);
+    });
   });
 
   it("returns only public fields and intentionally excludes mixed-case Studio tags", async () => {
@@ -489,6 +513,7 @@ describe("featured projects BFF", () => {
     expect((await (await getProjects()).json()).items[0].imageUrl).toBe("https://og.example/preview.png");
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
     expect(mocks.fetch).toHaveBeenCalledWith(url);
+    expect(mocks.fetch.mock.calls[0]).toHaveLength(1);
   });
 
   it("uses the OG resolver image resolved against the final redirect URL", async () => {
@@ -523,6 +548,25 @@ describe("featured projects BFF", () => {
     mocks.fetch.mockResolvedValue(resolvedImage("https://og.example/refreshed.png"));
     expect((await (await getProjects()).json()).items[0].imageUrl).toBe("https://og.example/refreshed.png");
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a prior image hit on transient refresh failures and retries without caching a miss", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-06T00:00:00Z"));
+    const url = "https://og.example/transient-refresh";
+    const image = "https://og.example/previous.png";
+    feature([{ title: "Card", url }]);
+    mocks.fetch.mockResolvedValueOnce(resolvedImage(image));
+    expect((await (await getProjects()).json()).items[0].imageUrl).toBe(image);
+    vi.setSystemTime(Date.now() + 6 * 60 * 60_000);
+    mocks.fetch.mockResolvedValue({ kind: "transient" });
+    for (let index = 0; index < 2; index++) {
+      expect((await (await getProjects()).json()).items[0].imageUrl).toBe(image);
+    }
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    mocks.fetch.mockResolvedValue(resolvedImage("https://og.example/recovered.png"));
+    expect((await (await getProjects()).json()).items[0].imageUrl).toBe("https://og.example/recovered.png");
+    expect(mocks.fetch).toHaveBeenCalledTimes(4);
   });
 
   it.each([

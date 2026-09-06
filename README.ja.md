@@ -164,6 +164,7 @@ Projects 棚を使う場合の `.env` 設定（[導入手順](docs/operations.md
 | `NEWSPAPER_PROJECTS_SHELF` | `1` または `true` でカレンダー下に棚を表示。既定はオフ。 |
 | `NEWSPAPER_PROJECTS_TAG` | GitHub 情報源のタグ。既定は `family`。情報源側も小文字で一致させます。 |
 | `NEWSPAPER_PROJECTS_TITLE` | 棚の見出し。既定は `Projects`。 |
+| `NEWSPAPER_PROJECTS_LIMIT` | タグ一覧で表示する最大件数。`1`〜`50`、既定は `12`。 |
 | `NEWSPAPER_PROJECTS_FEATURED` | 手動で選んだ最大3件のプロジェクトの JSON 配列（最大8 KiB）。設定するとタグ一覧より優先。 |
 
 <details>

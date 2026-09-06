@@ -21,10 +21,14 @@ const release = {
   published_at: "2026-09-05T00:00:00Z",
 };
 const source = { id: 1, name: "Project A", type: "repo", repo: "publisher/project-a" };
+const repoMetadata = { description: "Project description", private: false };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => [release] }));
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url) => ({
+    ok: true,
+    json: async () => String(url).includes("/releases?") ? [release] : repoMetadata,
+  })));
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -42,7 +46,9 @@ describe("GitHub release keys", () => {
     });
     expect(await fetchSourceItems(source)).toEqual({ upserted: 1 });
     const second = { ...release, name: "Collector release", html_url: "https://github.com/publisher/project-b/releases/tag/v0.4.0" };
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => [second] } as Response);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: true, json: async () => repoMetadata } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => [second] } as Response);
     expect(await fetchSourceItems({ ...source, id: 2, repo: "publisher/project-b" })).toEqual({ upserted: 1 });
 
     expect(rows.size).toBe(2);
@@ -57,7 +63,7 @@ describe("GitHub release keys", () => {
       "owner/repo:v0.4.0", "owner/repo:v0.4.0",
     ]);
     expect(releaseItemId("Owner/Repo", "V1:RC")).toBe("owner/repo:V1:RC");
-    expect(vi.mocked(fetch).mock.calls[0][0]).toContain("/repos/Owner/Repo/");
+    expect(vi.mocked(fetch).mock.calls[1][0]).toContain("/repos/Owner/Repo/");
   });
 
   it("repairs every contaminated release field on update", async () => {
@@ -78,7 +84,9 @@ describe("GitHub release keys", () => {
   });
 
   it("clears an obsolete publication date when the refetched release has none", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => [{ ...release, published_at: undefined }] } as Response);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: true, json: async () => repoMetadata } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => [{ ...release, published_at: undefined }] } as Response);
     await fetchSourceItems(source);
     expect(mocks.upsert.mock.calls[0][0].update.publishedAt).toBeNull();
   });

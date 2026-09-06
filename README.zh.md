@@ -164,6 +164,7 @@ npm run dev
 | `NEWSPAPER_PROJECTS_SHELF` | 设为 `1` 或 `true`，在日历下方显示展示栏；默认关闭。 |
 | `NEWSPAPER_PROJECTS_TAG` | GitHub 信息源标签，默认为 `family`。信息源标签须以小写精确匹配。 |
 | `NEWSPAPER_PROJECTS_TITLE` | 展示栏标题，默认为 `Projects`。 |
+| `NEWSPAPER_PROJECTS_LIMIT` | 标签列表显示的最大项目数；`1`–`50`，默认为 `12`。 |
 | `NEWSPAPER_PROJECTS_FEATURED` | 可选的 JSON 数组，手动指定最多3个项目（上限8 KiB）；优先于标签列表。 |
 
 <details>

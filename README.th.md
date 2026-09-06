@@ -164,6 +164,7 @@ npm run dev
 | `NEWSPAPER_PROJECTS_SHELF` | ตั้งเป็น `1` หรือ `true` เพื่อแสดงชั้นใต้ปฏิทิน ค่าเริ่มต้นคือปิด |
 | `NEWSPAPER_PROJECTS_TAG` | แท็กแหล่งข้อมูล GitHub ค่าเริ่มต้นคือ `family` แท็กต้องตรงกันด้วยตัวพิมพ์เล็ก |
 | `NEWSPAPER_PROJECTS_TITLE` | หัวข้อของชั้น ค่าเริ่มต้นคือ `Projects` |
+| `NEWSPAPER_PROJECTS_LIMIT` | จำนวนโปรเจกต์สูงสุดที่แสดงจากรายการแท็ก; `1`–`50` ค่าเริ่มต้นคือ `12` |
 | `NEWSPAPER_PROJECTS_FEATURED` | อาร์เรย์ JSON สำหรับเลือกเองสูงสุด 3 โปรเจกต์ (ไม่เกิน 8 KiB) ใช้แทนรายการจากแท็กเมื่อกำหนด |
 
 <details>

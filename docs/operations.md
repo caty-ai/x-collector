@@ -177,6 +177,7 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 | `NEWSPAPER_PROJECTS_SHELF` | 任意 | `1` または `true` でカレンダー下に棚を表示。既定はオフ。 |
 | `NEWSPAPER_PROJECTS_TAG` | 任意 | GitHub 情報源のタグ。既定は `family`。情報源側も小文字で一致させます。 |
 | `NEWSPAPER_PROJECTS_TITLE` | 任意 | 棚の見出し。既定は `Projects`。 |
+| `NEWSPAPER_PROJECTS_LIMIT` | 任意 | タグ一覧で表示する最大件数。`1`〜`50`、既定は `12`。 |
 | `NEWSPAPER_PROJECTS_FEATURED` | 任意 | 手動で選んだ最大3件のプロジェクトの JSON 配列（最大8 KiB）。設定するとタグ一覧より優先。 |
 | `NEWSPAPER_PUBLIC` | 任意 | `1` / `true` のときだけ匿名の紙面閲覧を許可する opt-in switch。既定は fail-close（off） |
 | `NEWSPAPER_SHARED_ID` | 任意 | `/calendar` 共有ログインの ID。password と安全な auth secret が揃わない場合は無効 |

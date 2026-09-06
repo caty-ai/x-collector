@@ -166,6 +166,34 @@ export async function fetchSourceItems(
       const apiUrl = `${GITHUB_API_URL}/repos/${source.repo}/releases?per_page=${Math.min(maxItems, 100)}`;
       const headers = getHeaders();
 
+      const metadataController = new AbortController();
+      const metadataTimeout = setTimeout(() => metadataController.abort(), REPO_METADATA_TIMEOUT_MS);
+      try {
+        const repoResponse = await fetch(`${GITHUB_API_URL}/repos/${source.repo}`, {
+          headers,
+          signal: metadataController.signal,
+        });
+        if (!repoResponse.ok) {
+          if ([401, 403, 404].includes(repoResponse.status) && !(await isRateLimited(repoResponse))) {
+            // Definite access failures invalidate stale public visibility, preserving the description.
+            await prisma.ghSource.update({
+              where: { id: source.id },
+              data: { isPrivate: null },
+            });
+          }
+          throw new Error(`HTTP ${repoResponse.status}`);
+        }
+        const repo: GitHubRepo = await repoResponse.json();
+        await prisma.ghSource.update({
+          where: { id: source.id },
+          data: { description: repo.description ?? null, isPrivate: typeof repo.private === "boolean" ? repo.private : null },
+        });
+      } catch (err) {
+        console.warn(`[GitHub] Could not refresh description for ${source.repo}:`, err);
+      } finally {
+        clearTimeout(metadataTimeout);
+      }
+
       const res = await fetch(apiUrl, {
         headers,
         signal: AbortSignal.timeout(COLLECTOR_FETCH_TIMEOUT_MS),
@@ -207,33 +235,6 @@ export async function fetchSourceItems(
         await delay(50);
       }
 
-      const metadataController = new AbortController();
-      const metadataTimeout = setTimeout(() => metadataController.abort(), REPO_METADATA_TIMEOUT_MS);
-      try {
-        const repoResponse = await fetch(`${GITHUB_API_URL}/repos/${source.repo}`, {
-          headers,
-          signal: metadataController.signal,
-        });
-        if (!repoResponse.ok) {
-          if ([401, 403, 404].includes(repoResponse.status) && !(await isRateLimited(repoResponse))) {
-            // Definite access failures invalidate stale public visibility, preserving the description.
-            await prisma.ghSource.update({
-              where: { id: source.id },
-              data: { isPrivate: null },
-            });
-          }
-          throw new Error(`HTTP ${repoResponse.status}`);
-        }
-        const repo: GitHubRepo = await repoResponse.json();
-        await prisma.ghSource.update({
-          where: { id: source.id },
-          data: { description: repo.description ?? null, isPrivate: typeof repo.private === "boolean" ? repo.private : null },
-        });
-      } catch (err) {
-        console.warn(`[GitHub] Could not refresh description for ${source.repo}:`, err);
-      } finally {
-        clearTimeout(metadataTimeout);
-      }
     } else if (source.type === "search" && source.query) {
       // Mode 2: Search/Trending
       const apiUrl = `${GITHUB_API_URL}/search/repositories?q=${encodeURIComponent(source.query)}&sort=stars&order=desc&per_page=${Math.min(maxItems, 100)}`;

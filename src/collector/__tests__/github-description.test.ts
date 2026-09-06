@@ -25,7 +25,7 @@ function response(body: unknown): Response {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv("GITHUB_TOKEN", "test-token");
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response([release])));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response([release])));
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
 });
 
@@ -47,7 +47,9 @@ describe("GitHub source descriptions", () => {
       const headers: HeadersInit = remaining === undefined ? {} : { "x-ratelimit-remaining": remaining };
       const limited = new Response(JSON.stringify({ message }), { status: 403, headers });
       if (request === "releases") {
-        vi.mocked(fetch).mockReset().mockResolvedValueOnce(limited);
+        vi.mocked(fetch).mockReset()
+          .mockRejectedValueOnce(new Error("Metadata unavailable"))
+          .mockResolvedValueOnce(limited);
       } else {
         vi.mocked(fetch).mockResolvedValueOnce(limited);
       }
@@ -57,7 +59,8 @@ describe("GitHub source descriptions", () => {
         : { upserted: 1 });
       if (request === "releases") {
         expect(mocks.updateSource).not.toHaveBeenCalled();
-        expect(fetch).toHaveBeenCalledOnce();
+        expect(fetch).toHaveBeenCalledTimes(2);
+        expect(fetch).toHaveBeenNthCalledWith(1, metadataUrl, expect.any(Object));
         expect(mocks.upsert).not.toHaveBeenCalled();
       } else {
         expect(mocks.updateSource).toHaveBeenCalledTimes(1);
@@ -74,8 +77,10 @@ describe("GitHub source descriptions", () => {
     [401, "HTTP 401"],
     [403, "HTTP 403"],
     [404, "Repository not found."],
-  ])("clears stale public visibility on releases HTTP %s without fetching metadata", async (status, error) => {
-    vi.mocked(fetch).mockReset().mockResolvedValueOnce(new Response(JSON.stringify({ message: "Access denied" }), { status }));
+  ])("clears stale public visibility on releases HTTP %s after attempting metadata", async (status, error) => {
+    vi.mocked(fetch).mockReset()
+      .mockRejectedValueOnce(new Error("Metadata unavailable"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "Access denied" }), { status }));
 
     expect(await fetchSourceItems(source)).toEqual({ upserted: 0, error });
     expect(mocks.updateSource).toHaveBeenCalledTimes(1);
@@ -83,8 +88,9 @@ describe("GitHub source descriptions", () => {
       where: { id: source.id },
       data: { isPrivate: null },
     });
-    expect(fetch).toHaveBeenCalledOnce();
-    expect(vi.mocked(fetch).mock.calls[0][0]).toContain("/releases?");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenNthCalledWith(1, metadataUrl, expect.any(Object));
+    expect(vi.mocked(fetch).mock.calls[1][0]).toContain("/releases?");
     expect(mocks.upsert).not.toHaveBeenCalled();
   });
 
@@ -96,8 +102,8 @@ describe("GitHub source descriptions", () => {
       expect(await fetchSourceItems(source)).toEqual({ upserted: 1 });
 
       expect(fetch).toHaveBeenCalledTimes(2);
-      const releaseOptions = vi.mocked(fetch).mock.calls[0][1];
-      expect(fetch).toHaveBeenLastCalledWith(metadataUrl, {
+      const releaseOptions = vi.mocked(fetch).mock.calls[1][1];
+      expect(fetch).toHaveBeenNthCalledWith(1, metadataUrl, {
         headers: releaseOptions?.headers,
         signal: expect.any(AbortSignal),
       });
@@ -111,6 +117,8 @@ describe("GitHub source descriptions", () => {
         data: { description: description ?? null, isPrivate: false },
       });
       expect(mocks.upsert).toHaveBeenCalledOnce();
+      expect(mocks.updateSource.mock.invocationCallOrder[0]).toBeLessThan(mocks.upsert.mock.invocationCallOrder[0]);
+      expect(mocks.updateSource.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(fetch).mock.invocationCallOrder[1]);
       expect(console.warn).not.toHaveBeenCalled();
     },
   );
@@ -123,6 +131,50 @@ describe("GitHub source descriptions", () => {
       where: { id: source.id },
       data: { description: "Project", isPrivate: isPrivate ?? null },
     });
+    expect(mocks.upsert).toHaveBeenCalledOnce();
+    expect(mocks.updateSource.mock.invocationCallOrder[0]).toBeLessThan(mocks.upsert.mock.invocationCallOrder[0]);
+    expect(mocks.updateSource.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(fetch).mock.invocationCallOrder[1]);
+  });
+
+  it("persists a token-readable private repository before fetching and upserting releases", async () => {
+    const stored = { description: "Old project", isPrivate: false };
+    mocks.updateSource.mockImplementation(async ({ data }) => {
+      await Promise.resolve();
+      Object.assign(stored, data);
+    });
+    vi.mocked(fetch).mockReset()
+      .mockResolvedValueOnce(response({ description: "Private project", private: true }))
+      .mockImplementationOnce(async (_url, options) => {
+        expect(options?.headers).toMatchObject({ Authorization: "Bearer test-token" });
+        expect(stored).toMatchObject({ description: "Private project", isPrivate: true });
+        return response([release]);
+      });
+    mocks.upsert.mockImplementation(async () => {
+      expect(stored).toMatchObject({ description: "Private project", isPrivate: true });
+    });
+
+    expect(await fetchSourceItems(source)).toEqual({ upserted: 1 });
+    expect(mocks.updateSource).toHaveBeenNthCalledWith(1, {
+      where: { id: source.id },
+      data: { description: "Private project", isPrivate: true },
+    });
+    expect(mocks.upsert).toHaveBeenCalledOnce();
+    expect(mocks.updateSource.mock.invocationCallOrder[0]).toBeLessThan(mocks.upsert.mock.invocationCallOrder[0]);
+  });
+
+  it("preserves stored description and visibility through a transient metadata failure while ingesting releases", async () => {
+    const stored = { description: "Existing project", isPrivate: false };
+    mocks.updateSource.mockImplementation(async ({ data }) => Object.assign(stored, data));
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 503 }));
+    mocks.upsert.mockImplementation(async () => {
+      expect(stored).toEqual({ description: "Existing project", isPrivate: false });
+    });
+
+    expect(await fetchSourceItems(source)).toEqual({ upserted: 1 });
+    expect(fetch).toHaveBeenNthCalledWith(1, metadataUrl, expect.any(Object));
+    expect(mocks.upsert).toHaveBeenCalledOnce();
+    expect(mocks.updateSource).toHaveBeenCalledOnce();
+    expect(stored).toMatchObject({ description: "Existing project", isPrivate: false });
   });
 
   it.each([401, 403, 404])("clears stale public visibility on metadata HTTP %s without changing the description", async (status) => {
@@ -179,13 +231,12 @@ describe("GitHub source descriptions", () => {
     },
   );
 
-  it.each(["request", "body"])("upserts all releases before metadata %s hangs and succeeds after its independent 5 second timeout", async (phase) => {
+  it.each(["request", "body"])("preserves metadata and ingests releases after a metadata %s hits its independent 5 second timeout", async (phase) => {
     vi.useFakeTimers();
     let metadataSignal: AbortSignal | undefined;
     vi.mocked(fetch).mockReset()
-      .mockResolvedValueOnce(response([release, { ...release, id: 43, tag_name: "v2.0.0" }]))
       .mockImplementationOnce((_url, options) => {
-        expect(mocks.upsert).toHaveBeenCalledTimes(2);
+        expect(mocks.upsert).not.toHaveBeenCalled();
         metadataSignal = options?.signal as AbortSignal;
         const pending = new Promise<Response>((_resolve, reject) => {
           metadataSignal!.addEventListener("abort", () => {
@@ -195,28 +246,31 @@ describe("GitHub source descriptions", () => {
         return phase === "request"
           ? pending
           : Promise.resolve({ ok: true, json: () => pending } as Response);
-      });
+      })
+      .mockResolvedValueOnce(response([release, { ...release, id: 43, tag_name: "v2.0.0" }]));
     let completed = false;
     const result = fetchSourceItems(source).then((value) => {
       completed = true;
       return value;
     });
 
-    await vi.advanceTimersByTimeAsync(100);
-    expect(mocks.upsert).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledOnce();
     expect(fetch).toHaveBeenLastCalledWith(metadataUrl, expect.any(Object));
     expect(metadataSignal).toBeInstanceOf(AbortSignal);
-    const releaseSignal = vi.mocked(fetch).mock.calls[0][1]?.signal;
-    expect(metadataSignal).not.toBe(releaseSignal);
     expect(mocks.updateSource).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(4_999);
     expect(metadataSignal?.aborted).toBe(false);
     expect(completed).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
 
     expect(metadataSignal?.aborted).toBe(true);
+    const releaseSignal = vi.mocked(fetch).mock.calls[1][1]?.signal;
+    expect(releaseSignal).toBeInstanceOf(AbortSignal);
+    expect(metadataSignal).not.toBe(releaseSignal);
     expect(releaseSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(mocks.upsert).toHaveBeenCalledTimes(2);
     expect(await result).toEqual({ upserted: 2 });
     expect(mocks.updateSource).toHaveBeenCalledTimes(1);
     expect(mocks.updateSource).toHaveBeenCalledWith({
@@ -232,8 +286,8 @@ describe("GitHub source descriptions", () => {
 
   it("refreshes the description even when the source has no releases", async () => {
     vi.mocked(fetch).mockReset()
-      .mockResolvedValueOnce(response([]))
-      .mockResolvedValueOnce(response({ description: "New project" }));
+      .mockResolvedValueOnce(response({ description: "New project" }))
+      .mockResolvedValueOnce(response([]));
 
     expect(await fetchSourceItems(source)).toEqual({ upserted: 0 });
     expect(mocks.updateSource).toHaveBeenCalledWith({

@@ -8,6 +8,7 @@ import { getFeaturedProjects, getProjectsShelfConfig, isProjectsShelfEnabled, is
 
 const prisma = new PrismaClient();
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const imageCache = new Map<string, { imageUrl: string | null; expiresAt: number }>();
 const inFlightImages = new Map<string, Promise<string | null>>();
@@ -26,6 +27,10 @@ async function fetchImage(url: string): Promise<string | null> {
   let imageUrl: string | null = null;
   try {
     const result = await fetchOgImage(url);
+    if (result.kind === "transient") {
+      const cached = imageCache.get(url);
+      if (cached) return cached.imageUrl;
+    }
     if (result.kind === "found" && isPublicImageUrl(result.url)) imageUrl = result.url;
   } catch (error) {
     const message = (error instanceof Error ? error.message : String(error)).replace(/[\r\n]+/g, " ");
@@ -69,6 +74,9 @@ async function handleProjects(request: NextRequest) {
       });
     }
 
+    const cacheControl = auth.mode === "public"
+      ? "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+      : "private, no-store";
     const { title, tag, limit } = getProjectsShelfConfig();
     const featured = getFeaturedProjects().map((project) => ({ project, repo: githubRepo(project.url) }));
     if (featured.length) {
@@ -96,7 +104,7 @@ async function handleProjects(request: NextRequest) {
         };
       }));
       return NextResponse.json({ title, mode: "featured", items }, {
-        headers: { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" },
+        headers: { "Cache-Control": cacheControl },
       });
     }
     // Studio tags must match the normalized config exactly in lowercase (e.g. "family").
@@ -138,7 +146,7 @@ async function handleProjects(request: NextRequest) {
         publishedAt: release?.publishedAt?.toISOString() ?? null,
       })),
     }, {
-      headers: { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" },
+      headers: { "Cache-Control": cacheControl },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
