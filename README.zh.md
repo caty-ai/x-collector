@@ -157,6 +157,15 @@ npm run dev
 
 打开 `http://localhost:3000` 并登录，在 `/settings` 页面登记你的信息源。如果想先用示例信息源立即体验，可以运行一次 `npm run seed`。等收集用的密钥准备好后，再打开一个终端窗口，运行 `npm run collect` 就能开始收集。
 
+如需启用 Projects 展示栏，在 `.env` 中设置（[部署步骤](docs/operations.md#projects-shelf)，日文）：
+
+| 变量 | 用途 |
+|---|---|
+| `NEWSPAPER_PROJECTS_SHELF` | 设为 `1` 或 `true`，在日历下方显示展示栏；默认关闭。 |
+| `NEWSPAPER_PROJECTS_TAG` | GitHub 信息源标签，默认为 `family`。信息源标签须以小写精确匹配。 |
+| `NEWSPAPER_PROJECTS_TITLE` | 展示栏标题，默认为 `Projects`。 |
+| `NEWSPAPER_PROJECTS_FEATURED` | 可选的 JSON 数组，手动指定最多3个项目（上限8 KiB）；优先于标签列表。 |
+
 <details>
 <summary>遇到问题时</summary>
 

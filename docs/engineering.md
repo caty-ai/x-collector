@@ -161,6 +161,16 @@ What `NEWSPAPER_PUBLIC=1` opens and what it keeps closed:
 
 The authoritative rules, including the fail-close behaviour of every gate, are in the operations guide: [public mode](operations.md#公開モード-newspaper_public) and [auth / API key fail-closed rules](operations.md#auth--api-key-fail-closed-rules) (Japanese).
 
+### Projects shelf
+
+`src/app/calendar/page.tsx` passes the server-side shelf flag and title to `NewsletterViewerPanel`. When enabled, the panel fetches `/api/bff/projects` and renders one `ProjectsShelf` as the last child of `#reader-calendar`, before the news column. Disabled, empty, and failed responses leave no shelf DOM; unmount cancels response handling. Cards scroll horizontally with snapping on phones and stack vertically at `lg`.
+
+`src/lib/projects-shelf.ts` reads `NEWSPAPER_PROJECTS_SHELF` (default off), `NEWSPAPER_PROJECTS_TAG` (default `family`), `NEWSPAPER_PROJECTS_TITLE` (default `Projects`), and `NEWSPAPER_PROJECTS_FEATURED`. Featured configuration is memoised by its raw value, capped at 8 KiB and the first three entries, and takes precedence when valid entries remain. Invalid configuration warns when parsed and falls back to tagged sources. The GitHub collector persists repository descriptions and privacy flags; source mode selects active repository sources with `isPrivate: false` and the exact lowercase tag, joining each source's latest release. Featured GitHub URLs can use the same public source metadata; other configured URLs need no source registration.
+
+The projects BFF gates access in-route because middleware does not cover `/api/bff/*`: the shelf flag returns 404 before authentication, then `resolveBffReaderAuth` denies unauthorized callers with 401. Only public-mode requests consume `consumePublicThrottle(req, "projects", 120)`; excess requests return 429 with `Retry-After: 60`. Valid shared cookies and allowlisted admin sessions bypass this throttle. Public access requires `NEWSPAPER_PUBLIC=1` or `true` as well as the shelf flag.
+
+Responses preserve `{ title, mode: "featured", items }` or `{ title, items }`, with `Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=600`; database failure returns 503 with `no-store`. Missing featured images use the existing `fetchOgImage` primitive, fetching only configured project URLs. Concurrent lookups share a flight, with in-memory caches of 6 hours for hits and 30 minutes for misses. Explicit and resolved image URLs pass HTTPS/public-host hygiene checks. Images are not stored. See the [rollout and migration runbook](operations.md#projects-shelf).
+
 ---
 
 ## Configuration

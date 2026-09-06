@@ -6,6 +6,7 @@ import NewsletterViewerPanel from "@/components/panels/NewsletterViewerPanel";
 import { isNewspaperPublic } from "@/lib/auth/public-newspaper";
 import { PRODUCT_NAME } from "@/lib/branding";
 import { getMasthead, getPoweredBy, getSourceRepoLink, getTagline } from "@/lib/masthead";
+import { getProjectsShelfConfig, isProjectsShelfEnabled } from "@/lib/projects-shelf";
 import { buildEditionMetadata, resolveSiteUrl } from "@/lib/reader/edition-meta";
 import { resolveEditionDate } from "@/lib/reader/edition-nav";
 
@@ -35,7 +36,7 @@ export default function CalendarPage({ searchParams }: CalendarPageProps) {
       poweredBy={getPoweredBy()}
       sourceRepo={getSourceRepoLink()}
     >
-      <NewsletterViewerPanel masthead={masthead} />
+      <NewsletterViewerPanel masthead={masthead} projectsShelf={{ enabled: isProjectsShelfEnabled(), title: getProjectsShelfConfig().title }} />
     </ReaderShell>
   );
 }

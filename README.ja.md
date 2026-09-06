@@ -157,6 +157,15 @@ npm run dev
 
 `http://localhost:3000` を開いてログインし、`/settings` から情報源を登録します。まずサンプルの情報源で試したいときは、`npm run seed` を1回実行してください。収集用のキーが用意できたら、ターミナルをもう1つ開いて `npm run collect` を実行すると収集が始まります。
 
+Projects 棚を使う場合の `.env` 設定（[導入手順](docs/operations.md#projects-shelf)）：
+
+| 変数 | 用途 |
+|---|---|
+| `NEWSPAPER_PROJECTS_SHELF` | `1` または `true` でカレンダー下に棚を表示。既定はオフ。 |
+| `NEWSPAPER_PROJECTS_TAG` | GitHub 情報源のタグ。既定は `family`。情報源側も小文字で一致させます。 |
+| `NEWSPAPER_PROJECTS_TITLE` | 棚の見出し。既定は `Projects`。 |
+| `NEWSPAPER_PROJECTS_FEATURED` | 手動で選んだ最大3件のプロジェクトの JSON 配列（最大8 KiB）。設定するとタグ一覧より優先。 |
+
 <details>
 <summary>うまくいかないときは</summary>
 

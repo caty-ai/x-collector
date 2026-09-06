@@ -230,6 +230,8 @@ model GhSource {
   query         String? // For type="search": search query e.g. "topic:ai language:python"
   active        Boolean   @default(true)
   tags          String[]  @default([])
+  description   String?
+  isPrivate     Boolean?
   lastFetchedAt DateTime?
   createdAt     DateTime  @default(now())
   items         GhItem[]
