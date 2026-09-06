@@ -248,6 +248,24 @@ X Collector は「自動化が勝手に暴走しない」ことを設計の柱�
 
 ---
 
+## 応援してくださっている方々
+
+Star、Issue・Discussion、マージされたPRでの応援、ありがとうございます。これらを自動で記録し、ティア1では応援者限定リポジトリへの先行アクセス、ティア2ではお礼のコメント、ティア3ではリリースノートへのクレジットで感謝を伝える仕組みです（まずは記録のみで開始し、特典の提供へ進む流れは[こちら](https://github.com/caty-ai/x-collector/issues/119)）。
+
+[![Contributors](https://contrib.rocks/image?repo=caty-ai/x-collector)](https://github.com/caty-ai/x-collector/graphs/contributors)
+
+[![Star History Chart](https://api.star-history.com/svg?repos=caty-ai/x-collector&type=Date)](https://star-history.com/#caty-ai/x-collector&Date)
+
+**利用イメージ**
+
+<!-- supporter-loop:demo-gif slot — replace with assets/demo.gif when the owner provides it -->
+![X Collectorのリーダーで使える操作](assets/reader-actions-1024.png)
+<!-- /supporter-loop:demo-gif slot -->
+
+[応援者一覧](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md)は、応援者の方に公開しています。
+
+---
+
 ## 謝辞
 
 X Collector は次のサービスの上に成り立っています: [ScrapeCreators](https://scrapecreators.com/)（SNS収集API）、[OpenRouter](https://openrouter.ai/)（AI分類と紙面生成）、[Qiita API v2](https://qiita.com/api/v2/docs)、[GitHub REST API](https://docs.github.com/en/rest)、[Railway](https://railway.com/)（ホスティング）、[TranscriptAPI](https://transcriptapi.com/)（YouTube文字起こし）。

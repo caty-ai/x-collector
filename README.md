@@ -248,6 +248,24 @@ Part of the **Caty AI family** — open tools for running a family of AI agents.
 
 ---
 
+## Supporters
+
+Thank you for your Stars, Issues, Discussions, and merged PRs: the supporter loop automatically notices these contributions, with tier 1 offering early access to the supporters-only repo, tier 2 adding a thank-you comment, and tier 3 adding credit in release notes. See [how it works](https://github.com/caty-ai/x-collector/issues/119) for the rollout, which starts in record-only mode before rewards are delivered.
+
+[![Contributors](https://contrib.rocks/image?repo=caty-ai/x-collector)](https://github.com/caty-ai/x-collector/graphs/contributors)
+
+[![Star History Chart](https://api.star-history.com/svg?repos=caty-ai/x-collector&type=Date)](https://star-history.com/#caty-ai/x-collector&Date)
+
+**In action**
+
+<!-- supporter-loop:demo-gif slot — replace with assets/demo.gif when the owner provides it -->
+![X Collector reader actions in use](assets/reader-actions-1024.png)
+<!-- /supporter-loop:demo-gif slot -->
+
+The [supporters list](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md) is visible to supporters.
+
+---
+
 ## Acknowledgments
 
 X Collector stands on these services: [ScrapeCreators](https://scrapecreators.com/) (social collection APIs), [OpenRouter](https://openrouter.ai/) (AI classification and newspaper composition), [Qiita API v2](https://qiita.com/api/v2/docs), [GitHub REST API](https://docs.github.com/en/rest), [Railway](https://railway.com/) (hosting), and [TranscriptAPI](https://transcriptapi.com/) (YouTube transcripts).

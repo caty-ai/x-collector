@@ -1,0 +1,39 @@
+# SECURITY: Never checkout code in this caller.
+# pull_request_target runs with secrets; keep this caller thin.
+# @main follows external-input-caller.yml; central main is merge-only via reviewed PR.
+# mode is the only line that changes at owner checkpoint #4.
+# The owner registers secrets at checkpoint #2.
+name: supporter-loop
+on:
+  watch:
+    types: [started]
+  issues:
+    types: [opened]
+  discussion:
+    types: [created]
+  pull_request_target:
+    types: [closed]
+  schedule:
+    - cron: "17 3 * * 1"   # weekly sweep, Monday 03:17 UTC
+permissions:
+  contents: none
+  actions: read          # sweep precondition: "no failed supporter-loop runs since last sweep" (§11)
+  issues: write
+  pull-requests: write
+  discussions: write
+# Load-bearing: serializes runs per source repo so two deliveries of the same
+# event cannot both miss the comment marker (§7). Do not delete.
+concurrency:
+  group: supporter-loop-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  loop:
+    uses: caty-ai/.github/.github/workflows/supporter-loop-reusable.yml@main
+    with:
+      mode: record-only          # <- the ONLY line that changes at checkpoint #4
+      sweep: ${{ github.event_name == 'schedule' }}
+    secrets:
+      SUPPORTER_LEDGER_TOKEN: ${{ secrets.SUPPORTER_LEDGER_TOKEN }}
+      SUPPORTER_LOOP_TOKEN: ${{ secrets.SUPPORTER_LOOP_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

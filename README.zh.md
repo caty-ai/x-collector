@@ -248,6 +248,24 @@ X Collector 的设计原则是：绝不让自动化悄悄接管一切。
 
 ---
 
+## 支持者
+
+感谢大家的 Star、Issue、Discussion 和已合并的 PR：支持者回馈机制会自动记录这些贡献，第1级提供支持者专属仓库的抢先体验权限，第2级增加感谢评论，第3级增加发布说明署名。机制先以仅记录模式运行，再开始发放回馈，详见[运作方式](https://github.com/caty-ai/x-collector/issues/119)。
+
+[![Contributors](https://contrib.rocks/image?repo=caty-ai/x-collector)](https://github.com/caty-ai/x-collector/graphs/contributors)
+
+[![Star History Chart](https://api.star-history.com/svg?repos=caty-ai/x-collector&type=Date)](https://star-history.com/#caty-ai/x-collector&Date)
+
+**使用画面**
+
+<!-- supporter-loop:demo-gif slot — replace with assets/demo.gif when the owner provides it -->
+![X Collector 阅读器中的操作功能](assets/reader-actions-1024.png)
+<!-- /supporter-loop:demo-gif slot -->
+
+[支持者名单](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md)仅对支持者可见。
+
+---
+
 ## 致谢
 
 X Collector 建立在这些服务之上：[ScrapeCreators](https://scrapecreators.com/)（社交平台采集 API）、[OpenRouter](https://openrouter.ai/)（AI 分类与报纸编排）、[Qiita API v2](https://qiita.com/api/v2/docs)、[GitHub REST API](https://docs.github.com/en/rest)、[Railway](https://railway.com/)（托管）以及 [TranscriptAPI](https://transcriptapi.com/)（YouTube 字幕）。

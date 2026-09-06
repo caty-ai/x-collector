@@ -248,6 +248,24 @@ X Collector ถูกออกแบบมาไม่ให้ระบบอ�
 
 ---
 
+## ผู้สนับสนุน
+
+ขอบคุณสำหรับ Star, Issue, Discussion และ PR ที่ผสานแล้ว ระบบจะบันทึกการสนับสนุนเหล่านี้โดยอัตโนมัติ โดยระดับ 1 ได้สิทธิ์เข้าถึงรีโพสำหรับผู้สนับสนุนก่อนใคร ระดับ 2 ได้รับความคิดเห็นขอบคุณเพิ่ม และระดับ 3 ได้รับเครดิตในบันทึกการออกรุ่นเพิ่ม ระบบเริ่มจากโหมดบันทึกเท่านั้นก่อนมอบสิทธิ์และคำขอบคุณ ดู[วิธีการทำงาน](https://github.com/caty-ai/x-collector/issues/119)
+
+[![Contributors](https://contrib.rocks/image?repo=caty-ai/x-collector)](https://github.com/caty-ai/x-collector/graphs/contributors)
+
+[![Star History Chart](https://api.star-history.com/svg?repos=caty-ai/x-collector&type=Date)](https://star-history.com/#caty-ai/x-collector&Date)
+
+**ตัวอย่างการใช้งาน**
+
+<!-- supporter-loop:demo-gif slot — replace with assets/demo.gif when the owner provides it -->
+![การใช้งานปุ่มต่าง ๆ ในหน้าอ่านของ X Collector](assets/reader-actions-1024.png)
+<!-- /supporter-loop:demo-gif slot -->
+
+[รายชื่อผู้สนับสนุน](https://github.com/caty-ai/ask-ai-widget/blob/main/SUPPORTERS.md)มองเห็นได้เฉพาะผู้สนับสนุน
+
+---
+
 ## กิตติกรรมประกาศ
 
 X Collector ทำงานได้ด้วยบริการเหล่านี้: [ScrapeCreators](https://scrapecreators.com/) (API สำหรับรวบรวมข้อมูลจากโซเชียล), [OpenRouter](https://openrouter.ai/) (การจัดหมวดหมู่ด้วย AI และการเรียบเรียงหนังสือพิมพ์), [Qiita API v2](https://qiita.com/api/v2/docs), [GitHub REST API](https://docs.github.com/en/rest), [Railway](https://railway.com/) (hosting) และ [TranscriptAPI](https://transcriptapi.com/) (บทถอดเสียง YouTube)
