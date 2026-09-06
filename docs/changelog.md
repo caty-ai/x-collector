@@ -2,6 +2,11 @@
 
 README から移設した改修履歴。最新の開発ステータスは [エンジニア向けドキュメントの開発状況](engineering.ja.md#development-status) を参照。
 
+## Unreleased — 2026-09-06
+
+- Projects 棚をカレンダー下に追加（#118、upstream #203 / #213 / #217）。既定はオフ。環境変数で手動指定した最大3件、またはタグ付きの公開 GitHub 情報源を表示し、取得失敗や空一覧では何も表示しない。
+- GitHub release の重複判定キーを `lower(repo):tag` に変更（upstream #151）。既存データの migration、dry-run 対応 backfill、ローカル PostgreSQL proof を追加し、pipeline の履歴を保持。情報源の説明と公開状態も収集する。
+
 ## v0.4.4 — 2026-09-05
 
 - 記事ページに引用元サムネ・中央「記事を確認する」ボタン・X 公式フォローボタン（`NEWSPAPER_X_FOLLOW_HANDLE`・既定は非表示）を追加し、h1 をレスポンシブ 3 段（26/32/48px）・下部リンクをスマホで中央寄せ（#116）。

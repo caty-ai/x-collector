@@ -157,6 +157,16 @@ npm run dev
 
 Open `http://localhost:3000`, sign in, and register your sources under `/settings`. To try it right away with sample sources instead, run `npm run seed` once. When your collector keys are ready, open a second terminal window and run a collection with `npm run collect`.
 
+Optional Projects shelf settings in `.env` (see [rollout instructions](docs/operations.md#projects-shelf)):
+
+| Variable | Purpose |
+|---|---|
+| `NEWSPAPER_PROJECTS_SHELF` | Set to `1` or `true` to show the shelf below the calendar; default off. |
+| `NEWSPAPER_PROJECTS_TAG` | GitHub source tag; default `family`. Source tags must match in lowercase. |
+| `NEWSPAPER_PROJECTS_TITLE` | Shelf heading; default `Projects`. |
+| `NEWSPAPER_PROJECTS_LIMIT` | Maximum tagged projects to show; `1`–`50`, default `12`. |
+| `NEWSPAPER_PROJECTS_FEATURED` | Optional JSON array of up to 3 hand-placed projects (max 8 KiB); overrides tagged sources. |
+
 <details>
 <summary>If something goes wrong</summary>
 

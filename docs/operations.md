@@ -11,6 +11,7 @@ README から移設した、運用・チューニング系の詳細リファレ�
 - [Production ジョブ（cron 用）](#production-ジョブcron-用)
 - [cron（本番運用）](#cron本番運用)
 - [環境変数（全リファレンス）](#環境変数全リファレンス)
+- [Projects shelf](#projects-shelf)
 - [ソース追加方法](#ソース追加方法)
 - [自律ソース発見・信頼度](#自律ソース発見信頼度)
 - [Daily Digest（自動デイリーニュース）](#daily-digest自動デイリーニュース)
@@ -173,6 +174,11 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 | `NEWSPAPER_POWERED_BY_URL` | 任意 | footer の任意クレジット先 http(s) URL。label と両方が有効な場合のみ表示 |
 | `NEWSPAPER_SOURCE_REPO_URL` | 任意 | 公開紙面 footer の「Source: GitHub」リンク先。既定: `https://github.com/caty-ai/x-collector`。不正な scheme は既定値へ戻す。`off` でリンク非表示 |
 | `NEWSPAPER_X_FOLLOW_HANDLE` | 任意 | 記事ページ `/a/` に X 公式フォローボタンを出すアカウント（`@` なし・英数字と `_` 1〜15 文字）。未設定・不正で非表示。 |
+| `NEWSPAPER_PROJECTS_SHELF` | 任意 | `1` または `true` でカレンダー下に棚を表示。既定はオフ。 |
+| `NEWSPAPER_PROJECTS_TAG` | 任意 | GitHub 情報源のタグ。既定は `family`。情報源側も小文字で一致させます。 |
+| `NEWSPAPER_PROJECTS_TITLE` | 任意 | 棚の見出し。既定は `Projects`。 |
+| `NEWSPAPER_PROJECTS_LIMIT` | 任意 | タグ一覧で表示する最大件数。`1`〜`50`、既定は `12`。 |
+| `NEWSPAPER_PROJECTS_FEATURED` | 任意 | 手動で選んだ最大3件のプロジェクトの JSON 配列（最大8 KiB）。設定するとタグ一覧より優先。 |
 | `NEWSPAPER_PUBLIC` | 任意 | `1` / `true` のときだけ匿名の紙面閲覧を許可する opt-in switch。既定は fail-close（off） |
 | `NEWSPAPER_SHARED_ID` | 任意 | `/calendar` 共有ログインの ID。password と安全な auth secret が揃わない場合は無効 |
 | `NEWSPAPER_SHARED_PASSWORD` | 任意 | `/calendar` 共有ログインのパスワード。ID と安全な auth secret が揃わない場合は無効 |
@@ -277,6 +283,53 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 - **デプロイ時は `AUTH_SECRET`/`NEXTAUTH_SECRET` の変更によるローテーションを同時に行うこと。** この変更以前に任意のGoogleアカウントへ発行されたsessionは、コードのデプロイだけでは失効しない。ローテーションは同じsecretでHMAC署名する `/calendar` 共有クッキー（`np_shared`）も無効化するため、共有パスワード利用者は `/np-login` から再ログインが必要（`/np-login` の機能自体は変わらない）。
 - `/api/feed`, `/api/family-feed`, `/api/newsletter-editions/latest`, `/api/mcp/[transport]` は、**effective route key が未設定のまま本番に入ると 401 fail-close** する。レスポンスは `{"error":"api key not configured"}`。
 - 同4 route は非本番では従来どおり open のままだが、auth が無効なことを module/process あたり 1 回だけ warning 出力する。
+
+## Projects shelf
+
+### migration と release 重複キーの補正
+
+`DATABASE_URL` を対象 DB に設定し、アプリ更新時に以下を実行します。release キーは `lower(repo):tag` となり、同じタグの異なるリポジトリが衝突しなくなります。
+
+```bash
+npx prisma migrate deploy
+```
+
+`20260907000000_gh_item_release_key_repo_tag` は既存 release の ID と `pipeline_items.externalId` を補正します。衝突した pipeline の参照は NULL にして行と製本履歴を保持し、重複した旧 `gh_items` 行は既存の正規キーへ集約します。`20260907000100_gh_source_description` は情報源の `description` と `isPrivate` を追加します。補正 SQL はテーブルをロックするため、収集ジョブと重ならない時間帯に適用してください。
+
+手動の補正確認・再適用には同じ SQL を使う backfill を利用できます。最初は読み取り専用で件数と URL 不整合の疑いを確認し、その後に適用します。migration 適用済みなら対象は通常0件です。
+
+```bash
+node tools/gh-dedup-backfill.mjs --dry-run
+node tools/gh-dedup-backfill.mjs --apply --yes
+```
+
+引数なしも dry-run です。`--apply` だけでは SQL の表示で止まり、書き込みには `--yes` が必要です。補正は失われた別リポジトリの本文を復元しないため、URL 不整合の疑いが残る情報源は収集を再実行して確認します。
+
+SQL の再実行安全性、混在する大文字・小文字、pipeline と製本履歴の保持は、ローカル PostgreSQL 16 と `psql` を使う proof で確認できます。破棄可能な `xc151` DB を用意して実行します。
+
+```bash
+GH_DEDUP_PROOF=1 DATABASE_URL=postgresql://postgres@127.0.0.1:54151/xc151 \
+  node tools/gh-dedup-proof.mjs
+```
+
+proof は localhost / 127.0.0.1 の `xc151` だけを許可します。空の public schema には旧 migration の基盤を作成して残し、fixture は専用 schema に隔離して終了時に削除します。成功時の末尾は `PROOF OK` です。
+
+### 棚の導入
+
+1. migration 後に GitHub 収集を実行し、情報源の説明と公開状態を保存します。`isPrivate` が未確認（NULL）または非公開の情報源は棚の情報源一覧に入りません。
+2. 手動で選ぶ場合は `NEWSPAPER_PROJECTS_FEATURED` に最大3件の JSON 配列を設定します。タグ一覧を使う場合はこの変数を空にし、表示したい有効な GitHub リポジトリ情報源に `family` タグを付けます。タグを変えるときは `NEWSPAPER_PROJECTS_TAG` を設定し、情報源側も同じ小文字タグに揃えます。
+3. `NEWSPAPER_PROJECTS_TITLE` で見出しを設定し、`NEWSPAPER_PROJECTS_SHELF=1`（または `true`）で有効化します。環境変数を反映してアプリを再起動します（ビルド時に env を固定するホストは再デプロイ）。
+
+```dotenv
+NEWSPAPER_PROJECTS_SHELF=1
+NEWSPAPER_PROJECTS_TAG=family
+NEWSPAPER_PROJECTS_TITLE=Projects
+NEWSPAPER_PROJECTS_FEATURED='[{"title":"Project One","url":"https://example.com/one","description":"First project","image":"https://example.com/one.png"},{"title":"Project Two","url":"https://example.com/two","description":"Second project"},{"title":"Project Three","url":"https://example.com/three","description":"Third project"}]'
+```
+
+上記は置き換え用のサンプルです。JSON は最大8 KiB、先頭3件を対象とし、必須項目は `title`（1〜80文字）と http(s) の `url`、任意項目は `description` と `image` です。画像は公開ホストの HTTPS URL のみ。`image` を省略すると設定したページから og:image を取得し、成功は6時間・未取得は30分キャッシュします。画像の保存は行いません。有効な featured 項目があればタグ一覧より優先され、設定した順序で表示します。
+
+棚はカレンダーの末尾に1つだけ表示し、スマホでは横スクロール、大画面では縦に並びます。未設定・オフなら fetch も棚 DOM もなく、`GET /api/bff/projects` は認証前に404です。有効時は route 内で認証し、拒否は401。匿名閲覧には別途 `NEWSPAPER_PUBLIC=1`（または `true`）が必要で、匿名のみ IP ごと120 requests/60秒、超過は `Retry-After: 60` 付き429です。共有 cookie と allowlist 済み管理者はこの throttle を通りません。DB 障害は503・`no-store`、空一覧や取得失敗は画面上で静かに省略します。停止は `NEWSPAPER_PROJECTS_SHELF=0` に戻します。
 
 ## ソース追加方法
 

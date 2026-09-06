@@ -22,7 +22,8 @@ interface GitHubRelease {
 interface GitHubRepo {
   id: number;
   full_name: string;
-  description?: string;
+  description?: string | null;
+  private?: boolean;
   html_url: string;
   stargazers_count?: number;
   forks_count?: number;
@@ -35,6 +36,18 @@ interface GitHubRepo {
 
 const GITHUB_API_URL = "https://api.github.com";
 const COLLECTOR_FETCH_TIMEOUT_MS = 30_000;
+const REPO_METADATA_TIMEOUT_MS = 5_000;
+
+async function isRateLimited(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false;
+  if (res.headers.get("x-ratelimit-remaining") === "0") return true;
+  try {
+    const body = await res.json();
+    return typeof body?.message === "string" && /rate limit/i.test(body.message);
+  } catch {
+    return false;
+  }
+}
 
 async function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -64,9 +77,13 @@ export function extractRepo(input: string): string {
   }
 }
 
-async function upsertRelease(release: GitHubRelease, sourceId: number) {
-  const itemId = `${release.tag_name}`;
-  if (!itemId) return null;
+export function releaseItemId(repo: string, tag: string): string {
+  return `${repo.toLowerCase()}:${tag}`;
+}
+
+async function upsertRelease(release: GitHubRelease, sourceId: number, repo: string) {
+  if (!release.tag_name) return null;
+  const itemId = releaseItemId(repo, release.tag_name);
 
   return prisma.ghItem.upsert({
     where: { id: itemId },
@@ -85,6 +102,10 @@ async function upsertRelease(release: GitHubRelease, sourceId: number) {
       title: release.name || release.tag_name,
       body: release.body || null,
       author: release.author?.login || null,
+      url: release.html_url,
+      publishedAt: release.published_at ? new Date(release.published_at) : null,
+      tagName: release.tag_name,
+      sourceId,
       fetchedAt: new Date(),
     },
   });
@@ -135,19 +156,59 @@ export async function fetchSourceItems(
   try {
     let upserted = 0;
 
+    if (source.type === "repo" && !source.repo) {
+      console.warn(`[GitHub] Skipping release source ${source.id}: missing repo`);
+      return { upserted: 0, error: "Invalid source configuration: missing repo" };
+    }
+
     if (source.type === "repo" && source.repo) {
       // Mode 1: Repo Releases
       const apiUrl = `${GITHUB_API_URL}/repos/${source.repo}/releases?per_page=${Math.min(maxItems, 100)}`;
+      const headers = getHeaders();
+
+      const metadataController = new AbortController();
+      const metadataTimeout = setTimeout(() => metadataController.abort(), REPO_METADATA_TIMEOUT_MS);
+      try {
+        const repoResponse = await fetch(`${GITHUB_API_URL}/repos/${source.repo}`, {
+          headers,
+          signal: metadataController.signal,
+        });
+        if (!repoResponse.ok) {
+          if ([401, 403, 404].includes(repoResponse.status) && !(await isRateLimited(repoResponse))) {
+            // Definite access failures invalidate stale public visibility, preserving the description.
+            await prisma.ghSource.update({
+              where: { id: source.id },
+              data: { isPrivate: null },
+            });
+          }
+          throw new Error(`HTTP ${repoResponse.status}`);
+        }
+        const repo: GitHubRepo = await repoResponse.json();
+        await prisma.ghSource.update({
+          where: { id: source.id },
+          data: { description: repo.description ?? null, isPrivate: typeof repo.private === "boolean" ? repo.private : null },
+        });
+      } catch (err) {
+        console.warn(`[GitHub] Could not refresh description for ${source.repo}:`, err);
+      } finally {
+        clearTimeout(metadataTimeout);
+      }
 
       const res = await fetch(apiUrl, {
-        headers: getHeaders(),
+        headers,
         signal: AbortSignal.timeout(COLLECTOR_FETCH_TIMEOUT_MS),
       });
 
       if (!res.ok) {
         const errorMsg = `HTTP ${res.status}`;
-        if (res.status === 403) {
+        if (await isRateLimited(res)) {
           return { upserted: 0, error: "Rate limited. Set GITHUB_TOKEN for higher limits." };
+        }
+        if ([401, 403, 404].includes(res.status)) {
+          await prisma.ghSource.update({
+            where: { id: source.id },
+            data: { isPrivate: null },
+          });
         }
         if (res.status === 404) {
           return { upserted: 0, error: "Repository not found." };
@@ -165,7 +226,7 @@ export async function fetchSourceItems(
         if (!release.tag_name) continue;
 
         try {
-          await upsertRelease(release, source.id);
+          await upsertRelease(release, source.id, source.repo);
           upserted++;
         } catch (err) {
           console.error(`  [GitHub] Error upserting release ${release.tag_name}:`, err);
@@ -173,6 +234,7 @@ export async function fetchSourceItems(
 
         await delay(50);
       }
+
     } else if (source.type === "search" && source.query) {
       // Mode 2: Search/Trending
       const apiUrl = `${GITHUB_API_URL}/search/repositories?q=${encodeURIComponent(source.query)}&sort=stars&order=desc&per_page=${Math.min(maxItems, 100)}`;

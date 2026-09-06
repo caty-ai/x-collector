@@ -7,6 +7,8 @@ import { articleIdFromSource } from "@/lib/reader/article-id";
 import { renderMarkdown } from "@/lib/reader/markdown-render";
 
 import { ArticleActions } from "@/components/reader/ArticleActions";
+import ProjectsShelf from "@/components/reader/ProjectsShelf";
+import type { ProjectItem } from "@/lib/projects-shelf";
 import { AskAiBanner } from "@/components/reader/AskAiBanner";
 import {
   buildArticleAnchorId,
@@ -40,6 +42,7 @@ type ViewerState = {
 
 type NewsletterViewerPanelProps = {
   masthead: string;
+  projectsShelf?: { enabled: boolean; title: string };
 };
 
 type DayIndicator = {
@@ -274,7 +277,24 @@ export default function NewsletterViewerPanel(props: NewsletterViewerPanelProps)
   );
 }
 
-function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) {
+function NewsletterViewerPanelContent({ masthead, projectsShelf }: NewsletterViewerPanelProps) {
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const projectsEnabled = projectsShelf?.enabled ?? false;
+  useEffect(() => {
+    if (!projectsEnabled) return;
+    let cancelled = false;
+    fetch("/api/bff/projects")
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data: { items: ProjectItem[] } = await response.json();
+        if (!cancelled && Array.isArray(data.items)) setProjects(data.items);
+      })
+      .catch(() => { /* An unavailable shelf does not interrupt the newspaper. */ });
+    return () => { cancelled = true; };
+  }, [projectsEnabled]);
+  const shelf = projectsEnabled && projects.length > 0
+    ? <ProjectsShelf title={projectsShelf?.title ?? "Projects"} items={projects} />
+    : null;
   const searchParams = useSearchParams();
   const urlDate = searchParams.get("date");
   const prevUrlDateRef = useRef(urlDate);
@@ -655,6 +675,7 @@ function NewsletterViewerPanelContent({ masthead }: NewsletterViewerPanelProps) 
         <p className="mt-4 font-sans text-wired-meta text-ink/60">■ はデータあり日（bindingsCount &gt; 0）</p>
         {indicatorLoading && <p className="mt-1 font-sans text-wired-meta text-ink/60">日付インジケーター更新中...</p>}
         {indicatorError && <p className="mt-1 border border-ink p-2 font-sans text-wired-meta text-ink">{indicatorError}</p>}
+        {shelf && <div className="mt-4">{shelf}</div>}
       </section>
 
       <div className="min-w-0 flex-1 space-y-6">

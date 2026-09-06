@@ -1,0 +1,2 @@
+ALTER TABLE gh_sources ADD COLUMN IF NOT EXISTS "description" TEXT;
+ALTER TABLE gh_sources ADD COLUMN IF NOT EXISTS "isPrivate" BOOLEAN;
