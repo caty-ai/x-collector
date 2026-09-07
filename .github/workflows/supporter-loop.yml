@@ -15,6 +15,7 @@ on:
     types: [closed]
   schedule:
     - cron: "17 3 * * 1"   # weekly sweep, Monday 03:17 UTC
+  workflow_dispatch:       # owner-triggered sweep (v1.11); same steps as the schedule, no inputs
 permissions:
   contents: write        # ceiling only (v1.11): materialized solely by the sweep-only `stars` job (§4.4); decide/act stay contents: none
   actions: read          # sweep precondition: "no failed supporter-loop runs since last sweep" (§11)
@@ -31,7 +32,7 @@ jobs:
     uses: caty-ai/.github/.github/workflows/supporter-loop-reusable.yml@main
     with:
       mode: live                 # <- the ONLY line that changes at checkpoint #4
-      sweep: ${{ github.event_name == 'schedule' }}
+      sweep: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     secrets:
       SUPPORTER_LEDGER_TOKEN: ${{ secrets.SUPPORTER_LEDGER_TOKEN }}
       SUPPORTER_LOOP_TOKEN: ${{ secrets.SUPPORTER_LOOP_TOKEN }}
