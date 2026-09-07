@@ -16,7 +16,7 @@ on:
   schedule:
     - cron: "17 3 * * 1"   # weekly sweep, Monday 03:17 UTC
 permissions:
-  contents: none
+  contents: write        # ceiling only (v1.11): materialized solely by the sweep-only `stars` job (§4.4); decide/act stay contents: none
   actions: read          # sweep precondition: "no failed supporter-loop runs since last sweep" (§11)
   issues: write
   pull-requests: write
