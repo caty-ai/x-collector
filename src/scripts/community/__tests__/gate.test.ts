@@ -940,7 +940,7 @@ describe("community gate act mode", () => {
     ["contains spaces", { identifier: "Evil Title", dedupKey: "evil title" }],
     ["is longer than 15 characters", { identifier: "A".repeat(16), dedupKey: "a".repeat(16) }],
     ["has an invalid submitter login", { submittedBy: "-evil" }],
-    ["has an unsafe dedup key", { identifier: "evil title", dedupKey: "evil title" }],
+    ["has an identifier and dedup key with unsafe characters", { identifier: "evil title", dedupKey: "evil title" }],
   ])("rejects a pass contract whose validated fields %s", (_reason, contractOverrides) => {
     const result = runActCase([], contractOverrides);
 
