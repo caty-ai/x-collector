@@ -29,11 +29,17 @@ HTTP status: `401`
 - `date=YYYY-MM-DD` (interpreted as the **JST delivery-date label** for the 06:00-to-06:00 edition window; 内容日で引くなら `-1日`)
 - `slug=<edition-slug>`
 - `includeContent=0|1` (default `1`)
-- `format=markdown` (optional; returns raw markdown text)
+- `includeItems=0|1` (default `0`)
+- `format=markdown|json` (optional; `markdown` returns raw markdown text)
+- `status=published` (optional; only `published` is accepted)
+- `projection=public` (optional; only `public` is accepted)
 
 ### Status behavior (fixed)
+- `status=published` disables the no-date fallback to any edition with non-empty `contentMd`
 - `200`: edition found (JSON or markdown)
 - `400`: invalid date format
+- `400 { "error": "Invalid status. Use status=published" }`: unsupported non-null `status`
+- `400 { "error": "Invalid projection. Use projection=public" }`: unsupported non-null `projection`
 - `401`: unauthorized
 - `404`: edition not found
 - `404`: `format=markdown` and `contentMd` empty
@@ -64,9 +70,34 @@ HTTP status: `401`
     contentChars: number;
     // includeContent=1 only; when empty => null
     contentMd?: string | null;
+    // includeItems=1 only
+    items?: Array<{
+      pipelineItemId: string;
+      section: string;
+      position: number;
+      title: string | null;
+      titleJa: string | null;
+      url: string;
+      platform: string;
+      sourceRef: string | null;
+      trustLabel: string | null;
+    }>;
   };
 }
 ```
+
+When `projection=public`, `meta` is unchanged and `edition` is restricted to exactly:
+
+- `editionDate`, `title`, `status`, `publishedAt`, `bindingsCount`, `contentChars`
+- `contentMd` only when `includeContent=1`
+- `items` only when `includeItems=1`; each item contains only `section`, `position`, `title`, `titleJa`, `url`, `trustLabel`
+
+The public projection never includes `id`, `slug`, `model`, `summary`, `generatedAt`, `createdAt`, `updatedAt`, `voiceSignalCount`, or item fields `pipelineItemId`, `platform`, `sourceRef`.
+
+### Markdown response headers
+
+- Without `projection=public`: `content-type`, `x-content-type-options`, `x-edition-id`, `x-edition-slug`, `x-edition-status`
+- With `projection=public`: `content-type`, `x-content-type-options`, `x-edition-status` only
 
 ### Null/empty rules (fixed)
 - edition not found: `404 { error }`

@@ -9,6 +9,10 @@ import {
   resolveNewsletterApiKey,
   resolveRailwayApiBaseUrl,
 } from "@/lib/bff/upstream";
+import {
+  projectPublicEdition,
+  type PublicEditionJson,
+} from "@/lib/pipeline/edition-public";
 import { isAcceptablePublicDate } from "@/lib/reader/edition-nav";
 
 const NEWSLETTER_LATEST_UPSTREAM = "/api/newsletter-editions/latest";
@@ -102,24 +106,31 @@ export async function GET(req: NextRequest) {
       signal: AbortSignal.timeout(30_000),
     });
 
-    const payload = await upstreamResponse.text();
+    let payload = await upstreamResponse.text();
     if (auth.mode === "public" && upstreamResponse.status === 404) {
       return publicNotFound();
     }
     if (auth.mode === "public" && upstreamResponse.ok) {
-      const isPublished =
-        format === "markdown"
-          ? upstreamResponse.headers.get("x-edition-status") === "published"
-          : (() => {
-              try {
-                const parsed = JSON.parse(payload) as { edition?: { status?: unknown } };
-                return parsed.edition?.status === "published";
-              } catch {
-                return false;
-              }
-            })();
-      if (!isPublished) {
-        return publicNotFound();
+      // Upstream enforces status=published; keep this as a second line of defence.
+      if (format === "markdown") {
+        if (upstreamResponse.headers.get("x-edition-status") !== "published") {
+          return publicNotFound();
+        }
+      } else {
+        type PublicUpstreamPayload = { meta?: unknown; edition?: PublicEditionJson };
+        let parsed: PublicUpstreamPayload | null = null;
+        try {
+          parsed = JSON.parse(payload) as PublicUpstreamPayload | null;
+        } catch {
+          return publicNotFound();
+        }
+        if (!parsed?.edition || parsed.edition.status !== "published") {
+          return publicNotFound();
+        }
+        payload = JSON.stringify({
+          meta: parsed.meta,
+          edition: projectPublicEdition(parsed.edition),
+        });
       }
     }
     return new NextResponse(payload, {

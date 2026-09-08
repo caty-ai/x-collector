@@ -4,6 +4,7 @@ README から移設した改修履歴。最新の開発ステータスは [エ�
 
 ## Unreleased — 2026-09-06
 
+- 匿名 newsletter BFF の upstream 呼び出しを published 限定・public field projection に固定し、BFF でも projection を再適用して deploy 順に依存しない field guard とし、過去日の og-image 取得へ明示的な日付を渡す（#91）。Bearer の既存 full response は維持する。
 - Projects 棚をカレンダー下に追加（#118、upstream #203 / #213 / #217）。既定はオフ。環境変数で手動指定した最大3件、またはタグ付きの公開 GitHub 情報源を表示し、取得失敗や空一覧では何も表示しない。
 - GitHub release の重複判定キーを `lower(repo):tag` に変更（upstream #151）。既存データの migration、dry-run 対応 backfill、ローカル PostgreSQL proof を追加し、pipeline の履歴を保持。情報源の説明と公開状態も収集する。
 
