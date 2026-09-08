@@ -184,6 +184,36 @@ describe("newsletter reader BFF", () => {
     expect(await response.json()).toEqual(projected);
   });
 
+  it("locks the exact anonymous JSON bytes", async () => {
+    configurePublic();
+    const expectedAnonymousBody = {
+      meta: {
+        dateBasis: "jst-date",
+        timeZoneForDateParam: "Asia/Tokyo",
+        requestedDate: "2026-08-01",
+        requestedSlug: null,
+      },
+      edition: {
+        editionDate: "2026-08-01",
+        title: "Published",
+        status: "published",
+        publishedAt: "2026-08-01T00:00:00.000Z",
+        bindingsCount: 1,
+        contentChars: 12,
+      },
+    };
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify(expectedAnonymousBody), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const response = await getNewsletter(req("/api/bff/newsletter-editions/latest?format=json"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(JSON.stringify(expectedAnonymousBody));
+  });
+
   it("pins anonymous meta to the four documented keys", async () => {
     configurePublic();
     mocks.fetch.mockResolvedValue(

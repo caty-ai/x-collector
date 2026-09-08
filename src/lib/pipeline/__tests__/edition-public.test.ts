@@ -189,7 +189,7 @@ describe("public meta projection", () => {
     expect(projected).not.toHaveProperty("debugQuery");
   });
 
-  it.each([undefined, null, "string", []])(
+  it.each([undefined, null, "string", [], 42, true])(
     "returns all-null meta for non-object input %#",
     (input) => {
       expect(projectPublicMeta(input)).toEqual(nullMeta);
