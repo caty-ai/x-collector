@@ -107,6 +107,7 @@ export async function GET(req: NextRequest) {
       return publicNotFound();
     }
     if (auth.mode === "public" && upstreamResponse.ok) {
+      // Upstream enforces status=published; keep this as a second line of defence.
       const isPublished =
         format === "markdown"
           ? upstreamResponse.headers.get("x-edition-status") === "published"

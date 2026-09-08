@@ -44,6 +44,12 @@ export function buildEditionPath(date: string): string {
   return `/calendar?date=${date}`;
 }
 
+export function buildOgImageBffPath(url: string, date: string): string {
+  const params = new URLSearchParams({ url });
+  if (ISO_DATE_RE.test(date)) params.set("date", date);
+  return `/api/bff/og-image?${params.toString()}`;
+}
+
 export function formatEditionDateLabel(date: string): string {
   const [year, month, day] = date.split("-").map(Number);
   return new Intl.DateTimeFormat("ja-JP-u-ca-japanese", {

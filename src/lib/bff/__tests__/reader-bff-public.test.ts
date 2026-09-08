@@ -145,8 +145,38 @@ describe("newsletter reader BFF", () => {
     expect(response.status).toBe(200);
     const upstream = new URL(String(mocks.fetch.mock.calls[0]?.[0]));
     expect(upstream.searchParams.toString()).toBe(
-      "date=2026-08-01&includeContent=1&includeItems=0",
+      "date=2026-08-01&format=json&includeContent=1&includeItems=0&status=published&projection=public",
     );
+  });
+
+  it("passes an anonymous projected JSON payload through unchanged", async () => {
+    configurePublic();
+    const projected = {
+      meta: {
+        dateBasis: "latest",
+        timeZoneForDateParam: "Asia/Tokyo",
+        requestedDate: null,
+        requestedSlug: null,
+      },
+      edition: {
+        editionDate: "2026-08-01",
+        title: "Published",
+        status: "published",
+        publishedAt: "2026-08-01T00:00:00.000Z",
+        bindingsCount: 1,
+        contentChars: 12,
+      },
+    };
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify(projected), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const response = await getNewsletter(req("/api/bff/newsletter-editions/latest?format=json"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(projected);
   });
 
   it("rejects invalid anonymous values before fetch", async () => {

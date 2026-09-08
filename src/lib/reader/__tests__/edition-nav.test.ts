@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildEditionPath,
+  buildOgImageBffPath,
   formatEditionDateLabel,
   isAcceptablePublicDate,
   resolveEditionDate,
@@ -43,6 +44,18 @@ describe("edition date helpers", () => {
   it("builds navigation paths and the inherited Japanese-era label", () => {
     expect(buildEditionPath("2026-08-02")).toBe("/calendar?date=2026-08-02");
     expect(formatEditionDateLabel("2026-08-02")).toMatch(/年.*\([日月火水木金土]\)/);
+  });
+
+  it("builds an encoded og-image BFF path with a valid edition date", () => {
+    expect(buildOgImageBffPath("https://example.com/a path?q=one&two=2", "2026-08-02")).toBe(
+      "/api/bff/og-image?url=https%3A%2F%2Fexample.com%2Fa+path%3Fq%3Done%26two%3D2&date=2026-08-02",
+    );
+  });
+
+  it("omits an invalid edition date from the og-image BFF path", () => {
+    expect(buildOgImageBffPath("https://example.com/article", "not-a-date")).toBe(
+      "/api/bff/og-image?url=https%3A%2F%2Fexample.com%2Farticle",
+    );
   });
 
   it("bounds anonymous dates from 2020 through tomorrow JST", () => {

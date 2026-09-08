@@ -2,6 +2,14 @@ import { PrismaClient } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeBearerCheck } from "@/lib/auth/bearer";
 import { editionMarkdownHeaders } from "@/lib/pipeline/edition-markdown-response";
+import {
+  buildEditionLookup,
+  parseEditionProjectionParam,
+  parseEditionStatusParam,
+  projectPublicEdition,
+  publicMarkdownHeaders,
+  type FullEditionJson,
+} from "@/lib/pipeline/edition-public";
 
 const prisma = new PrismaClient();
 let warnedMissingNewsletterApiKey = false;
@@ -102,51 +110,54 @@ export async function GET(req: NextRequest) {
   const includeContent = (sp.get("includeContent") || "1") !== "0";
   const includeItems = (sp.get("includeItems") || "0") !== "0";
   const format = sp.get("format");
+  const statusResult = parseEditionStatusParam(sp.get("status"));
+  if (!statusResult.ok) {
+    return NextResponse.json(
+      { error: "Invalid status. Use status=published" },
+      { status: 400 },
+    );
+  }
+  const projectionResult = parseEditionProjectionParam(sp.get("projection"));
+  if (!projectionResult.ok) {
+    return NextResponse.json(
+      { error: "Invalid projection. Use projection=public" },
+      { status: 400 },
+    );
+  }
 
-  let edition;
   let dateBasis: "jst-date" | "slug" | "latest" = "latest";
-
+  let dateRange: { start: Date; end: Date } | null = null;
   if (slug) {
     dateBasis = "slug";
-    edition = await prisma.newsletterEdition.findUnique({
-      where: { slug },
-      include: editionCountInclude,
-    });
   } else if (date) {
     const range = parseDateParam(date);
     if (!range) {
       return NextResponse.json({ error: "Invalid date format. Use YYYY-MM-DD" }, { status: 400 });
     }
     dateBasis = range.basis;
+    dateRange = { start: range.start, end: range.end };
+  }
 
-    // Intentional: an explicitly requested day never falls back across days; when format=markdown is requested,
-    // empty contentMd reaches the existing markdown check below and returns 404.
-    edition = await prisma.newsletterEdition.findFirst({
-      where: {
-        editionDate: {
-          gte: range.start,
-          lte: range.end,
-        },
-      },
-      orderBy: [{ updatedAt: "desc" }],
+  const lookup = buildEditionLookup({
+    slug,
+    dateRange,
+    publishedOnly: statusResult.status === "published",
+  });
+  let edition;
+  if (lookup.method === "findUnique") {
+    edition = await prisma.newsletterEdition.findUnique({
+      ...lookup.primary,
       include: editionCountInclude,
     });
   } else {
     edition = await prisma.newsletterEdition.findFirst({
-      where: {
-        status: "published",
-        contentMd: { not: null },
-      },
-      orderBy: [{ editionDate: "desc" }, { updatedAt: "desc" }],
+      ...lookup.primary,
       include: editionCountInclude,
     });
 
-    if (!edition) {
+    if (!edition && lookup.fallback) {
       edition = await prisma.newsletterEdition.findFirst({
-        where: {
-          contentMd: { not: null },
-        },
-        orderBy: [{ editionDate: "desc" }, { updatedAt: "desc" }],
+        ...lookup.fallback,
         include: editionCountInclude,
       });
     }
@@ -163,7 +174,10 @@ export async function GET(req: NextRequest) {
 
     return new NextResponse(edition.contentMd, {
       status: 200,
-      headers: editionMarkdownHeaders(edition),
+      headers:
+        projectionResult.projection === "public"
+          ? publicMarkdownHeaders(edition)
+          : editionMarkdownHeaders(edition),
     });
   }
 
@@ -212,6 +226,46 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const fullEdition: FullEditionJson = {
+    id: edition.id,
+    editionDate: edition.editionDate.toISOString().slice(0, 10),
+    title: edition.title,
+    slug: edition.slug,
+    status: edition.status,
+    summary: edition.summary,
+    model: edition.model,
+    generatedAt: edition.generatedAt?.toISOString() || null,
+    publishedAt: edition.publishedAt?.toISOString() || null,
+    createdAt: edition.createdAt.toISOString(),
+    updatedAt: edition.updatedAt.toISOString(),
+    bindingsCount: edition._count.bindings,
+    voiceSignalCount: edition._count.voiceSignals,
+    contentChars: normalizedContent?.length || 0,
+    ...(includeContent ? { contentMd: normalizedContent } : {}),
+    ...(includeItems
+      ? {
+          items: bindings.map((binding) => {
+            const item = binding.pipelineItem;
+            const trackedHandle = normalizeTwitterSourceHandle(item.platform, item.sourceRef);
+
+            return {
+              pipelineItemId: binding.pipelineItemId,
+              section: binding.section,
+              position: binding.position,
+              title: item.title,
+              titleJa: binding.classification?.titleJa || null,
+              url: item.url || item.canonicalUrl || "",
+              platform: item.platform,
+              sourceRef: item.sourceRef,
+              trustLabel: exposeTrustLabel(
+                trackedHandle ? sourceTrustByHandle.get(trackedHandle) : null,
+              ),
+            };
+          }),
+        }
+      : {}),
+  };
+
   return NextResponse.json({
     meta: {
       dateBasis,
@@ -219,44 +273,9 @@ export async function GET(req: NextRequest) {
       requestedDate: date || null,
       requestedSlug: slug || null,
     },
-    edition: {
-      id: edition.id,
-      editionDate: edition.editionDate.toISOString().slice(0, 10),
-      title: edition.title,
-      slug: edition.slug,
-      status: edition.status,
-      summary: edition.summary,
-      model: edition.model,
-      generatedAt: edition.generatedAt?.toISOString() || null,
-      publishedAt: edition.publishedAt?.toISOString() || null,
-      createdAt: edition.createdAt.toISOString(),
-      updatedAt: edition.updatedAt.toISOString(),
-      bindingsCount: edition._count.bindings,
-      voiceSignalCount: edition._count.voiceSignals,
-      contentChars: normalizedContent?.length || 0,
-      contentMd: includeContent ? normalizedContent : undefined,
-      ...(includeItems
-        ? {
-            items: bindings.map((binding) => {
-              const item = binding.pipelineItem;
-              const trackedHandle = normalizeTwitterSourceHandle(item.platform, item.sourceRef);
-
-              return {
-                pipelineItemId: binding.pipelineItemId,
-                section: binding.section,
-                position: binding.position,
-                title: item.title,
-                titleJa: binding.classification?.titleJa || null,
-                url: item.url || item.canonicalUrl || "",
-                platform: item.platform,
-                sourceRef: item.sourceRef,
-                trustLabel: exposeTrustLabel(
-                  trackedHandle ? sourceTrustByHandle.get(trackedHandle) : null,
-                ),
-              };
-            }),
-          }
-        : {}),
-    },
+    edition:
+      projectionResult.projection === "public"
+        ? projectPublicEdition(fullEdition)
+        : fullEdition,
   });
 }

@@ -31,6 +31,7 @@ import {
   NewsletterLatestResponseSchema,
 } from "@/lib/contracts/newsletter";
 import { formatUtcToJstDate } from "@/lib/date-formatter";
+import { buildOgImageBffPath } from "@/lib/reader/edition-nav";
 
 type ViewerState = {
   loading: boolean;
@@ -468,7 +469,7 @@ function NewsletterViewerPanelContent({ masthead, projectsShelf }: NewsletterVie
 
       setOgImages((current) => ({ ...current, [key]: { status: "loading" } }));
 
-      void fetch(`/api/bff/og-image?url=${encodeURIComponent(url)}`)
+      void fetch(buildOgImageBffPath(url, appliedDate))
         .then(async (response) => {
           if (!response.ok) {
             return null;
@@ -495,7 +496,7 @@ function NewsletterViewerPanelContent({ masthead, projectsShelf }: NewsletterVie
           setOgImages((current) => ({ ...current, [key]: { status: "none" } }));
         });
     },
-    [ogImages],
+    [appliedDate, ogImages],
   );
 
   useEffect(() => {

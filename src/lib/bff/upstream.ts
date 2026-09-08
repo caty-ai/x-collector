@@ -57,8 +57,10 @@ export function buildNewsletterLatestPublicUpstreamUrl(
 ): URL {
   const upstreamUrl = new URL(NEWSLETTER_LATEST_UPSTREAM_PATH, baseUrl);
   if (params.date) upstreamUrl.searchParams.set("date", params.date);
-  if (params.format === "markdown") upstreamUrl.searchParams.set("format", "markdown");
+  if (params.format) upstreamUrl.searchParams.set("format", params.format);
   if (params.includeContent) upstreamUrl.searchParams.set("includeContent", params.includeContent);
   if (params.includeItems) upstreamUrl.searchParams.set("includeItems", params.includeItems);
+  upstreamUrl.searchParams.set("status", "published");
+  upstreamUrl.searchParams.set("projection", "public");
   return upstreamUrl;
 }
