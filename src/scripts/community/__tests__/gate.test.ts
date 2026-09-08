@@ -935,6 +935,98 @@ describe("community gate act mode", () => {
     expect(result.requests).toEqual([]);
   });
 
+  it.each([
+    ["contains a non-ASCII homoglyph that lowercases to a safe dedup key", { identifier: "\u212Aevin", dedupKey: "kevin" }],
+    ["contains spaces", { identifier: "Evil Title", dedupKey: "evil title" }],
+    ["is longer than 15 characters", { identifier: "A".repeat(16), dedupKey: "a".repeat(16) }],
+    ["has an invalid submitter login", { submittedBy: "-evil" }],
+    ["has an identifier and dedup key with unsafe characters", { identifier: "evil title", dedupKey: "evil title" }],
+  ])("rejects a pass contract whose validated fields %s", (_reason, contractOverrides) => {
+    const result = runActCase([], contractOverrides);
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("invalid validated fields in contract");
+    expect(result.requests).toEqual([]);
+  });
+
+  it("rejects a pass contract whose dedup key does not match its identifier", () => {
+    const result = runActCase([], { dedupKey: "openaitest2" });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("contract dedup key mismatch");
+    expect(result.requests).toEqual([]);
+  });
+
+  it.each([
+    ["all content fields", {
+      identifier: "OpenAITest",
+      submittedBy: "CommunityUser",
+      dedupKey: "openaitest",
+    }],
+    ["only an identifier", { identifier: "OpenAITest", submittedBy: "", dedupKey: "" }],
+    ["only a submitter login", { identifier: "", submittedBy: "CommunityUser", dedupKey: "" }],
+    ["only a dedup key", { identifier: "", submittedBy: "", dedupKey: "openaitest" }],
+  ])("rejects a non-pass contract carrying %s", (_fields, contentFields) => {
+    const result = runActCase([], {
+      verdict: "fail",
+      prNumber: 10,
+      failedCheckIds: ["C9"],
+      ...contentFields,
+    });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("non-pass contract carried content fields");
+    expect(result.requests).toEqual([]);
+  });
+
+  it.each([
+    ["non-numeric text", "abc"],
+    ["a negative number", "-1"],
+    ["an unsafe integer", "9007199254740993"],
+    ["exponent notation", "1e3"],
+  ])("rejects a contract whose pull request number is %s", (_reason, prNumber) => {
+    const result = runActCase([], {}, { CONTRACT_PR_NUMBER: prNumber });
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("invalid contract pull request number");
+    expect(result.requests).toEqual([]);
+  });
+
+  it.each([
+    ["is 39 characters", { headSha: "b".repeat(39) }],
+    ["uses uppercase characters", { headSha: "B".repeat(40) }],
+    ["is empty", { headSha: "" }],
+    ["has pull request number 0", { prNumber: 0 }],
+  ])("rejects a pass contract whose identity %s", (_reason, contractOverrides) => {
+    const result = runActCase([], contractOverrides);
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("invalid contract identity");
+    expect(result.requests).toEqual([]);
+  });
+
+  it.each([
+    ["a malformed non-empty head SHA", { headSha: "B".repeat(40) }, {}, "invalid contract head SHA"],
+    ["an unknown failed check ID", {}, { CONTRACT_FAILED_CHECK_IDS: "Z9" }, "invalid contract check IDs"],
+  ])("rejects a non-pass contract with %s", (_reason, contractOverrides, envOverrides, errorMessage) => {
+    const result = runActCase([], {
+      verdict: "fail",
+      failedCheckIds: ["C9"],
+      ...NON_PASS_ACT_CONTRACT_FIELDS,
+      ...contractOverrides,
+    }, envOverrides);
+
+    expectAllRequestsMatched(result.requests);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(errorMessage);
+    expect(result.requests).toEqual([]);
+  });
+
   it("returns neutral without labels or sticky comments when community sources are untouched", () => {
     const result = runActCase([
       {
