@@ -69,21 +69,25 @@ describe("buildEditionLookup", () => {
   };
 
   it.each([
-    ["slug", { slug: "daily-news", dateRange: null }, "findUnique", false, false],
-    ["slug published", { slug: "daily-news", dateRange: null }, "findFirst", true, true],
-    ["date", { slug: null, dateRange }, "findFirst", false, false],
-    ["date published", { slug: null, dateRange }, "findFirst", true, true],
-    ["latest", { slug: null, dateRange: null }, "findFirst", false, true],
-    ["latest published", { slug: null, dateRange: null }, "findFirst", true, true],
-  ] as const)("builds the %s primary query", (_label, input, method, publishedOnly, primaryHasStatus) => {
-    const lookup = buildEditionLookup({ ...input, publishedOnly });
+    ["slug", { slug: "daily-news", dateRange: null }, "findUnique", false, false, false],
+    ["slug published", { slug: "daily-news", dateRange: null }, "findFirst", true, true, false],
+    ["date", { slug: null, dateRange }, "findFirst", false, false, false],
+    ["date published", { slug: null, dateRange }, "findFirst", true, true, false],
+    ["latest", { slug: null, dateRange: null }, "findFirst", false, true, true],
+    ["latest published", { slug: null, dateRange: null }, "findFirst", true, true, false],
+  ] as const)(
+    "builds the %s primary query",
+    (_label, input, method, publishedOnly, primaryHasStatus, hasFallback) => {
+      const lookup = buildEditionLookup({ ...input, publishedOnly });
 
-    expect(lookup.method).toBe(method);
-    expect(
-      "status" in lookup.primary.where && lookup.primary.where.status === "published",
-    ).toBe(primaryHasStatus);
-    if (publishedOnly) expect(lookup.fallback).toBeNull();
-  });
+      expect(lookup.method).toBe(method);
+      expect(
+        "status" in lookup.primary.where && lookup.primary.where.status === "published",
+      ).toBe(primaryHasStatus);
+      if (hasFallback) expect(lookup.fallback).not.toBeNull();
+      else expect(lookup.fallback).toBeNull();
+    },
+  );
 
   it("keeps the legacy latest fallback only when publishedOnly is false", () => {
     const lookup = buildEditionLookup({ slug: null, dateRange: null, publishedOnly: false });
@@ -115,6 +119,8 @@ describe("public edition projection", () => {
     expect(projectedEdition).not.toHaveProperty("internalNote");
     expect(projectedEdition.items?.[0]).not.toHaveProperty("internalNote");
     expect(projectedItem).not.toHaveProperty("internalNote");
+    expect(projectedItem.url).toBe(item.url);
+    expect(projectedItem.trustLabel).toBe(item.trustLabel);
   });
 
   it("omits contentMd and items when the full response omitted them", () => {

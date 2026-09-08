@@ -121,6 +121,43 @@ describe("newsletter latest upstream route", () => {
     expect(mocks.editionFindUnique).not.toHaveBeenCalled();
   });
 
+  it("rejects unsupported projection values before querying", async () => {
+    const response = await GET(req("?projection=private"));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid projection. Use projection=public",
+    });
+    expect(mocks.editionFindFirst).not.toHaveBeenCalled();
+    expect(mocks.editionFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("uses a published findFirst slug lookup without fallback", async () => {
+    mocks.editionFindFirst.mockResolvedValue(null);
+
+    const response = await GET(req("?slug=daily-news-20260908&status=published"));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Edition not found" });
+    expect(mocks.editionFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { slug: "daily-news-20260908", status: "published" },
+      }),
+    );
+    expect(mocks.editionFindFirst).toHaveBeenCalledTimes(1);
+    expect(mocks.editionFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("keeps findUnique for a slug lookup without status", async () => {
+    const response = await GET(req("?slug=daily-news-20260908"));
+
+    expect(response.status).toBe(200);
+    expect(mocks.editionFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { slug: "daily-news-20260908" } }),
+    );
+    expect(mocks.editionFindFirst).not.toHaveBeenCalled();
+  });
+
   it("projects JSON editions and items through exact allow-lists", async () => {
     const response = await GET(req("?projection=public&includeItems=1"));
     const body = await response.json();
@@ -141,10 +178,58 @@ describe("newsletter latest upstream route", () => {
     expect(response.headers.has("x-edition-slug")).toBe(false);
   });
 
-  it("preserves the full JSON response without projection", async () => {
-    const response = await GET(req());
+  it("preserves the complete legacy JSON response without projection", async () => {
+    const response = await GET(req("?includeItems=1"));
     const body = await response.json();
 
-    expect(body.edition).toMatchObject({ id: "edition-1", slug: "daily-news-20260908" });
+    expect(response.status).toBe(200);
+    expect(Object.keys(body)).toEqual(["meta", "edition"]);
+    expect(body).toEqual({
+      meta: {
+        dateBasis: "latest",
+        timeZoneForDateParam: "Asia/Tokyo",
+        requestedDate: null,
+        requestedSlug: null,
+      },
+      edition: {
+        id: "edition-1",
+        editionDate: "2026-09-07",
+        title: "Daily News",
+        slug: "daily-news-20260908",
+        status: "published",
+        summary: null,
+        model: "model",
+        generatedAt: "2026-09-08T00:00:00.000Z",
+        publishedAt: "2026-09-08T01:00:00.000Z",
+        createdAt: "2026-09-08T00:00:00.000Z",
+        updatedAt: "2026-09-08T01:00:00.000Z",
+        bindingsCount: 1,
+        voiceSignalCount: 2,
+        contentChars: 11,
+        contentMd: "# Published",
+        items: [
+          {
+            pipelineItemId: "pipeline-1",
+            section: "Top stories",
+            position: 1,
+            title: "Title",
+            titleJa: "タイトル",
+            url: "https://example.com/article",
+            platform: "twitter",
+            sourceRef: "@example",
+            trustLabel: "high",
+          },
+        ],
+      },
+    });
+  });
+
+  it("preserves legacy markdown response headers without projection", async () => {
+    const response = await GET(req("?format=markdown"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-edition-id")).toBe("edition-1");
+    expect(response.headers.get("x-edition-slug")).toBe("daily-news-20260908");
+    expect(response.headers.get("x-edition-status")).toBe("published");
   });
 });

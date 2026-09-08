@@ -24,6 +24,10 @@ import { GET as getNewsletter } from "@/app/api/bff/newsletter-editions/latest/r
 import { GET as getOgImage } from "@/app/api/bff/og-image/route";
 import { __resetEditionUrlCacheForTests } from "@/lib/bff/og-image-guard";
 import { __resetPublicThrottleForTests } from "@/lib/bff/public-throttle";
+import {
+  PUBLIC_EDITION_FIELDS,
+  PUBLIC_ITEM_FIELDS,
+} from "@/lib/pipeline/edition-public";
 
 function req(path: string, headers?: HeadersInit): NextRequest {
   return new NextRequest(`https://reader.example${path}`, { headers });
@@ -177,6 +181,68 @@ describe("newsletter reader BFF", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(projected);
+  });
+
+  it("re-projects a full legacy anonymous JSON payload", async () => {
+    configurePublic();
+    const fullPayload = {
+      meta: {
+        dateBasis: "latest",
+        timeZoneForDateParam: "Asia/Tokyo",
+        requestedDate: null,
+        requestedSlug: null,
+      },
+      edition: {
+        id: "edition-1",
+        editionDate: "2026-08-01",
+        title: "Published",
+        slug: "daily-news-20260801",
+        status: "published",
+        summary: null,
+        model: "legacy-model",
+        generatedAt: "2026-08-01T00:00:00.000Z",
+        publishedAt: "2026-08-01T01:00:00.000Z",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T01:00:00.000Z",
+        bindingsCount: 1,
+        voiceSignalCount: 2,
+        contentChars: 12,
+        items: [
+          {
+            pipelineItemId: "pipeline-1",
+            section: "Top stories",
+            position: 1,
+            title: "Title",
+            titleJa: "タイトル",
+            url: "https://example.com/article",
+            platform: "twitter",
+            sourceRef: "@example",
+            trustLabel: "high",
+          },
+        ],
+      },
+      debug: { query: "legacy" },
+    };
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify(fullPayload), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const response = await getNewsletter(
+      req("/api/bff/newsletter-editions/latest?format=json&includeItems=1"),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(body)).toEqual(["meta", "edition"]);
+    expect(Object.keys(body.edition).sort()).toEqual(
+      PUBLIC_EDITION_FIELDS.filter((field) => field !== "contentMd").sort(),
+    );
+    expect(Object.keys(body.edition.items[0]).sort()).toEqual([...PUBLIC_ITEM_FIELDS].sort());
+    expect(body).not.toHaveProperty("debug");
+    expect(body.edition).not.toHaveProperty("id");
+    expect(body.edition.items[0]).not.toHaveProperty("pipelineItemId");
   });
 
   it("rejects invalid anonymous values before fetch", async () => {

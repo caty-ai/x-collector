@@ -163,32 +163,32 @@ export function buildEditionLookup(input: {
   };
 }
 
-export function projectPublicItem(item: FullItemJson): PublicItemJson {
+export function projectPublicItem(item: PublicItemJson): PublicItemJson {
   return {
-    [PUBLIC_ITEM_FIELDS[0]]: item.section,
-    [PUBLIC_ITEM_FIELDS[1]]: item.position,
-    [PUBLIC_ITEM_FIELDS[2]]: item.title,
-    [PUBLIC_ITEM_FIELDS[3]]: item.titleJa,
-    [PUBLIC_ITEM_FIELDS[4]]: item.url,
-    [PUBLIC_ITEM_FIELDS[5]]: item.trustLabel,
+    section: item.section,
+    position: item.position,
+    title: item.title,
+    titleJa: item.titleJa,
+    url: item.url,
+    trustLabel: item.trustLabel,
   };
 }
 
-export function projectPublicEdition(edition: FullEditionJson): PublicEditionJson {
+export function projectPublicEdition(edition: PublicEditionJson): PublicEditionJson {
   const projected: PublicEditionJson = {
-    [PUBLIC_EDITION_FIELDS[0]]: edition.editionDate,
-    [PUBLIC_EDITION_FIELDS[1]]: edition.title,
-    [PUBLIC_EDITION_FIELDS[2]]: edition.status,
-    [PUBLIC_EDITION_FIELDS[3]]: edition.publishedAt,
-    [PUBLIC_EDITION_FIELDS[4]]: edition.bindingsCount,
-    [PUBLIC_EDITION_FIELDS[5]]: edition.contentChars,
+    editionDate: edition.editionDate,
+    title: edition.title,
+    status: edition.status,
+    publishedAt: edition.publishedAt,
+    bindingsCount: edition.bindingsCount,
+    contentChars: edition.contentChars,
   };
 
   if (Object.prototype.hasOwnProperty.call(edition, "contentMd")) {
-    projected[PUBLIC_EDITION_FIELDS[6]] = edition.contentMd;
+    projected.contentMd = edition.contentMd;
   }
   if (Object.prototype.hasOwnProperty.call(edition, "items")) {
-    projected[PUBLIC_EDITION_FIELDS[7]] = edition.items?.map(projectPublicItem);
+    projected.items = edition.items?.map(projectPublicItem);
   }
 
   return projected;

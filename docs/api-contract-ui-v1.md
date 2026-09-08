@@ -35,6 +35,7 @@ HTTP status: `401`
 - `projection=public` (optional; only `public` is accepted)
 
 ### Status behavior (fixed)
+- `status=published` disables the no-date fallback to any edition with non-empty `contentMd`
 - `200`: edition found (JSON or markdown)
 - `400`: invalid date format
 - `400 { "error": "Invalid status. Use status=published" }`: unsupported non-null `status`
@@ -69,6 +70,18 @@ HTTP status: `401`
     contentChars: number;
     // includeContent=1 only; when empty => null
     contentMd?: string | null;
+    // includeItems=1 only
+    items?: Array<{
+      pipelineItemId: string;
+      section: string;
+      position: number;
+      title: string | null;
+      titleJa: string | null;
+      url: string;
+      platform: string;
+      sourceRef: string | null;
+      trustLabel: string | null;
+    }>;
   };
 }
 ```
