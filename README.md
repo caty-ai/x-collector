@@ -28,7 +28,7 @@ then delivers the same organized information to both people and AI agents.
 
 </div>
 <!-- repo-state:begin (generated; do not edit) -->
-<p align="center"><sub>generation: <code>935354d</code> (2026-09-08T15:37:42Z) · verify: <a href="https://api.github.com/repos/caty-ai/x-collector/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
+<p align="center"><sub>generation: <code>5e26e80</code> (2026-09-08T15:38:25Z) · verify: <a href="https://api.github.com/repos/caty-ai/x-collector/commits/main">API HEAD</a> · <a href="./status.json">status.json</a></sub></p>
 <!-- repo-state:end -->
 
 ---
