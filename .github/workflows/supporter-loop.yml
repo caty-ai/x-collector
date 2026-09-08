@@ -14,7 +14,7 @@ on:
   pull_request_target:
     types: [closed]
   schedule:
-    - cron: "17 3 * * 1"   # weekly sweep, Monday 03:17 UTC
+    - cron: "17 3,15 * * *"   # sweep twice daily, 03:17 and 15:17 UTC (contract v2.0 §11; catch-up needs caty-ai/.github child B on main)
   workflow_dispatch:       # sweep on demand (write access to the caller repo required — v2.0 wording); same steps as the schedule, no inputs
 permissions:
   contents: write        # ceiling only (v1.11): materialized solely by the sweep-only `stars` job (§4.4); decide/act stay contents: none
