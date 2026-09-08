@@ -15,17 +15,20 @@ on:
     types: [closed]
   schedule:
     - cron: "17 3 * * 1"   # weekly sweep, Monday 03:17 UTC
-  workflow_dispatch:       # owner-triggered sweep (v1.11); same steps as the schedule, no inputs
+  workflow_dispatch:       # sweep on demand (write access to the caller repo required — v2.0 wording); same steps as the schedule, no inputs
 permissions:
   contents: write        # ceiling only (v1.11): materialized solely by the sweep-only `stars` job (§4.4); decide/act stay contents: none
   actions: read          # sweep precondition: "no failed supporter-loop runs since last sweep" (§11)
   issues: write
   pull-requests: write
   discussions: write
-# Load-bearing: serializes runs per source repo so two deliveries of the same
-# event cannot both miss the comment marker (§7). Do not delete.
+# Load-bearing: two lanes per source repo (contract v2.0, §4.3 / §16). Event runs
+# serialize among themselves so two deliveries of the same event cannot both miss
+# the comment marker (§7). The sweep has its own lane so a burst of Stars can
+# never cancel the pending sweep (GitHub keeps one running + one pending run per
+# group and cancels the rest). Do not delete, do not merge the lanes.
 concurrency:
-  group: supporter-loop-${{ github.repository }}
+  group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && format('supporter-loop-sweep-{0}', github.repository) || format('supporter-loop-{0}', github.repository) }}
   cancel-in-progress: false
 jobs:
   loop:
