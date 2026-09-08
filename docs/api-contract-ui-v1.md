@@ -92,6 +92,8 @@ When `projection=public`, `meta` is unchanged and `edition` is restricted to exa
 - `contentMd` only when `includeContent=1`
 - `items` only when `includeItems=1`; each item contains only `section`, `position`, `title`, `titleJa`, `url`, `trustLabel`
 
+The anonymous BFF (`/api/bff/newsletter-editions/latest`, public mode) additionally rebuilds `meta` as exactly the four keys `dateBasis`, `timeZoneForDateParam`, `requestedDate`, and `requestedSlug`; each value is a string or `null` (`null` when upstream omits it), so an extended or missing upstream `meta` cannot change the anonymous response shape.
+
 The public projection never includes `id`, `slug`, `model`, `summary`, `generatedAt`, `createdAt`, `updatedAt`, `voiceSignalCount`, or item fields `pipelineItemId`, `platform`, `sourceRef`.
 
 ### Markdown response headers
