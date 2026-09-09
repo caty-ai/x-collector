@@ -11,6 +11,7 @@ import {
 } from "@/lib/bff/upstream";
 import {
   projectPublicEdition,
+  projectPublicMeta,
   type PublicEditionJson,
 } from "@/lib/pipeline/edition-public";
 import { isAcceptablePublicDate } from "@/lib/reader/edition-nav";
@@ -127,8 +128,9 @@ export async function GET(req: NextRequest) {
         if (!parsed?.edition || parsed.edition.status !== "published") {
           return publicNotFound();
         }
+        // Rebuild the anonymous body as exactly { meta: <four pinned keys>, edition: <projection> }.
         payload = JSON.stringify({
-          meta: parsed.meta,
+          meta: projectPublicMeta(parsed.meta),
           edition: projectPublicEdition(parsed.edition),
         });
       }

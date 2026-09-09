@@ -1,3 +1,10 @@
+export const PUBLIC_META_FIELDS = [
+  "dateBasis",
+  "timeZoneForDateParam",
+  "requestedDate",
+  "requestedSlug",
+] as const;
+
 export const PUBLIC_EDITION_FIELDS = [
   "editionDate",
   "title",
@@ -8,6 +15,13 @@ export const PUBLIC_EDITION_FIELDS = [
   "contentMd",
   "items",
 ] as const;
+
+export type PublicMetaJson = {
+  dateBasis: string | null;
+  timeZoneForDateParam: string | null;
+  requestedDate: string | null;
+  requestedSlug: string | null;
+};
 
 export const PUBLIC_ITEM_FIELDS = [
   "section",
@@ -89,6 +103,21 @@ export type EditionLookup =
       primary: EditionLookupQuery;
       fallback: EditionLookupQuery | null;
     };
+
+export function projectPublicMeta(meta: unknown): PublicMetaJson {
+  const source =
+    typeof meta === "object" && meta !== null && !Array.isArray(meta)
+      ? (meta as Record<string, unknown>)
+      : null;
+
+  return {
+    dateBasis: typeof source?.dateBasis === "string" ? source.dateBasis : null,
+    timeZoneForDateParam:
+      typeof source?.timeZoneForDateParam === "string" ? source.timeZoneForDateParam : null,
+    requestedDate: typeof source?.requestedDate === "string" ? source.requestedDate : null,
+    requestedSlug: typeof source?.requestedSlug === "string" ? source.requestedSlug : null,
+  };
+}
 
 export function parseEditionStatusParam(
   raw: string | null,

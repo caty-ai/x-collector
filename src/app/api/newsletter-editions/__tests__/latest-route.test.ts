@@ -224,6 +224,51 @@ describe("newsletter latest upstream route", () => {
     });
   });
 
+  it("locks the exact legacy JSON bytes without projection", async () => {
+    const expectedLegacyBody = {
+      meta: {
+        dateBasis: "latest",
+        timeZoneForDateParam: "Asia/Tokyo",
+        requestedDate: null,
+        requestedSlug: null,
+      },
+      edition: {
+        id: "edition-1",
+        editionDate: "2026-09-07",
+        title: "Daily News",
+        slug: "daily-news-20260908",
+        status: "published",
+        summary: null,
+        model: "model",
+        generatedAt: "2026-09-08T00:00:00.000Z",
+        publishedAt: "2026-09-08T01:00:00.000Z",
+        createdAt: "2026-09-08T00:00:00.000Z",
+        updatedAt: "2026-09-08T01:00:00.000Z",
+        bindingsCount: 1,
+        voiceSignalCount: 2,
+        contentChars: 11,
+        contentMd: "# Published",
+        items: [
+          {
+            pipelineItemId: "pipeline-1",
+            section: "Top stories",
+            position: 1,
+            title: "Title",
+            titleJa: "タイトル",
+            url: "https://example.com/article",
+            platform: "twitter",
+            sourceRef: "@example",
+            trustLabel: "high",
+          },
+        ],
+      },
+    };
+    const response = await GET(req("?includeItems=1&includeContent=1"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(JSON.stringify(expectedLegacyBody));
+  });
+
   it("preserves legacy markdown response headers without projection", async () => {
     const response = await GET(req("?format=markdown"));
 

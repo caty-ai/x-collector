@@ -3,15 +3,24 @@ import { describe, expect, it } from "vitest";
 import {
   PUBLIC_EDITION_FIELDS,
   PUBLIC_ITEM_FIELDS,
+  PUBLIC_META_FIELDS,
   buildEditionLookup,
   parseEditionProjectionParam,
   parseEditionStatusParam,
   projectPublicEdition,
   projectPublicItem,
+  projectPublicMeta,
   publicMarkdownHeaders,
   type FullEditionJson,
   type FullItemJson,
 } from "../edition-public";
+
+const nullMeta = {
+  dateBasis: null,
+  timeZoneForDateParam: null,
+  requestedDate: null,
+  requestedSlug: null,
+};
 
 const item: FullItemJson = {
   pipelineItemId: "pipeline-1",
@@ -145,4 +154,46 @@ describe("public edition projection", () => {
     expect(headers).not.toHaveProperty("x-edition-id");
     expect(headers).not.toHaveProperty("x-edition-slug");
   });
+});
+
+describe("public meta projection", () => {
+  it("keeps a conforming meta object with exactly the pinned keys", () => {
+    const meta = {
+      dateBasis: "jst-date",
+      timeZoneForDateParam: "Asia/Tokyo",
+      requestedDate: "2026-09-08",
+      requestedSlug: "daily-news-20260908",
+    };
+
+    const projected = projectPublicMeta(meta);
+
+    expect(projected.requestedSlug).toBe("daily-news-20260908");
+    expect(projected).toEqual(meta);
+    expect(Object.keys(projected)).toEqual([...PUBLIC_META_FIELDS]);
+  });
+
+  it("drops extra keys and fills missing or non-string values with null", () => {
+    const projected = projectPublicMeta({
+      dateBasis: "latest",
+      timeZoneForDateParam: "Asia/Tokyo",
+      requestedDate: 42,
+      debugQuery: "x",
+    });
+
+    expect(projected).toEqual({
+      dateBasis: "latest",
+      timeZoneForDateParam: "Asia/Tokyo",
+      requestedDate: null,
+      requestedSlug: null,
+    });
+    expect(projected).not.toHaveProperty("debugQuery");
+  });
+
+  it.each([undefined, null, "string", [], 42, true])(
+    "returns all-null meta for non-object input %#",
+    (input) => {
+      expect(projectPublicMeta(input)).toEqual(nullMeta);
+      expect(Object.keys(projectPublicMeta(input))).toEqual([...PUBLIC_META_FIELDS]);
+    },
+  );
 });

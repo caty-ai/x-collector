@@ -27,6 +27,7 @@ import { __resetPublicThrottleForTests } from "@/lib/bff/public-throttle";
 import {
   PUBLIC_EDITION_FIELDS,
   PUBLIC_ITEM_FIELDS,
+  PUBLIC_META_FIELDS,
 } from "@/lib/pipeline/edition-public";
 
 function req(path: string, headers?: HeadersInit): NextRequest {
@@ -181,6 +182,107 @@ describe("newsletter reader BFF", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(projected);
+  });
+
+  it("locks the exact anonymous JSON bytes", async () => {
+    configurePublic();
+    const expectedAnonymousBody = {
+      meta: {
+        dateBasis: "jst-date",
+        timeZoneForDateParam: "Asia/Tokyo",
+        requestedDate: "2026-08-01",
+        requestedSlug: null,
+      },
+      edition: {
+        editionDate: "2026-08-01",
+        title: "Published",
+        status: "published",
+        publishedAt: "2026-08-01T00:00:00.000Z",
+        bindingsCount: 1,
+        contentChars: 12,
+      },
+    };
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify(expectedAnonymousBody), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const response = await getNewsletter(req("/api/bff/newsletter-editions/latest?format=json"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(JSON.stringify(expectedAnonymousBody));
+  });
+
+  it("pins anonymous meta to the four documented keys", async () => {
+    configurePublic();
+    mocks.fetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          meta: {
+            dateBasis: "jst-date",
+            timeZoneForDateParam: "Asia/Tokyo",
+            requestedDate: "2026-08-01",
+            requestedSlug: "daily-news-20260801",
+            debugQuery: "x",
+            debugNested: { query: "legacy" },
+          },
+          edition: {
+            editionDate: "2026-08-01",
+            title: "Published",
+            status: "published",
+            publishedAt: "2026-08-01T00:00:00.000Z",
+            bindingsCount: 1,
+            contentChars: 12,
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const response = await getNewsletter(req("/api/bff/newsletter-editions/latest?format=json"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.meta).toEqual({
+      dateBasis: "jst-date",
+      timeZoneForDateParam: "Asia/Tokyo",
+      requestedDate: "2026-08-01",
+      requestedSlug: "daily-news-20260801",
+    });
+    expect(Object.keys(body.meta)).toEqual([...PUBLIC_META_FIELDS]);
+    expect(body.meta).not.toHaveProperty("debugQuery");
+  });
+
+  it("fills missing anonymous meta with the four pinned null keys", async () => {
+    configurePublic();
+    mocks.fetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          edition: {
+            editionDate: "2026-08-01",
+            title: "Published",
+            status: "published",
+            publishedAt: "2026-08-01T00:00:00.000Z",
+            bindingsCount: 1,
+            contentChars: 12,
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const response = await getNewsletter(req("/api/bff/newsletter-editions/latest?format=json"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(body)).toEqual(["meta", "edition"]);
+    expect(body.meta).toEqual({
+      dateBasis: null,
+      timeZoneForDateParam: null,
+      requestedDate: null,
+      requestedSlug: null,
+    });
   });
 
   it("re-projects a full legacy anonymous JSON payload", async () => {
