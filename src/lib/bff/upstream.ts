@@ -1,5 +1,6 @@
 const FEED_UPSTREAM_PATH = "/api/feed";
 const NEWSLETTER_LATEST_UPSTREAM_PATH = "/api/newsletter-editions/latest";
+const NEWSLETTER_MONTH_UPSTREAM_PATH = "/api/newsletter-editions/month";
 
 export function resolveRailwayApiBaseUrl(): URL | null {
   const raw = process.env.RAILWAY_API_BASE_URL;
@@ -51,6 +52,11 @@ export type NewsletterLatestPublicParams = {
   includeItems?: "0" | "1";
 };
 
+export type NewsletterMonthParams = {
+  month: string;
+  status?: "published";
+};
+
 export function buildNewsletterLatestPublicUpstreamUrl(
   baseUrl: URL,
   params: NewsletterLatestPublicParams,
@@ -62,5 +68,15 @@ export function buildNewsletterLatestPublicUpstreamUrl(
   if (params.includeItems) upstreamUrl.searchParams.set("includeItems", params.includeItems);
   upstreamUrl.searchParams.set("status", "published");
   upstreamUrl.searchParams.set("projection", "public");
+  return upstreamUrl;
+}
+
+export function buildNewsletterMonthUpstreamUrl(
+  baseUrl: URL,
+  params: NewsletterMonthParams,
+): URL {
+  const upstreamUrl = new URL(NEWSLETTER_MONTH_UPSTREAM_PATH, baseUrl);
+  upstreamUrl.searchParams.set("month", params.month);
+  if (params.status) upstreamUrl.searchParams.set("status", params.status);
   return upstreamUrl;
 }

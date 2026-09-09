@@ -1,3 +1,5 @@
+import { isAcceptablePublicDate } from "@/lib/reader/edition-nav";
+
 export const PUBLIC_META_FIELDS = [
   "dateBasis",
   "timeZoneForDateParam",
@@ -76,6 +78,20 @@ export type PublicEditionJson = Pick<
   items?: PublicItemJson[];
 };
 
+export type PublicMonthDayJson = {
+  date: string;
+  bindingsCount: number;
+};
+
+export type PublicMonthSummaryJson = {
+  meta: {
+    month: string;
+    timeZoneForDateParam: "Asia/Tokyo";
+    status: "published";
+  };
+  days: PublicMonthDayJson[];
+};
+
 type DateRange = { start: Date; end: Date };
 type EditionOrderBy = Array<
   { editionDate: "desc"; updatedAt?: never } | { updatedAt: "desc"; editionDate?: never }
@@ -135,6 +151,65 @@ export function parseEditionProjectionParam(
     return { ok: true, projection: raw };
   }
   return { ok: false };
+}
+
+export function parseMonthParam(
+  raw: string | null,
+): { month: string; start: Date; end: Date } | null {
+  const match = raw?.match(/^(\d{4})-(0[1-9]|1[0-2])$/);
+  if (!match || !raw) return null;
+
+  const year = Number(match[1]);
+  const monthNumber = Number(match[2]);
+  const nextYear = monthNumber === 12 ? year + 1 : year;
+  const nextMonthNumber = monthNumber === 12 ? 1 : monthNumber + 1;
+  const nextMonth = String(nextMonthNumber).padStart(2, "0");
+  const start = new Date(`${raw}-01T00:00:00.000+09:00`);
+  const nextMonthStart = new Date(`${nextYear}-${nextMonth}-01T00:00:00.000+09:00`);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(nextMonthStart.getTime())) return null;
+  return { month: raw, start, end: new Date(nextMonthStart.getTime() - 1) };
+}
+
+export function projectPublicMonthSummary(
+  input: unknown,
+  requestedMonth: string,
+  now = new Date(),
+): PublicMonthSummaryJson | null {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return null;
+  const source = input as Record<string, unknown>;
+  if (typeof source.meta !== "object" || source.meta === null || Array.isArray(source.meta)) {
+    return null;
+  }
+  const meta = source.meta as Record<string, unknown>;
+  if (meta.month !== requestedMonth || !Array.isArray(source.days)) return null;
+
+  const days: PublicMonthDayJson[] = [];
+  for (const entry of source.days) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+    const day = entry as Record<string, unknown>;
+    if (
+      day.status !== "published" ||
+      typeof day.date !== "string" ||
+      !day.date.startsWith(`${requestedMonth}-`) ||
+      !isAcceptablePublicDate(day.date, now) ||
+      typeof day.bindingsCount !== "number" ||
+      !Number.isInteger(day.bindingsCount) ||
+      day.bindingsCount < 0
+    ) {
+      continue;
+    }
+    days.push({ date: day.date, bindingsCount: day.bindingsCount });
+  }
+
+  return {
+    meta: {
+      month: requestedMonth,
+      timeZoneForDateParam: "Asia/Tokyo",
+      status: "published",
+    },
+    days,
+  };
 }
 
 export function buildEditionLookup(input: {

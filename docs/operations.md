@@ -269,7 +269,8 @@ railway variables --service x-collector-cron | rg '^DATABASE_URL='
 - public JSON projection の edition field は `editionDate`、`title`、`status`、`publishedAt`、`bindingsCount`、`contentChars`、`contentMd`（`includeContent=1` のときのみ）、`items`（`includeItems=1` のときのみ）である。`items[]` は `section`、`position`、`title`、`titleJa`、`url`、`trustLabel` だけを返す。
 - 公開モードでは session / shared-cookie 利用者を含む全 caller の og-image request に edition membership guard を適用する。guard は有効な `?date=`、同一 origin Referer の有効な `?date=`、latest edition の URL 集合の union だけを許可する。運用 script は明示的に `?date=` を渡せる。
 - reader panel は og-image request 自体へ `date=<appliedDate>` を渡す。同一 origin Referer の日付は純粋な fallback としてだけ使用する。
-- newsletter BFF は IP ごと 240 requests/60秒、og-image BFF は 120 requests/60秒、記事ページは 240 requests/60秒の in-memory throttle を匿名 public request にだけ適用する。これは proxy が付ける X-Forwarded-For に依存する abuse friction であり、認可 control ではない。month-summary endpoint と deployment-level rate limit は follow-up とする。
+- newsletter BFF は IP ごと 240 requests/60秒、newsletter-month BFF は独立して 60 requests/60秒、og-image BFF は 120 requests/60秒、記事ページは 240 requests/60秒の in-memory throttle を匿名 public request にだけ適用する。これは proxy が付ける X-Forwarded-For に依存する abuse friction であり、認可 control ではない。deployment-level rate limit は follow-up とする。
+- `/api/newsletter-editions/month` は Railway upstream を先に、その後 web を deploy する。web が先になった期間は coded 404 を合図に calendar が一時的に既存の per-day request へ fallback する。
 - 絶対 `og:url` の出力には `NEWSPAPER_SITE_URL` または `NEXTAUTH_URL` が必要。credentials 付き URL や非 http(s) URL は採用しない。
 - 読み取りはリクエスト時。再起動で反映（ビルド時に env を焼き込むホストでは再デプロイ）。
 

@@ -1,7 +1,9 @@
 # X Collector UI API Contract v1
 
-Last updated: 2026-03-12
+Last updated: 2026-09-09
 Version: `v1` (frozen for the six UI milestones below; clarification patch on 2026-03-12)
+
+§1b は凍結済み v1 surface への追加拡張である（既存 endpoint の contract は変えない）。
 
 ## 0. Auth Policy (fixed)
 
@@ -134,6 +136,38 @@ The public projection never includes `id`, `slug`, `model`, `summary`, `generate
   }
 }
 ```
+
+## 1b. `GET /api/newsletter-editions/month`
+
+「month summary」はこの `/month` route が返す月単位の疎な索引を指す概念名である。
+
+### Query and bounds
+
+- `month=YYYY-MM`（必須）。JST の月初 `00:00:00.000+09:00` から翌月月初の 1 ms 前までを検索する。
+- `status=published`（任意。指定できる値は `published` だけ）。
+
+`days[].date` は保存 instant の **JST calendar date** であり、calendar cell と `latest?date=` に渡す JST label に一致する。これは `latest` の `edition.editionDate` が使う UTC slice とは意図的に異なる。通常の production storage（UTC midnight）では一致するが、JST midnight（前日 `15:00Z`）を保存した row でも calendar 上の正しい日を返すためである。
+
+### Response (`200`)
+
+```json
+{
+  "meta": {
+    "month": "2026-09",
+    "timeZoneForDateParam": "Asia/Tokyo",
+    "status": "published"
+  },
+  "days": [
+    { "date": "2026-09-01", "status": "published", "bindingsCount": 12 }
+  ]
+}
+```
+
+`days` は edition が存在する日だけを含む昇順の sparse array で、`bindingsCount` は article binding の件数である。空の月も `200` と `days: []` を返し、upstream month route 自体は 404 を返さない。エラーは無効な `month` / `status` が 400、認証失敗が 401 である。
+
+匿名 public BFF `/api/bff/newsletter-editions/month` は query を `month` だけに制限し、`2020-01` から JST today+1 を含む月までを許可する。upstream へは `status=published` を固定し、IP ごとの独立した `newsletter-month` scope で 60 requests/60 秒に制限する。匿名 response は `meta` を正確に `month`, `timeZoneForDateParam`, `status`、各 `days[]` を正確に `date`, `bindingsCount` に再構築する。公開可能な `published` day だけを残し、JST の今日+1 より後の日はすべて除外する。raw upstream `days` が 31 件を超える、JSON/schema が不正、または通常の upstream 4xx/5xx の場合は 502 に正規化する（429 だけは `Retry-After: 60` 付き 429）。匿名の固定 non-2xx body は 404 が `{"error":"Month summary not found","code":"UPSTREAM_ROUTE_MISSING"}`、429 が `{"error":"Too many requests"}`、その他が `{"error":"Upstream error"}` である。
+
+coded 404 は empty month ではなく「upstream route missing」を全 auth mode で表し、deploy 順の一時的な互換措置として calendar が既存の per-day request へ fallback する唯一の条件である。plain 404 は fallback しない。月 endpoint が成功した場合、response にない日（JST の今日+1 より後の日を含む）は `known:true, hasData:false` として dim 表示され、エラー banner は出さない。たとえば JST 09-30 に 10 月へ移動した場合、印が付きうるのは 10-01 だけである。fallback 中は従来の per-day behavior を維持するため、この差は一時的である。月全体または一部の日付の取得失敗に表示する「一部の日付の取得に失敗しました（…）」という wording は continuity のため意図的に維持する。
 
 ---
 

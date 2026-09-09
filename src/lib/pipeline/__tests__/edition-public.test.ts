@@ -7,9 +7,11 @@ import {
   buildEditionLookup,
   parseEditionProjectionParam,
   parseEditionStatusParam,
+  parseMonthParam,
   projectPublicEdition,
   projectPublicItem,
   projectPublicMeta,
+  projectPublicMonthSummary,
   publicMarkdownHeaders,
   type FullEditionJson,
   type FullItemJson,
@@ -68,6 +70,66 @@ describe("edition public query parameters", () => {
     for (const value of ["", "private", "PUBLIC"]) {
       expect(parseEditionProjectionParam(value)).toEqual({ ok: false });
     }
+  });
+});
+
+describe("month query and public projection", () => {
+  it.each([
+    ["2026-09", "2026-08-31T15:00:00.000Z", "2026-09-30T14:59:59.999Z"],
+    ["2026-12", "2026-11-30T15:00:00.000Z", "2026-12-31T14:59:59.999Z"],
+    ["2028-02", "2028-01-31T15:00:00.000Z", "2028-02-29T14:59:59.999Z"],
+  ])("parses %s into exact JST month bounds", (month, start, end) => {
+    const parsed = parseMonthParam(month);
+
+    expect(parsed?.month).toBe(month);
+    expect(parsed?.start.toISOString()).toBe(start);
+    expect(parsed?.end.toISOString()).toBe(end);
+  });
+
+  it.each([null, "", "2026-00", "2026-13", "26-09", "2026-9", "2026-09-01"])(
+    "rejects invalid month input %#",
+    (month) => expect(parseMonthParam(month)).toBeNull(),
+  );
+
+  it("projects exactly published, valid, in-window days for the requested month", () => {
+    const projected = projectPublicMonthSummary(
+      {
+        meta: { month: "2026-09", timeZoneForDateParam: "UTC", internal: true },
+        days: [
+          { date: "2026-09-08", status: "published", bindingsCount: 2, internal: true },
+          { date: "2026-09-09", status: "draft", bindingsCount: 3 },
+          { date: "2026-08-31", status: "published", bindingsCount: 4 },
+          { date: "2026-09-31", status: "published", bindingsCount: 5 },
+          { date: "2026-09-10", status: "published", bindingsCount: 1.5 },
+          { date: "2026-09-11", status: "published", bindingsCount: -1 },
+          { date: "2026-09-15", status: "published", bindingsCount: 6 },
+        ],
+        internal: true,
+      },
+      "2026-09",
+      new Date("2026-09-08T15:00:00.000Z"),
+    );
+
+    expect(projected).toEqual({
+      meta: {
+        month: "2026-09",
+        timeZoneForDateParam: "Asia/Tokyo",
+        status: "published",
+      },
+      days: [{ date: "2026-09-08", bindingsCount: 2 }],
+    });
+    expect(Object.keys(projected?.meta ?? {})).toEqual([
+      "month",
+      "timeZoneForDateParam",
+      "status",
+    ]);
+    expect(Object.keys(projected?.days[0] ?? {})).toEqual(["date", "bindingsCount"]);
+  });
+
+  it("rejects a mismatched or malformed upstream month body", () => {
+    expect(projectPublicMonthSummary({ meta: { month: "2026-08" }, days: [] }, "2026-09"))
+      .toBeNull();
+    expect(projectPublicMonthSummary({ meta: { month: "2026-09" } }, "2026-09")).toBeNull();
   });
 });
 

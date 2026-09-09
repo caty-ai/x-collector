@@ -25,13 +25,21 @@ import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Headline } from "@/components/ui/Headline";
 import { Rule } from "@/components/ui/Rule";
 import { fetchJsonOrError, HttpError } from "@/lib/bff/fetch-json-or-error";
+import { ErrorResponseSchema } from "@/lib/contracts/feed";
 import {
   NewsletterEdition,
   NewsletterEditionItem,
   NewsletterLatestResponseSchema,
+  NewsletterMonthSummaryResponseSchema,
 } from "@/lib/contracts/newsletter";
 import { formatUtcToJstDate } from "@/lib/date-formatter";
 import { buildOgImageBffPath } from "@/lib/reader/edition-nav";
+import {
+  buildErrorMessage,
+  createMonthIndicatorLoader,
+  type DayIndicator,
+  MonthEndpointMissingError,
+} from "@/lib/reader/month-indicators";
 
 type ViewerState = {
   loading: boolean;
@@ -44,12 +52,6 @@ type ViewerState = {
 type NewsletterViewerPanelProps = {
   masthead: string;
   projectsShelf?: { enabled: boolean; title: string };
-};
-
-type DayIndicator = {
-  known: boolean;
-  hasData: boolean;
-  bindingsCount: number;
 };
 
 type CalendarCell = {
@@ -141,30 +143,6 @@ function formatDateLabel(date: string): string {
   return `${match[1]}年${match[2]}月${match[3]}日`;
 }
 
-function buildErrorMessage(error: unknown): string {
-  if (error instanceof HttpError) {
-    if (error.status === 401) {
-      return "認証エラー — 再ログインしてください";
-    }
-
-    if (error.status >= 500) {
-      return "データの取得に失敗しました。しばらく待ってから再試行してください";
-    }
-
-    if (error.status === 400) {
-      return `日付を確認してください: ${error.message}`;
-    }
-
-    return `${error.status}: ${error.message}`;
-  }
-
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return "不明なエラーが発生しました";
-}
-
 async function fetchNewsletterMarkdown(date: string): Promise<string> {
   const params = new URLSearchParams({
     date,
@@ -215,6 +193,41 @@ async function fetchDayIndicator(date: string): Promise<DayIndicator> {
     hasData: bindingsCount > 0,
     bindingsCount,
   };
+}
+
+async function fetchMonthSummary(month: string) {
+  const response = await fetch(
+    `/api/bff/newsletter-editions/month?${new URLSearchParams({ month }).toString()}`,
+    {
+      cache: "no-store",
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  const payload: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const parsedError = ErrorResponseSchema.safeParse(payload);
+    const message = parsedError.success ? parsedError.data.error : `HTTP ${response.status}`;
+    const code =
+      typeof payload === "object" && payload !== null && !Array.isArray(payload)
+        ? (payload as { code?: unknown }).code
+        : undefined;
+    if (response.status === 404 && code === "UPSTREAM_ROUTE_MISSING") {
+      throw new MonthEndpointMissingError(message);
+    }
+    throw new HttpError(message, response.status);
+  }
+
+  const parsed = NewsletterMonthSummaryResponseSchema.safeParse(payload);
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    const issue = first
+      ? `${first.path.length > 0 ? first.path.join(".") : "root"}: ${first.message}`
+      : "unknown schema issue";
+    throw new Error(`Invalid response schema: ${issue}`);
+  }
+
+  return parsed.data;
 }
 
 function statusLabel(status: string): string {
@@ -319,8 +332,16 @@ function NewsletterViewerPanelContent({ masthead, projectsShelf }: NewsletterVie
   const [origin, setOrigin] = useState("");
   const [locationHash, setLocationHash] = useState("");
 
-  const monthIndicatorCache = useRef<Record<string, Record<string, DayIndicator>>>({});
-  const indicatorRequestSeq = useRef(0);
+  const monthIndicatorLoaderRef = useRef<ReturnType<typeof createMonthIndicatorLoader> | null>(null);
+  if (!monthIndicatorLoaderRef.current) {
+    monthIndicatorLoaderRef.current = createMonthIndicatorLoader({
+      fetchMonth: fetchMonthSummary,
+      fetchDay: fetchDayIndicator,
+      isEndpointMissing: (error) => error instanceof MonthEndpointMissingError,
+      listDates: listMonthDates,
+    });
+  }
+  const monthIndicatorLoader = monthIndicatorLoaderRef.current;
   const editionRequestSeq = useRef(0);
   const ogImageRequestKeys = useRef<Set<string>>(new Set());
   const ogImageEpochRef = useRef(0);
@@ -400,53 +421,24 @@ function NewsletterViewerPanelContent({ masthead, projectsShelf }: NewsletterVie
 
   const loadMonthIndicators = useCallback(async (monthDate: Date) => {
     const key = monthKey(monthDate);
-    const cached = monthIndicatorCache.current[key];
+    const cached = monthIndicatorLoader.peek(key);
     if (cached) {
       setDayIndicators(cached);
       setIndicatorError(null);
       setIndicatorLoading(false);
+      void monthIndicatorLoader.load(key, monthDate);
       return;
     }
 
-    const requestId = ++indicatorRequestSeq.current;
     setIndicatorLoading(true);
     setIndicatorError(null);
+    const result = await monthIndicatorLoader.load(key, monthDate);
+    if (!result) return;
 
-    const dates = listMonthDates(monthDate);
-    let firstNon404Error: string | null = null;
-
-    const entries = await Promise.all(
-      dates.map(async (date) => {
-        try {
-          const indicator = await fetchDayIndicator(date);
-          return [date, indicator] as const;
-        } catch (error) {
-          if (error instanceof HttpError && error.status === 404) {
-            return [date, { known: true, hasData: false, bindingsCount: 0 }] as const;
-          }
-
-          if (!firstNon404Error) {
-            firstNon404Error = buildErrorMessage(error);
-          }
-
-          return [date, { known: false, hasData: false, bindingsCount: 0 }] as const;
-        }
-      }),
-    );
-
-    if (indicatorRequestSeq.current !== requestId) {
-      return;
-    }
-
-    const indicatorMap = Object.fromEntries(entries);
-    monthIndicatorCache.current[key] = indicatorMap;
-
-    setDayIndicators(indicatorMap);
+    setDayIndicators(result.indicators);
+    setIndicatorError(result.error);
     setIndicatorLoading(false);
-    if (firstNon404Error) {
-      setIndicatorError(`一部の日付の取得に失敗しました（${firstNon404Error}）`);
-    }
-  }, []);
+  }, [monthIndicatorLoader]);
 
   const handleArticleOpen = useCallback(
     (sectionIdx: number, articleIdx: number, source: string, body: string) => {
