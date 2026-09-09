@@ -100,8 +100,10 @@ describe("month query and public projection", () => {
           { date: "2026-09-09", status: "draft", bindingsCount: 3 },
           { date: "2026-08-31", status: "published", bindingsCount: 4 },
           { date: "2026-09-31", status: "published", bindingsCount: 5 },
-          { date: "2026-09-10", status: "published", bindingsCount: 1.5 },
-          { date: "2026-09-11", status: "published", bindingsCount: -1 },
+          { date: "2026-09-06", status: "published", bindingsCount: 1.5 },
+          { date: "2026-09-07", status: "published", bindingsCount: -1 },
+          { date: "2026-09-10", status: "published", bindingsCount: 7 },
+          { date: "2026-09-11", status: "published", bindingsCount: 8 },
           { date: "2026-09-15", status: "published", bindingsCount: 6 },
         ],
         internal: true,
@@ -116,7 +118,10 @@ describe("month query and public projection", () => {
         timeZoneForDateParam: "Asia/Tokyo",
         status: "published",
       },
-      days: [{ date: "2026-09-08", bindingsCount: 2 }],
+      days: [
+        { date: "2026-09-08", bindingsCount: 2 },
+        { date: "2026-09-10", bindingsCount: 7 },
+      ],
     });
     expect(Object.keys(projected?.meta ?? {})).toEqual([
       "month",
@@ -124,6 +129,28 @@ describe("month query and public projection", () => {
       "status",
     ]);
     expect(Object.keys(projected?.days[0] ?? {})).toEqual(["date", "bindingsCount"]);
+  });
+
+  it("sorts projected days and keeps the first valid row for duplicate dates", () => {
+    const projected = projectPublicMonthSummary(
+      {
+        meta: { month: "2026-09" },
+        days: [
+          { date: "2026-09-03", status: "published", bindingsCount: 3 },
+          { date: "2026-09-01", status: "published", bindingsCount: 1 },
+          { date: "2026-09-01", status: "published", bindingsCount: 99 },
+          { date: "2026-09-02", status: "published", bindingsCount: 2 },
+        ],
+      },
+      "2026-09",
+      new Date("2026-09-30T00:00:00.000Z"),
+    );
+
+    expect(projected?.days).toEqual([
+      { date: "2026-09-01", bindingsCount: 1 },
+      { date: "2026-09-02", bindingsCount: 2 },
+      { date: "2026-09-03", bindingsCount: 3 },
+    ]);
   });
 
   it("rejects a mismatched or malformed upstream month body", () => {

@@ -160,6 +160,32 @@ describe("newsletter month indicator coordinator", () => {
     expect(fetchDay).not.toHaveBeenCalled();
   });
 
+  it("retries a month request after a non-endpoint error", async () => {
+    const fetchMonth = vi
+      .fn()
+      .mockRejectedValueOnce(new HttpError("boom", 502))
+      .mockResolvedValueOnce({ days: [{ date: "2026-09-02", bindingsCount: 3 }] });
+    const loader = createLoader({ fetchMonth });
+    const september = new Date(Date.UTC(2026, 8, 1));
+
+    const failed = await loader.load("2026-09", september);
+
+    expect(failed?.error).toBe(
+      "一部の日付の取得に失敗しました（データの取得に失敗しました。しばらく待ってから再試行してください）",
+    );
+    expect(loader.peek("2026-09")).toBeNull();
+
+    const retried = await loader.load("2026-09", september);
+
+    expect(fetchMonth).toHaveBeenCalledTimes(2);
+    expect(retried?.error).toBeNull();
+    expect(retried?.indicators["2026-09-02"]).toEqual({
+      known: true,
+      hasData: true,
+      bindingsCount: 3,
+    });
+  });
+
   it("exposes cached indicators through peek only after loading", async () => {
     const loader = createLoader({
       fetchMonth: async () => ({ days: [{ date: "2026-09-02", bindingsCount: 1 }] }),
@@ -211,6 +237,49 @@ describe("newsletter month indicator coordinator", () => {
     expect(await septemberLoad).toBeNull();
     expect(loader.peek("2026-09")).toBeNull();
     expect(loader.peek("2026-10")?.["2026-10-01"].hasData).toBe(true);
+  });
+
+  it("drops an overlapping load that rejects after the newer month resolves", async () => {
+    const septemberRequest = deferred<{ days: Array<{ date: string; bindingsCount: number }> }>();
+    const octoberRequest = deferred<{ days: Array<{ date: string; bindingsCount: number }> }>();
+    const loader = createLoader({
+      fetchMonth: (key) =>
+        key === "2026-09" ? septemberRequest.promise : octoberRequest.promise,
+    });
+
+    const septemberLoad = loader.load("2026-09", new Date(Date.UTC(2026, 8, 1)));
+    const octoberLoad = loader.load("2026-10", new Date(Date.UTC(2026, 9, 1)));
+    octoberRequest.resolve({ days: [{ date: "2026-10-01", bindingsCount: 1 }] });
+    expect(await octoberLoad).not.toBeNull();
+    septemberRequest.reject(new HttpError("boom", 500));
+
+    expect(await septemberLoad).toBeNull();
+    expect(loader.peek("2026-09")).toBeNull();
+    expect(loader.peek("2026-10")?.["2026-10-01"].hasData).toBe(true);
+  });
+
+  it("drops an overlapping fallback that resolves after the newer month", async () => {
+    const fallbackDay = deferred<{ known: boolean; hasData: boolean; bindingsCount: number }>();
+    const fetchDay = vi.fn(() => fallbackDay.promise);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const loader = createLoader({
+      fetchMonth: async (key) => {
+        if (key === "2026-09") throw new MonthEndpointMissingError();
+        return { days: [{ date: "2026-10-01", bindingsCount: 1 }] };
+      },
+      fetchDay,
+    });
+
+    const septemberLoad = loader.load("2026-09", new Date(Date.UTC(2026, 8, 1)));
+    await vi.waitFor(() => expect(fetchDay).toHaveBeenCalledTimes(30));
+    const octoberResult = await loader.load("2026-10", new Date(Date.UTC(2026, 9, 1)));
+    expect(octoberResult?.indicators["2026-10-01"].hasData).toBe(true);
+    fallbackDay.resolve({ known: true, hasData: false, bindingsCount: 0 });
+
+    expect(await septemberLoad).toBeNull();
+    expect(loader.peek("2026-09")).toBeNull();
+    expect(loader.peek("2026-10")?.["2026-10-01"].hasData).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it("keeps days after JST today+1 known and unmarked when absent", async () => {

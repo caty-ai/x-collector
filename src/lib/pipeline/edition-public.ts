@@ -184,7 +184,7 @@ export function projectPublicMonthSummary(
   const meta = source.meta as Record<string, unknown>;
   if (meta.month !== requestedMonth || !Array.isArray(source.days)) return null;
 
-  const days: PublicMonthDayJson[] = [];
+  const bindingsByDate = new Map<string, number>();
   for (const entry of source.days) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
     const day = entry as Record<string, unknown>;
@@ -199,8 +199,14 @@ export function projectPublicMonthSummary(
     ) {
       continue;
     }
-    days.push({ date: day.date, bindingsCount: day.bindingsCount });
+    if (!bindingsByDate.has(day.date)) {
+      bindingsByDate.set(day.date, day.bindingsCount);
+    }
   }
+
+  const days = [...bindingsByDate.entries()]
+    .sort(([leftDate], [rightDate]) => leftDate.localeCompare(rightDate))
+    .map(([date, bindingsCount]) => ({ date, bindingsCount }));
 
   return {
     meta: {

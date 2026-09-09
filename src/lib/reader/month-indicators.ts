@@ -115,7 +115,6 @@ export function createMonthIndicatorLoader(input: {
             error: `一部の日付の取得に失敗しました（${buildErrorMessage(error)}）`,
             source: "month",
           };
-          cache.set(monthKey, result);
           return result;
         }
 
