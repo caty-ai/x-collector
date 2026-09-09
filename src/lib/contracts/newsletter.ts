@@ -47,6 +47,22 @@ export const NewsletterLatestResponseSchema = z.object({
   edition: NewsletterEditionSchema,
 });
 
+export const NewsletterMonthDaySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  status: z.string().optional(),
+  bindingsCount: z.number().int().nonnegative(),
+});
+
+export const NewsletterMonthSummaryResponseSchema = z.object({
+  meta: z.object({
+    month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    timeZoneForDateParam: z.literal("Asia/Tokyo"),
+    status: z.literal("published").nullable(),
+  }),
+  days: z.array(NewsletterMonthDaySchema),
+});
+
 export type NewsletterLatestResponse = z.infer<typeof NewsletterLatestResponseSchema>;
+export type NewsletterMonthSummaryResponse = z.infer<typeof NewsletterMonthSummaryResponseSchema>;
 export type NewsletterEdition = z.infer<typeof NewsletterEditionSchema>;
 export type NewsletterEditionItem = z.infer<typeof NewsletterEditionItemSchema>;

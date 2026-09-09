@@ -65,3 +65,8 @@ export function isAcceptablePublicDate(date: string, now = new Date()): boolean 
   if (!isRoundTripIsoDate(date) || date < "2020-01-01") return false;
   return date <= shiftIsoDate(todayJstIsoDate(now), 1);
 }
+
+export function isAcceptablePublicMonth(month: string, now = new Date()): boolean {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month < "2020-01") return false;
+  return month <= shiftIsoDate(todayJstIsoDate(now), 1).slice(0, 7);
+}

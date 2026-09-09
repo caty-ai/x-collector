@@ -5,6 +5,7 @@ import {
   buildOgImageBffPath,
   formatEditionDateLabel,
   isAcceptablePublicDate,
+  isAcceptablePublicMonth,
   resolveEditionDate,
   shiftIsoDate,
   todayJstIsoDate,
@@ -64,5 +65,21 @@ describe("edition date helpers", () => {
     expect(isAcceptablePublicDate("2026-08-04", afterJstMidnight)).toBe(false);
     expect(isAcceptablePublicDate("2019-12-31", afterJstMidnight)).toBe(false);
     expect(isAcceptablePublicDate("2026-02-31", afterJstMidnight)).toBe(false);
+  });
+
+  it("bounds anonymous months from 2020 through the month containing tomorrow JST", () => {
+    expect(isAcceptablePublicMonth("2020-01", afterJstMidnight)).toBe(true);
+    expect(isAcceptablePublicMonth("2026-08", afterJstMidnight)).toBe(true);
+    expect(isAcceptablePublicMonth("2026-09", afterJstMidnight)).toBe(false);
+    expect(isAcceptablePublicMonth("2019-12", afterJstMidnight)).toBe(false);
+    expect(isAcceptablePublicMonth("2026-00", afterJstMidnight)).toBe(false);
+    expect(isAcceptablePublicMonth("2026-13", afterJstMidnight)).toBe(false);
+    expect(isAcceptablePublicMonth("2026-8", afterJstMidnight)).toBe(false);
+  });
+
+  it("allows the next month only when tomorrow JST crosses the month boundary", () => {
+    const september30Jst = new Date("2026-09-30T12:00:00.000Z");
+    expect(isAcceptablePublicMonth("2026-10", september30Jst)).toBe(true);
+    expect(isAcceptablePublicMonth("2026-11", september30Jst)).toBe(false);
   });
 });
