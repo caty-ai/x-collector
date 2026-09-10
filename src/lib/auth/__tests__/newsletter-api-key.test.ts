@@ -2,8 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   denyUnlessNewsletterBearer,
+  resetNewsletterBearerWarningsForTests,
   resolveNewsletterApiKeyFromEnv,
 } from "@/lib/auth/newsletter-api-key";
+
+const logTag = "newsletter-helper-test";
 
 function clearConfiguredBearers() {
   vi.stubEnv("NEWSLETTER_API_KEY", "");
@@ -13,6 +16,7 @@ function clearConfiguredBearers() {
 
 beforeEach(() => {
   clearConfiguredBearers();
+  resetNewsletterBearerWarningsForTests();
 });
 
 afterEach(() => {
@@ -38,7 +42,7 @@ describe("newsletter API key authorization", () => {
     vi.stubEnv("NODE_ENV", "production");
 
     const response = denyUnlessNewsletterBearer(new Request("https://api.example/test"), {
-      logTag: "newsletter-helper-production-test",
+      logTag,
     });
 
     expect(response?.status).toBe(401);
@@ -51,7 +55,7 @@ describe("newsletter API key authorization", () => {
       new Request("https://api.example/test", {
         headers: { Authorization: "Bearer wrong-value" },
       }),
-      { logTag: "newsletter-helper-wrong-test" },
+      { logTag },
     );
 
     expect(response?.status).toBe(401);
@@ -65,7 +69,7 @@ describe("newsletter API key authorization", () => {
   it("rejects a missing Authorization header", async () => {
     vi.stubEnv("NEWSLETTER_API_KEY", "expected-value");
     const response = denyUnlessNewsletterBearer(new Request("https://api.example/test"), {
-      logTag: "newsletter-helper-missing-header-test",
+      logTag,
     });
 
     expect(response?.status).toBe(401);
@@ -80,21 +84,21 @@ describe("newsletter API key authorization", () => {
     const request = new Request("https://api.example/test");
 
     expect(
-      denyUnlessNewsletterBearer(request, { logTag: "newsletter-helper-open-one" }),
+      denyUnlessNewsletterBearer(request, { logTag }),
     ).toBeNull();
     expect(
-      denyUnlessNewsletterBearer(request, { logTag: "newsletter-helper-open-one" }),
+      denyUnlessNewsletterBearer(request, { logTag }),
     ).toBeNull();
     expect(
-      denyUnlessNewsletterBearer(request, { logTag: "newsletter-helper-open-two" }),
+      denyUnlessNewsletterBearer(request, { logTag: "newsletter-helper-other-test" }),
     ).toBeNull();
 
     expect(warn.mock.calls).toEqual([
       [
-        "[newsletter-helper-open-one] API auth disabled outside production; missing env: NEWSLETTER_API_KEY | DIGEST_API_KEY | FEED_API_KEY",
+        "[newsletter-helper-test] API auth disabled outside production; missing env: NEWSLETTER_API_KEY | DIGEST_API_KEY | FEED_API_KEY",
       ],
       [
-        "[newsletter-helper-open-two] API auth disabled outside production; missing env: NEWSLETTER_API_KEY | DIGEST_API_KEY | FEED_API_KEY",
+        "[newsletter-helper-other-test] API auth disabled outside production; missing env: NEWSLETTER_API_KEY | DIGEST_API_KEY | FEED_API_KEY",
       ],
     ]);
   });
@@ -107,7 +111,7 @@ describe("newsletter API key authorization", () => {
         new Request("https://api.example/test", {
           headers: { Authorization: "bEaReR expected-value" },
         }),
-        { logTag: "newsletter-helper-prefix-test" },
+        { logTag },
       ),
     ).toBeNull();
   });

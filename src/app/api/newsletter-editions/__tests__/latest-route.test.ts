@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
+import { resetNewsletterBearerWarningsForTests } from "@/lib/auth/newsletter-api-key";
 import {
   PUBLIC_EDITION_FIELDS,
   PUBLIC_ITEM_FIELDS,
@@ -66,6 +67,7 @@ function req(query = "", authorization = "Bearer test-key"): NextRequest {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetNewsletterBearerWarningsForTests();
   vi.stubEnv("NEWSLETTER_API_KEY", "test-key");
   mocks.editionFindFirst.mockResolvedValue(edition);
   mocks.editionFindUnique.mockResolvedValue(edition);
@@ -100,6 +102,19 @@ describe("newsletter latest upstream route", () => {
     });
     expect(mocks.editionFindFirst).not.toHaveBeenCalled();
     expect(mocks.editionFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("authorizes before parsing an invalid query", async () => {
+    const response = await GET(req("?status=bogus", "Bearer wrong"));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: "Unauthorized. Provide header: Authorization: Bearer <API_KEY>",
+    });
+    expect(mocks.editionFindFirst).not.toHaveBeenCalled();
+    expect(mocks.editionFindUnique).not.toHaveBeenCalled();
+    expect(mocks.bindingFindMany).not.toHaveBeenCalled();
+    expect(mocks.sourceFindMany).not.toHaveBeenCalled();
   });
 
   it("stays open outside production when no key is configured", async () => {

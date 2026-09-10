@@ -4,6 +4,10 @@ import { timingSafeBearerCheck } from "@/lib/auth/bearer";
 
 const warnedMissingBearerTags = new Set<string>();
 
+export function resetNewsletterBearerWarningsForTests(): void {
+  warnedMissingBearerTags.clear();
+}
+
 export function resolveNewsletterApiKeyFromEnv(): string | undefined {
   return (
     process.env.NEWSLETTER_API_KEY?.trim() ||
