@@ -38,7 +38,6 @@ import {
   buildErrorMessage,
   createMonthIndicatorLoader,
   type DayIndicator,
-  MonthEndpointMissingError,
 } from "@/lib/reader/month-indicators";
 
 type ViewerState = {
@@ -174,27 +173,6 @@ async function fetchNewsletterMarkdown(date: string): Promise<string> {
   return response.text();
 }
 
-async function fetchDayIndicator(date: string): Promise<DayIndicator> {
-  const jsonParams = new URLSearchParams({
-    date,
-    includeContent: "0",
-    includeItems: "0",
-  });
-
-  const jsonData = await fetchJsonOrError(
-    `/api/bff/newsletter-editions/latest?${jsonParams.toString()}`,
-    NewsletterLatestResponseSchema,
-    { cache: "no-store" },
-  );
-
-  const bindingsCount = jsonData.edition.bindingsCount;
-  return {
-    known: true,
-    hasData: bindingsCount > 0,
-    bindingsCount,
-  };
-}
-
 async function fetchMonthSummary(month: string) {
   const response = await fetch(
     `/api/bff/newsletter-editions/month?${new URLSearchParams({ month }).toString()}`,
@@ -208,13 +186,6 @@ async function fetchMonthSummary(month: string) {
   if (!response.ok) {
     const parsedError = ErrorResponseSchema.safeParse(payload);
     const message = parsedError.success ? parsedError.data.error : `HTTP ${response.status}`;
-    const code =
-      typeof payload === "object" && payload !== null && !Array.isArray(payload)
-        ? (payload as { code?: unknown }).code
-        : undefined;
-    if (response.status === 404 && code === "UPSTREAM_ROUTE_MISSING") {
-      throw new MonthEndpointMissingError(message);
-    }
     throw new HttpError(message, response.status);
   }
 
@@ -336,8 +307,6 @@ function NewsletterViewerPanelContent({ masthead, projectsShelf }: NewsletterVie
   if (!monthIndicatorLoaderRef.current) {
     monthIndicatorLoaderRef.current = createMonthIndicatorLoader({
       fetchMonth: fetchMonthSummary,
-      fetchDay: fetchDayIndicator,
-      isEndpointMissing: (error) => error instanceof MonthEndpointMissingError,
       listDates: listMonthDates,
     });
   }

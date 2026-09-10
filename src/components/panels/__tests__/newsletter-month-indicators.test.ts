@@ -4,7 +4,6 @@ import { HttpError } from "@/lib/bff/fetch-json-or-error";
 import {
   buildMonthIndicatorMap,
   createMonthIndicatorLoader,
-  MonthEndpointMissingError,
 } from "@/lib/reader/month-indicators";
 
 function deferred<T>() {
@@ -29,14 +28,9 @@ function datesFor(monthDate: Date): string[] {
 
 function createLoader(overrides?: {
   fetchMonth?: (monthKey: string) => Promise<{ days: Array<{ date: string; bindingsCount: number }> }>;
-  fetchDay?: (date: string) => Promise<{ known: boolean; hasData: boolean; bindingsCount: number }>;
 }) {
   return createMonthIndicatorLoader({
     fetchMonth: overrides?.fetchMonth ?? vi.fn(async () => ({ days: [] })),
-    fetchDay:
-      overrides?.fetchDay ??
-      vi.fn(async () => ({ known: true, hasData: false, bindingsCount: 0 })),
-    isEndpointMissing: (error) => error instanceof MonthEndpointMissingError,
     listDates: datesFor,
   });
 }
@@ -46,14 +40,12 @@ describe("newsletter month indicator coordinator", () => {
     const fetchMonth = vi.fn(async (monthKey: string) => ({
       days: [{ date: `${monthKey}-03`, bindingsCount: 2 }],
     }));
-    const fetchDay = vi.fn();
-    const loader = createLoader({ fetchMonth, fetchDay });
+    const loader = createLoader({ fetchMonth });
 
     await loader.load("2026-09", new Date(Date.UTC(2026, 8, 1)));
     await loader.load("2026-10", new Date(Date.UTC(2026, 9, 1)));
 
     expect(fetchMonth).toHaveBeenCalledTimes(2);
-    expect(fetchDay).not.toHaveBeenCalled();
   });
 
   it("maps sparse days and ignores days outside the requested date list", () => {
@@ -75,12 +67,10 @@ describe("newsletter month indicator coordinator", () => {
 
   it("treats an empty month as all known without falling back", async () => {
     const fetchMonth = vi.fn(async () => ({ days: [] }));
-    const fetchDay = vi.fn();
-    const loader = createLoader({ fetchMonth, fetchDay });
+    const loader = createLoader({ fetchMonth });
 
     const result = await loader.load("2026-09", new Date(Date.UTC(2026, 8, 1)));
 
-    expect(result?.source).toBe("month");
     expect(Object.values(result?.indicators ?? {})).toHaveLength(30);
     expect(Object.values(result?.indicators ?? {})).toEqual(
       Array.from({ length: 30 }, () => ({
@@ -89,49 +79,42 @@ describe("newsletter month indicator coordinator", () => {
         bindingsCount: 0,
       })),
     );
-    expect(fetchDay).not.toHaveBeenCalled();
   });
 
-  it("falls back on the coded missing-endpoint error, caches all 31 days, and warns", async () => {
+  it("does not fan out or cache a coded missing-endpoint 404", async () => {
     const fetchMonth = vi.fn(async () => {
-      throw new MonthEndpointMissingError();
+      throw new HttpError("Month summary not found", 404);
     });
-    const fetchDay = vi.fn(async (date: string) => ({
-      known: true,
-      hasData: date.endsWith("-01"),
-      bindingsCount: date.endsWith("-01") ? 1 : 0,
-    }));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const loader = createLoader({ fetchMonth, fetchDay });
+    const loader = createLoader({ fetchMonth });
     const january = new Date(Date.UTC(2026, 0, 1));
 
     const first = await loader.load("2026-01", january);
     const second = await loader.load("2026-01", january);
 
-    expect(first?.source).toBe("fallback-per-day");
-    expect(first?.indicators["2026-01-01"]).toEqual({
-      known: true,
-      hasData: true,
-      bindingsCount: 1,
-    });
-    expect(second).toBe(first);
-    expect(fetchMonth).toHaveBeenCalledTimes(1);
-    expect(fetchDay).toHaveBeenCalledTimes(31);
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(first?.error).toBe(
+      "一部の日付の取得に失敗しました（404: Month summary not found）",
+    );
+    expect(Object.values(first?.indicators ?? {})).toEqual(
+      Array.from({ length: 31 }, () => ({
+        known: false,
+        hasData: false,
+        bindingsCount: 0,
+      })),
+    );
+    expect(second).toEqual(first);
+    expect(fetchMonth).toHaveBeenCalledTimes(2);
+    expect(loader.peek("2026-01")).toBeNull();
   });
 
   it("does not fall back for a plain 404 and returns the exact wrapped error", async () => {
-    const fetchDay = vi.fn();
     const loader = createLoader({
       fetchMonth: async () => {
         throw new HttpError("Not found", 404);
       },
-      fetchDay,
     });
 
     const result = await loader.load("2026-09", new Date(Date.UTC(2026, 8, 1)));
 
-    expect(result?.source).toBe("month");
     expect(result?.error).toBe("一部の日付の取得に失敗しました（404: Not found）");
     expect(Object.values(result?.indicators ?? {})).toEqual(
       Array.from({ length: 30 }, () => ({
@@ -140,16 +123,13 @@ describe("newsletter month indicator coordinator", () => {
         bindingsCount: 0,
       })),
     );
-    expect(fetchDay).not.toHaveBeenCalled();
   });
 
   it("does not fall back for an upstream 500", async () => {
-    const fetchDay = vi.fn();
     const loader = createLoader({
       fetchMonth: async () => {
         throw new HttpError("Upstream error", 500);
       },
-      fetchDay,
     });
 
     const result = await loader.load("2026-09", new Date(Date.UTC(2026, 8, 1)));
@@ -157,7 +137,6 @@ describe("newsletter month indicator coordinator", () => {
     expect(result?.error).toBe(
       "一部の日付の取得に失敗しました（データの取得に失敗しました。しばらく待ってから再試行してください）",
     );
-    expect(fetchDay).not.toHaveBeenCalled();
   });
 
   it("retries a month request after a non-endpoint error", async () => {
@@ -256,30 +235,6 @@ describe("newsletter month indicator coordinator", () => {
     expect(await septemberLoad).toBeNull();
     expect(loader.peek("2026-09")).toBeNull();
     expect(loader.peek("2026-10")?.["2026-10-01"].hasData).toBe(true);
-  });
-
-  it("drops an overlapping fallback that resolves after the newer month", async () => {
-    const fallbackDay = deferred<{ known: boolean; hasData: boolean; bindingsCount: number }>();
-    const fetchDay = vi.fn(() => fallbackDay.promise);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const loader = createLoader({
-      fetchMonth: async (key) => {
-        if (key === "2026-09") throw new MonthEndpointMissingError();
-        return { days: [{ date: "2026-10-01", bindingsCount: 1 }] };
-      },
-      fetchDay,
-    });
-
-    const septemberLoad = loader.load("2026-09", new Date(Date.UTC(2026, 8, 1)));
-    await vi.waitFor(() => expect(fetchDay).toHaveBeenCalledTimes(30));
-    const octoberResult = await loader.load("2026-10", new Date(Date.UTC(2026, 9, 1)));
-    expect(octoberResult?.indicators["2026-10-01"].hasData).toBe(true);
-    fallbackDay.resolve({ known: true, hasData: false, bindingsCount: 0 });
-
-    expect(await septemberLoad).toBeNull();
-    expect(loader.peek("2026-09")).toBeNull();
-    expect(loader.peek("2026-10")?.["2026-10-01"].hasData).toBe(true);
-    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it("keeps days after JST today+1 known and unmarked when absent", async () => {

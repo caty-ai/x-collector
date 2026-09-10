@@ -154,10 +154,14 @@ describe("newsletter month upstream route", () => {
     vi.stubEnv("NEWSLETTER_API_KEY", "");
     vi.stubEnv("DIGEST_API_KEY", "");
     vi.stubEnv("FEED_API_KEY", "");
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     const response = await GET(req("?month=2026-09", ""));
     expect(response.status).toBe(200);
     expect(mocks.editionFindMany).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      "[newsletter-month-api] API auth disabled outside production; missing env: NEWSLETTER_API_KEY | DIGEST_API_KEY | FEED_API_KEY",
+    );
   });
 });

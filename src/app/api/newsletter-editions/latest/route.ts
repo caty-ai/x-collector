@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeBearerCheck } from "@/lib/auth/bearer";
+import { denyUnlessNewsletterBearer } from "@/lib/auth/newsletter-api-key";
 import { editionMarkdownHeaders } from "@/lib/pipeline/edition-markdown-response";
 import {
   buildEditionLookup,
@@ -12,7 +12,6 @@ import {
 } from "@/lib/pipeline/edition-public";
 
 const prisma = new PrismaClient();
-let warnedMissingNewsletterApiKey = false;
 
 const editionCountInclude = {
   _count: {
@@ -39,10 +38,6 @@ const bindingItemInclude = {
 };
 
 const bindingItemOrderBy = [{ section: "asc" as const }, { position: "asc" as const }];
-
-function isProductionRuntime(): boolean {
-  return process.env.NODE_ENV === "production";
-}
 
 function parseDateParam(raw: string): { start: Date; end: Date; basis: "jst-date" } | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
@@ -75,31 +70,7 @@ function exposeTrustLabel(label: string | null | undefined): string | null {
 }
 
 export async function GET(req: NextRequest) {
-  const apiKey =
-    process.env.NEWSLETTER_API_KEY?.trim() ||
-    process.env.DIGEST_API_KEY?.trim() ||
-    process.env.FEED_API_KEY?.trim();
-  let denied: Response | null = null;
-  if (!apiKey) {
-    if (isProductionRuntime()) {
-      denied = NextResponse.json({ error: "api key not configured" }, { status: 401 });
-    } else {
-      if (!warnedMissingNewsletterApiKey) {
-        warnedMissingNewsletterApiKey = true;
-        console.warn(
-          "[newsletter-latest-api] API auth disabled outside production; missing env: NEWSLETTER_API_KEY | DIGEST_API_KEY | FEED_API_KEY",
-        );
-      }
-    }
-  } else {
-    const auth = req.headers.get("authorization");
-    if (!auth || !timingSafeBearerCheck(auth, apiKey)) {
-      denied = NextResponse.json(
-        { error: "Unauthorized. Provide header: Authorization: Bearer <API_KEY>" },
-        { status: 401 },
-      );
-    }
-  }
+  const denied = denyUnlessNewsletterBearer(req, { logTag: "newsletter-latest-api" });
   if (denied) {
     return denied;
   }
