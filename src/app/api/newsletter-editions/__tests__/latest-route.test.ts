@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
+import { resetNewsletterBearerWarningsForTests } from "@/lib/auth/newsletter-api-key";
 import {
   PUBLIC_EDITION_FIELDS,
   PUBLIC_ITEM_FIELDS,
@@ -58,14 +59,15 @@ const binding = {
   classification: { titleJa: "タイトル" },
 };
 
-function req(query = ""): NextRequest {
+function req(query = "", authorization = "Bearer test-key"): NextRequest {
   return new NextRequest(`https://api.example/api/newsletter-editions/latest${query}`, {
-    headers: { Authorization: "Bearer test-key" },
+    headers: authorization ? { Authorization: authorization } : undefined,
   });
 }
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetNewsletterBearerWarningsForTests();
   vi.stubEnv("NEWSLETTER_API_KEY", "test-key");
   mocks.editionFindFirst.mockResolvedValue(edition);
   mocks.editionFindUnique.mockResolvedValue(edition);
@@ -79,6 +81,58 @@ afterEach(() => {
 });
 
 describe("newsletter latest upstream route", () => {
+  it("fails closed in production without a configured key", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEWSLETTER_API_KEY", "");
+    vi.stubEnv("DIGEST_API_KEY", "");
+    vi.stubEnv("FEED_API_KEY", "");
+
+    const response = await GET(req("", ""));
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "api key not configured" });
+    expect(mocks.editionFindFirst).not.toHaveBeenCalled();
+    expect(mocks.editionFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("rejects a wrong Bearer value", async () => {
+    const response = await GET(req("", "Bearer wrong"));
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: "Unauthorized. Provide header: Authorization: Bearer <API_KEY>",
+    });
+    expect(mocks.editionFindFirst).not.toHaveBeenCalled();
+    expect(mocks.editionFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("authorizes before parsing an invalid query", async () => {
+    const response = await GET(req("?status=bogus", "Bearer wrong"));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: "Unauthorized. Provide header: Authorization: Bearer <API_KEY>",
+    });
+    expect(mocks.editionFindFirst).not.toHaveBeenCalled();
+    expect(mocks.editionFindUnique).not.toHaveBeenCalled();
+    expect(mocks.bindingFindMany).not.toHaveBeenCalled();
+    expect(mocks.sourceFindMany).not.toHaveBeenCalled();
+  });
+
+  it("stays open outside production when no key is configured", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("NEWSLETTER_API_KEY", "");
+    vi.stubEnv("DIGEST_API_KEY", "");
+    vi.stubEnv("FEED_API_KEY", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const response = await GET(req("", ""));
+    expect(response.status).toBe(200);
+    expect(mocks.editionFindFirst).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      "[newsletter-latest-api] API auth disabled outside production; missing env: NEWSLETTER_API_KEY | DIGEST_API_KEY | FEED_API_KEY",
+    );
+  });
+
   it("adds published status to an explicit date lookup", async () => {
     const response = await GET(req("?status=published&date=2026-09-08"));
 

@@ -18,15 +18,7 @@ type MonthSummary = {
 export type MonthIndicatorResult = {
   indicators: Record<string, DayIndicator>;
   error: string | null;
-  source: "month" | "fallback-per-day";
 };
-
-export class MonthEndpointMissingError extends HttpError {
-  constructor(message = "Month summary not found") {
-    super(message, 404);
-    this.name = "MonthEndpointMissingError";
-  }
-}
 
 export function buildErrorMessage(error: unknown): string {
   if (error instanceof HttpError) {
@@ -68,8 +60,6 @@ export function buildMonthIndicatorMap(
 
 export function createMonthIndicatorLoader(input: {
   fetchMonth: (monthKey: string) => Promise<MonthSummary>;
-  fetchDay: (date: string) => Promise<DayIndicator>;
-  isEndpointMissing: (error: unknown) => boolean;
   listDates: (monthDate: Date) => string[];
 }): {
   peek: (monthKey: string) => Record<string, DayIndicator> | null;
@@ -97,65 +87,21 @@ export function createMonthIndicatorLoader(input: {
         const result: MonthIndicatorResult = {
           indicators: buildMonthIndicatorMap(dates, summary.days),
           error: null,
-          source: "month",
         };
         cache.set(monthKey, result);
         return result;
       } catch (error) {
-        if (!input.isEndpointMissing(error)) {
-          if (sequence !== requestSequence) return null;
-
-          const result: MonthIndicatorResult = {
-            indicators: Object.fromEntries(
-              dates.map((date) => [
-                date,
-                { known: false, hasData: false, bindingsCount: 0 },
-              ]),
-            ),
-            error: `一部の日付の取得に失敗しました（${buildErrorMessage(error)}）`,
-            source: "month",
-          };
-          return result;
-        }
-
-        console.warn(
-          "[newsletter-month-indicators] month endpoint missing; falling back to per-day requests",
-        );
-        let firstErrorMessage: string | null = null;
-        const entries = await Promise.all(
-          dates.map(async (date) => {
-            try {
-              return [date, await input.fetchDay(date)] as const;
-            } catch (dayError) {
-              if (dayError instanceof HttpError && dayError.status === 404) {
-                return [
-                  date,
-                  { known: true, hasData: false, bindingsCount: 0 },
-                ] as const;
-              }
-
-              if (!firstErrorMessage) {
-                firstErrorMessage = buildErrorMessage(dayError);
-              }
-              return [
-                date,
-                { known: false, hasData: false, bindingsCount: 0 },
-              ] as const;
-            }
-          }),
-        );
-
         if (sequence !== requestSequence) return null;
 
         const result: MonthIndicatorResult = {
-          indicators: Object.fromEntries(entries),
-          error:
-            firstErrorMessage === null
-              ? null
-              : `一部の日付の取得に失敗しました（${firstErrorMessage}）`,
-          source: "fallback-per-day",
+          indicators: Object.fromEntries(
+            dates.map((date) => [
+              date,
+              { known: false, hasData: false, bindingsCount: 0 },
+            ]),
+          ),
+          error: `一部の日付の取得に失敗しました（${buildErrorMessage(error)}）`,
         };
-        cache.set(monthKey, result);
         return result;
       }
     },

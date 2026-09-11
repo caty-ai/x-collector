@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
+import { resetNewsletterBearerWarningsForTests } from "@/lib/auth/newsletter-api-key";
+
 const mocks = vi.hoisted(() => ({
   editionFindMany: vi.fn(),
 }));
@@ -36,6 +38,7 @@ function row(
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetNewsletterBearerWarningsForTests();
   vi.stubEnv("NEWSLETTER_API_KEY", "test-key");
   mocks.editionFindMany.mockResolvedValue([]);
 });
@@ -149,15 +152,29 @@ describe("newsletter month upstream route", () => {
     });
   });
 
+  it("authorizes before parsing an invalid query", async () => {
+    const response = await GET(req("?month=2026-13", "Bearer wrong"));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: "Unauthorized. Provide header: Authorization: Bearer <API_KEY>",
+    });
+    expect(mocks.editionFindMany).not.toHaveBeenCalled();
+  });
+
   it("stays open outside production when no key is configured", async () => {
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("NEWSLETTER_API_KEY", "");
     vi.stubEnv("DIGEST_API_KEY", "");
     vi.stubEnv("FEED_API_KEY", "");
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     const response = await GET(req("?month=2026-09", ""));
     expect(response.status).toBe(200);
     expect(mocks.editionFindMany).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      "[newsletter-month-api] API auth disabled outside production; missing env: NEWSLETTER_API_KEY | DIGEST_API_KEY | FEED_API_KEY",
+    );
   });
 });

@@ -1,45 +1,17 @@
 import { PrismaClient } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
-import { timingSafeBearerCheck } from "@/lib/auth/bearer";
+import { denyUnlessNewsletterBearer } from "@/lib/auth/newsletter-api-key";
 import { parseEditionStatusParam, parseMonthParam } from "@/lib/pipeline/edition-public";
 
 const prisma = new PrismaClient();
-let warnedMissingNewsletterApiKey = false;
-
-function isProductionRuntime(): boolean {
-  return process.env.NODE_ENV === "production";
-}
 
 function jstIsoDate(date: Date): string {
   return new Date(date.getTime() + 9 * 3600_000).toISOString().slice(0, 10);
 }
 
 export async function GET(req: NextRequest) {
-  // Duplicated from latest/route.ts on purpose (additive lane); dedupe in the follow-up Issue that removes the per-day fallback.
-  const apiKey =
-    process.env.NEWSLETTER_API_KEY?.trim() ||
-    process.env.DIGEST_API_KEY?.trim() ||
-    process.env.FEED_API_KEY?.trim();
-  let denied: Response | null = null;
-  if (!apiKey) {
-    if (isProductionRuntime()) {
-      denied = NextResponse.json({ error: "api key not configured" }, { status: 401 });
-    } else if (!warnedMissingNewsletterApiKey) {
-      warnedMissingNewsletterApiKey = true;
-      console.warn(
-        "[newsletter-month-api] API auth disabled outside production; missing env: NEWSLETTER_API_KEY | DIGEST_API_KEY | FEED_API_KEY",
-      );
-    }
-  } else {
-    const auth = req.headers.get("authorization");
-    if (!auth || !timingSafeBearerCheck(auth, apiKey)) {
-      denied = NextResponse.json(
-        { error: "Unauthorized. Provide header: Authorization: Bearer <API_KEY>" },
-        { status: 401 },
-      );
-    }
-  }
+  const denied = denyUnlessNewsletterBearer(req, { logTag: "newsletter-month-api" });
   if (denied) return denied;
 
   const monthRange = parseMonthParam(req.nextUrl.searchParams.get("month"));
