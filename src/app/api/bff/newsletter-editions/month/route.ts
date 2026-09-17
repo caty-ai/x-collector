@@ -21,7 +21,7 @@ function monthEndpointMissing(): Response {
       headers: {
         "content-type": "application/json; charset=utf-8",
         "x-bff-upstream": NEWSLETTER_MONTH_UPSTREAM,
-        "x-bff-month-fallback": "upstream-route-missing",
+        "x-bff-month-upstream": "route-missing",
       },
     },
   );
@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
 
     if (upstreamResponse.status === 404) {
       console.warn(
-        "[bff-newsletter-month] upstream month route missing (404) — calendar falls back to per-day requests",
+        "[bff-newsletter-month] upstream month route missing (404) — coded 404 returned to the reader (operator signal)",
       );
       return monthEndpointMissing();
     }
