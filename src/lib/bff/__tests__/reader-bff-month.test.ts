@@ -185,7 +185,7 @@ describe("newsletter month reader BFF", () => {
     expect(await response.json()).toEqual({ error: "Bad upstream response" });
   });
 
-  it("normalizes upstream 404 with the fallback discriminator in every auth mode", async () => {
+  it("normalizes upstream 404 with the operator-signal header in every auth mode", async () => {
     configurePublic();
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     mocks.fetch.mockImplementation(async () => new Response("missing", { status: 404 }));
@@ -201,7 +201,8 @@ describe("newsletter month reader BFF", () => {
       );
       expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
       expect(response.headers.get("x-bff-upstream")).toBe("/api/newsletter-editions/month");
-      expect(response.headers.get("x-bff-month-fallback")).toBe("upstream-route-missing");
+      expect(response.headers.get("x-bff-month-upstream")).toBe("route-missing");
+      expect(response.headers.has("x-bff-month-fallback")).toBe(false);
     }
     expect(console.warn).toHaveBeenCalledTimes(2);
   });
