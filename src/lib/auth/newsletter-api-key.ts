@@ -1,11 +1,9 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { type NextRequest } from "next/server";
 
-import { timingSafeBearerCheck } from "@/lib/auth/bearer";
-
-const warnedMissingBearerTags = new Set<string>();
+import { denyUnlessBearer, resetBearerGateWarningsForTests } from "@/lib/auth/bearer-gate";
 
 export function resetNewsletterBearerWarningsForTests(): void {
-  warnedMissingBearerTags.clear();
+  resetBearerGateWarningsForTests();
 }
 
 export function resolveNewsletterApiKeyFromEnv(): string | undefined {
@@ -21,29 +19,10 @@ export function denyUnlessNewsletterBearer(
   req: NextRequest | Request,
   options: { logTag: string },
 ): Response | null {
-  const configuredBearer = resolveNewsletterApiKeyFromEnv();
-
-  if (!configuredBearer) {
-    if (process.env.NODE_ENV === "production") {
-      return NextResponse.json({ error: "api key not configured" }, { status: 401 });
-    }
-
-    if (!warnedMissingBearerTags.has(options.logTag)) {
-      warnedMissingBearerTags.add(options.logTag);
-      console.warn(
-        `[${options.logTag}] API auth disabled outside production; missing env: NEWSLETTER_API_KEY | DIGEST_API_KEY | FEED_API_KEY`,
-      );
-    }
-    return null;
-  }
-
-  const authorization = req.headers.get("authorization");
-  if (!authorization || !timingSafeBearerCheck(authorization, configuredBearer)) {
-    return NextResponse.json(
-      { error: "Unauthorized. Provide header: Authorization: Bearer <API_KEY>" },
-      { status: 401 },
-    );
-  }
-
-  return null;
+  return denyUnlessBearer(req, {
+    logTag: options.logTag,
+    resolveConfiguredBearer: resolveNewsletterApiKeyFromEnv,
+    missingEnvHint: "NEWSLETTER_API_KEY | DIGEST_API_KEY | FEED_API_KEY",
+    unauthorizedBody: { error: "Unauthorized. Provide header: Authorization: Bearer <API_KEY>" },
+  });
 }
