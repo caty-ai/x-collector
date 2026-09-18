@@ -1,9 +1,15 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeBearerCheck } from "@/lib/auth/bearer";
+import { denyUnlessBearer, type BearerGateSpec } from "@/lib/auth/bearer-gate";
 
 const prisma = new PrismaClient();
-let warnedMissingFamilyFeedApiKey = false;
+
+const FAMILY_FEED_BEARER_GATE: BearerGateSpec = {
+  logTag: "family-feed-api",
+  resolveConfiguredBearer: () => process.env.FAMILY_FEED_API_KEY?.trim() || undefined,
+  missingEnvHint: "FAMILY_FEED_API_KEY",
+  unauthorizedBody: { error: "Unauthorized. Provide header: Authorization: Bearer <FAMILY_FEED_API_KEY>" },
+};
 
 // Rows committed concurrently in the same ms as a page boundary would otherwise be skipped
 // forever by the strict gt cursor.
@@ -35,10 +41,6 @@ type RawItem = {
 
 type FamilyFeedItem = Omit<RawItem, "_headlineScore" | "_priorityScore">;
 type BodyPreviewRow = { id: string; bodyPreview: string | null };
-
-function isProductionRuntime(): boolean {
-  return process.env.NODE_ENV === "production";
-}
 
 function isValidCalendarDate(year: number, month: number, day: number): boolean {
   if (month < 1 || month > 12 || day < 1) return false;
@@ -179,28 +181,7 @@ function selectOldestPrefix(items: RawItem[], limit: number): RawItem[] {
 }
 
 export async function GET(req: NextRequest) {
-  const apiKey = process.env.FAMILY_FEED_API_KEY?.trim();
-  let denied: Response | null = null;
-  if (!apiKey) {
-    if (isProductionRuntime()) {
-      denied = NextResponse.json({ error: "api key not configured" }, { status: 401 });
-    } else {
-      if (!warnedMissingFamilyFeedApiKey) {
-        warnedMissingFamilyFeedApiKey = true;
-        console.warn(
-          "[family-feed-api] API auth disabled outside production; missing env: FAMILY_FEED_API_KEY",
-        );
-      }
-    }
-  } else {
-    const auth = req.headers.get("authorization");
-    if (!auth || !timingSafeBearerCheck(auth, apiKey)) {
-      denied = NextResponse.json(
-        { error: "Unauthorized. Provide header: Authorization: Bearer <FAMILY_FEED_API_KEY>" },
-        { status: 401 },
-      );
-    }
-  }
+  const denied = denyUnlessBearer(req, FAMILY_FEED_BEARER_GATE);
   if (denied) {
     return denied;
   }

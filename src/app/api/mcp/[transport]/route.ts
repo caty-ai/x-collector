@@ -1,8 +1,7 @@
 import { createMcpHandler } from "mcp-handler";
-import { NextResponse } from "next/server";
 
 import { PRODUCT_SLUG } from "@/lib/branding";
-import { timingSafeBearerCheck } from "@/lib/auth/bearer";
+import { denyUnlessBearer, type BearerGateSpec } from "@/lib/auth/bearer-gate";
 import { registerMcpTools } from "@/lib/mcp/tools";
 
 const handler = createMcpHandler(
@@ -10,36 +9,18 @@ const handler = createMcpHandler(
   { serverInfo: { name: PRODUCT_SLUG, version: "1.0.0" } },
   { basePath: "/api/mcp" },
 );
-let warnedMissingMcpApiKey = false;
-
-function isProductionRuntime(): boolean {
-  return process.env.NODE_ENV === "production";
-}
+const MCP_BEARER_GATE: BearerGateSpec = {
+  logTag: "mcp-api",
+  resolveConfiguredBearer: () =>
+    process.env.MCP_API_KEY?.trim() || process.env.FAMILY_FEED_API_KEY?.trim() || undefined,
+  missingEnvHint: "MCP_API_KEY | FAMILY_FEED_API_KEY",
+  unauthorizedBody: { error: "Unauthorized. Provide a Bearer token." },
+  unauthorizedHeaders: { "WWW-Authenticate": "Bearer" },
+  requireBearerScheme: true,
+};
 
 async function authenticatedHandler(request: Request): Promise<Response> {
-  const apiKey = process.env.MCP_API_KEY?.trim() || process.env.FAMILY_FEED_API_KEY?.trim();
-  let denied: Response | null = null;
-  if (!apiKey) {
-    if (isProductionRuntime()) {
-      denied = NextResponse.json({ error: "api key not configured" }, { status: 401 });
-    } else {
-      if (!warnedMissingMcpApiKey) {
-        warnedMissingMcpApiKey = true;
-        console.warn(
-          "[mcp-api] API auth disabled outside production; missing env: MCP_API_KEY | FAMILY_FEED_API_KEY",
-        );
-      }
-    }
-  } else {
-    const auth = request.headers.get("authorization");
-    const match = /^Bearer\s+(.+)$/i.exec(auth || "");
-    if (!match || !timingSafeBearerCheck(auth, apiKey)) {
-      denied = NextResponse.json(
-        { error: "Unauthorized. Provide a Bearer token." },
-        { status: 401, headers: { "WWW-Authenticate": "Bearer" } },
-      );
-    }
-  }
+  const denied = denyUnlessBearer(request, MCP_BEARER_GATE);
   if (denied) {
     return denied;
   }

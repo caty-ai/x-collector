@@ -1,46 +1,14 @@
 import { PrismaClient } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeBearerCheck } from "@/lib/auth/bearer";
+import { denyUnlessBearer, type BearerGateSpec } from "@/lib/auth/bearer-gate";
 
 const prisma = new PrismaClient();
-let warnedMissingFeedApiKey = false;
-
-function isProductionRuntime(): boolean {
-  return process.env.NODE_ENV === "production";
-}
-
-function authenticate(req: NextRequest): Response | null {
-  const apiKey = process.env.FEED_API_KEY?.trim();
-
-  if (!apiKey) {
-    if (isProductionRuntime()) {
-      return NextResponse.json({ error: "api key not configured" }, { status: 401 });
-    }
-
-    if (!warnedMissingFeedApiKey) {
-      warnedMissingFeedApiKey = true;
-      console.warn("[feed-api] API auth disabled outside production; missing env: FEED_API_KEY");
-    }
-    return null;
-  }
-
-  const auth = req.headers.get("authorization");
-  if (!auth) {
-    return NextResponse.json(
-      { error: "Unauthorized. Provide header: Authorization: Bearer <FEED_API_KEY>" },
-      { status: 401 },
-    );
-  }
-
-  if (timingSafeBearerCheck(auth, apiKey)) {
-    return null;
-  }
-
-  return NextResponse.json(
-    { error: "Unauthorized. Provide header: Authorization: Bearer <FEED_API_KEY>" },
-    { status: 401 },
-  );
-}
+const FEED_BEARER_GATE: BearerGateSpec = {
+  logTag: "feed-api",
+  resolveConfiguredBearer: () => process.env.FEED_API_KEY?.trim() || undefined,
+  missingEnvHint: "FEED_API_KEY",
+  unauthorizedBody: { error: "Unauthorized. Provide header: Authorization: Bearer <FEED_API_KEY>" },
+};
 
 // ── Types ───────────────────────────────────────────────
 interface FeedItem {
@@ -286,7 +254,7 @@ const FETCHERS: Record<Platform, (from: Date, to: Date) => Promise<FeedItem[]>> 
 
 // ── Main Handler ────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  const denied = authenticate(req);
+  const denied = denyUnlessBearer(req, FEED_BEARER_GATE);
   if (denied) {
     return denied;
   }
